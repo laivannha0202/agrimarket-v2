@@ -1,0 +1,19 @@
+{
+  "name": "agrimarket",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@12.9.1",
+  "scripts": {
+    "dev:api": "pnpm --filter @agrimarket/api dev",
+    "start:api": "pnpm --filter @agrimarket/api start",
+    "build": "pnpm --filter @agrimarket/api build",
+    "lint": "pnpm --filter @agrimarket/api lint",
+    "typecheck": "pnpm --filter @agrimarket/api typecheck",
+    "test": "pnpm --filter @agrimarket/api test",
+    "test:e2e": "pnpm --filter @agrimarket/api test:e2e",
+    "db:generate": "pnpm --filter @agrimarket/api db:generate",
+    "db:migrate": "pnpm --filter @agrimarket/api db:migrate",
+    "db:deploy": "pnpm --filter @agrimarket/api db:deploy",
+    "db:seed": "pnpm --filter @agrimarket/api db:seed"
+  }
+}

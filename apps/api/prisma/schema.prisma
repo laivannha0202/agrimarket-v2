@@ -1,0 +1,1169 @@
+// AgriMarket V2 — Prisma schema (clean slate)
+// Database: MySQL 8.4, utf8mb4. Business identifiers are human-readable codes
+// (PARTNER-0001, ORD-20261007-0001, ...); internal ids are autoincrement ints.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  CUSTOMER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum SeasonStatus {
+  PLANNED
+  GROWING
+  HARVESTING
+  COMPLETED
+  CANCELLED
+}
+
+enum FarmingEventType {
+  WATERING
+  FERTILIZING
+  PEST_CHECK
+  CARE
+  OTHER
+}
+
+enum CertificateVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum ProductLotStatus {
+  PENDING_QC
+  QUARANTINED
+  SELLABLE
+  REJECTED
+  RECALLED
+  EXPIRED
+  LOCKED
+}
+
+enum QcResult {
+  PASS
+  FAIL
+}
+
+enum TraceEventType {
+  HARVEST
+  QC
+  PACKING
+  WAREHOUSE_IN
+  WAREHOUSE_OUT
+  SHIPPING
+  DELIVERED
+  RETURNED
+}
+
+enum WarehouseDocumentType {
+  INBOUND
+  OUTBOUND
+  ADJUSTMENT
+  RETURN
+}
+
+enum WarehouseDocumentStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum InventoryMovementType {
+  INBOUND
+  OUTBOUND
+  ADJUSTMENT
+  RESERVE
+  RELEASE
+  RETURN
+}
+
+enum OrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  PREPARING
+  READY_TO_SHIP
+  SHIPPING
+  DELIVERED
+  CANCELLED
+}
+
+enum PartnerOrderStatus {
+  PENDING_CONFIRMATION
+  CONFIRMED
+  PREPARING
+  READY_TO_SHIP
+  SHIPPING
+  DELIVERED
+  CANCELLED
+}
+
+enum FulfillmentStatus {
+  PENDING
+  PACKING
+  PACKED
+  CANCELLED
+}
+
+enum ShipmentStatus {
+  PENDING
+  READY
+  IN_TRANSIT
+  OUT_FOR_DELIVERY
+  DELIVERED
+  DELIVERY_FAILED
+  RETURNING
+  RETURNED
+}
+
+enum PaymentMethod {
+  COD
+  VNPAY
+  MOCK_ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  PARTIALLY_REFUNDED
+  REFUNDED
+  FAILED
+}
+
+enum RefundStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  HIDDEN
+}
+
+enum ComplaintType {
+  PRODUCT_QUALITY
+  DELIVERY
+  WRONG_ITEM
+  OTHER
+}
+
+enum ComplaintStatus {
+  OPEN
+  PROCESSING
+  RESOLVED
+  REJECTED
+}
+
+enum ReturnRequestStatus {
+  REQUESTED
+  APPROVED
+  RETURNING
+  RECEIVED
+  QC_PENDING
+  REFUNDED
+  REJECTED
+}
+
+enum SettlementStatus {
+  DRAFT
+  CONFIRMED
+  PAID
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// A. Users
+// ---------------------------------------------------------------------------
+
+model User {
+  id           Int        @id @default(autoincrement())
+  email        String     @unique
+  passwordHash String     @map("password_hash")
+  fullName     String     @map("full_name")
+  phone        String?
+  role         UserRole   @default(CUSTOMER)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  customerProfile    CustomerProfile?
+  cart               Cart?
+  orders             Order[]
+  reviews            Review[]
+  complaints         Complaint[]
+  returnRequests     ReturnRequest[]
+  voucherRedemptions VoucherRedemption[]
+  qcInspections      QcInspection[]      @relation("QcInspector")
+  warehouseDocuments WarehouseDocument[] @relation("WarehouseDocCreator")
+  inventoryMovements InventoryMovement[] @relation("MovementCreator")
+  auditLogs          AuditLog[]
+
+  @@map("users")
+}
+
+model CustomerProfile {
+  id            Int       @id @default(autoincrement())
+  userId        Int       @unique @map("user_id")
+  loyaltyPoints Int       @default(0) @map("loyalty_points")
+  dateOfBirth   DateTime? @map("date_of_birth")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  user      User      @relation(fields: [userId], references: [id])
+  addresses Address[]
+
+  @@map("customer_profiles")
+}
+
+model Address {
+  id            Int      @id @default(autoincrement())
+  customerId    Int      @map("customer_id")
+  recipientName String   @map("recipient_name")
+  phone         String
+  province      String
+  district      String?
+  ward          String?
+  village       String?
+  detail        String
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+  @@map("addresses")
+}
+
+// ---------------------------------------------------------------------------
+// B. Partner & Farm
+// ---------------------------------------------------------------------------
+
+model Partner {
+  id                 Int          @id @default(autoincrement())
+  code               String       @unique
+  name               String
+  representativeName String       @map("representative_name")
+  phone              String
+  email              String
+  address            String
+  taxCode            String?      @map("tax_code")
+  bankAccountName    String?      @map("bank_account_name")
+  bankAccountNumber  String?      @map("bank_account_number")
+  bankName           String?      @map("bank_name")
+  status             RecordStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now()) @map("created_at")
+  updatedAt          DateTime     @updatedAt @map("updated_at")
+
+  farms           Farm[]
+  products        Product[]
+  partnerOrders   PartnerOrder[]
+  commissionRules CommissionRule[]
+  settlements     Settlement[]
+  payouts         Payout[]
+
+  @@index([name])
+  @@index([phone])
+  @@map("partners")
+}
+
+model Farm {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique
+  partnerId   Int          @map("partner_id")
+  name        String
+  address     String
+  latitude    Decimal?     @db.Decimal(10, 7)
+  longitude   Decimal?     @db.Decimal(10, 7)
+  areaHa      Decimal?     @map("area_ha") @db.Decimal(10, 2)
+  description String?      @db.Text
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  partner      Partner       @relation(fields: [partnerId], references: [id])
+  seasons      Season[]
+  certificates Certificate[]
+  products     Product[]
+
+  @@index([partnerId])
+  @@index([name])
+  @@map("farms")
+}
+
+// ---------------------------------------------------------------------------
+// C. Season / Farming log / Harvest
+// ---------------------------------------------------------------------------
+
+model Season {
+  id                  Int          @id @default(autoincrement())
+  farmId              Int          @map("farm_id")
+  cropName            String       @map("crop_name")
+  variety             String?
+  plantingDate        DateTime?    @map("planting_date")
+  expectedHarvestDate DateTime?    @map("expected_harvest_date")
+  expectedYield       Decimal?     @map("expected_yield") @db.Decimal(18, 3)
+  yieldUnit           String?      @map("yield_unit")
+  status              SeasonStatus @default(PLANNED)
+  createdAt           DateTime     @default(now()) @map("created_at")
+  updatedAt           DateTime     @updatedAt @map("updated_at")
+
+  farm          Farm           @relation(fields: [farmId], references: [id])
+  farmingEvents FarmingEvent[]
+  harvests      Harvest[]
+
+  @@index([farmId])
+  @@map("seasons")
+}
+
+model FarmingEvent {
+  id         Int              @id @default(autoincrement())
+  seasonId   Int              @map("season_id")
+  type       FarmingEventType
+  occurredAt DateTime         @map("occurred_at")
+  content    String           @db.Text
+  isPublic   Boolean          @default(true) @map("is_public")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  season Season @relation(fields: [seasonId], references: [id])
+
+  @@index([seasonId])
+  @@map("farming_events")
+}
+
+model Harvest {
+  id          Int      @id @default(autoincrement())
+  seasonId    Int      @map("season_id")
+  harvestDate DateTime @map("harvest_date")
+  quantity    Decimal  @db.Decimal(18, 3)
+  unit        String
+  grade       String
+  note        String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  season      Season       @relation(fields: [seasonId], references: [id])
+  productLots ProductLot[]
+
+  @@index([seasonId])
+  @@map("harvests")
+}
+
+// ---------------------------------------------------------------------------
+// D. Certificate
+// ---------------------------------------------------------------------------
+
+model Certificate {
+  id                 Int                           @id @default(autoincrement())
+  farmId             Int                           @map("farm_id")
+  type               String
+  certificateCode    String                        @map("certificate_code")
+  issuer             String
+  issuedAt           DateTime                      @map("issued_at")
+  expiresAt          DateTime                      @map("expires_at")
+  fileUrl            String?                       @map("file_url")
+  verificationStatus CertificateVerificationStatus @default(PENDING) @map("verification_status")
+  verifiedAt         DateTime?                     @map("verified_at")
+  rejectionReason    String?                       @map("rejection_reason") @db.Text
+  status             RecordStatus                  @default(ACTIVE)
+  createdAt          DateTime                      @default(now()) @map("created_at")
+  updatedAt          DateTime                      @updatedAt @map("updated_at")
+
+  farm Farm @relation(fields: [farmId], references: [id])
+
+  @@index([farmId])
+  @@map("certificates")
+}
+
+// ---------------------------------------------------------------------------
+// E. Catalog
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        Int          @id @default(autoincrement())
+  name      String
+  slug      String       @unique
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  products        Product[]
+  commissionRules CommissionRule[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          Int          @id @default(autoincrement())
+  partnerId   Int          @map("partner_id")
+  categoryId  Int          @map("category_id")
+  farmId      Int?         @map("farm_id")
+  name        String
+  slug        String       @unique
+  description String?      @db.Text
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  partner     Partner          @relation(fields: [partnerId], references: [id])
+  category    Category         @relation(fields: [categoryId], references: [id])
+  farm        Farm?            @relation(fields: [farmId], references: [id])
+  images      ProductImage[]
+  variants    ProductVariant[]
+  productLots ProductLot[]
+  reviews     Review[]
+
+  @@index([partnerId])
+  @@index([categoryId])
+  @@index([name])
+  @@map("products")
+}
+
+model ProductImage {
+  id        Int      @id @default(autoincrement())
+  productId Int      @map("product_id")
+  url       String
+  sortOrder Int      @default(0) @map("sort_order")
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+model ProductVariant {
+  id         Int          @id @default(autoincrement())
+  productId  Int          @map("product_id")
+  sku        String       @unique
+  name       String
+  weight     Decimal?     @db.Decimal(10, 3)
+  weightUnit String?      @map("weight_unit")
+  saleUnit   String       @map("sale_unit")
+  basePrice  Decimal      @map("base_price") @db.Decimal(18, 2)
+  status     RecordStatus @default(ACTIVE)
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  product                Product                 @relation(fields: [productId], references: [id])
+  cartItems              CartItem[]
+  orderItems             OrderItem[]
+  inventoryBalances      InventoryBalance[]
+  warehouseDocumentLines WarehouseDocumentLine[]
+  inventoryMovements     InventoryMovement[]
+  productDiscounts       ProductDiscount[]
+  flashSaleItems         FlashSaleItem[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+// ---------------------------------------------------------------------------
+// F. Product lot
+// ---------------------------------------------------------------------------
+
+model ProductLot {
+  id                Int              @id @default(autoincrement())
+  code              String           @unique
+  productId         Int              @map("product_id")
+  harvestId         Int              @map("harvest_id")
+  quantity          Decimal          @db.Decimal(18, 3)
+  unit              String
+  remainingQuantity Decimal          @map("remaining_quantity") @db.Decimal(18, 3)
+  grade             String
+  packedAt          DateTime?        @map("packed_at")
+  expiresAt         DateTime         @map("expires_at")
+  status            ProductLotStatus @default(PENDING_QC)
+  traceCode         String           @unique @map("trace_code")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  updatedAt         DateTime         @updatedAt @map("updated_at")
+
+  product                Product                 @relation(fields: [productId], references: [id])
+  harvest                Harvest                 @relation(fields: [harvestId], references: [id])
+  qcInspections          QcInspection[]
+  traceEvents            TraceEvent[]
+  inventoryBalances      InventoryBalance[]
+  warehouseDocumentLines WarehouseDocumentLine[]
+  inventoryMovements     InventoryMovement[]
+  inventoryAllocations   InventoryAllocation[]
+
+  @@index([productId])
+  @@index([harvestId])
+  @@index([status])
+  @@map("product_lots")
+}
+
+// ---------------------------------------------------------------------------
+// G. Quality control
+// ---------------------------------------------------------------------------
+
+model QcInspection {
+  id               Int      @id @default(autoincrement())
+  productLotId     Int      @map("product_lot_id")
+  inspectorUserId  Int      @map("inspector_user_id")
+  result           QcResult
+  appearancePassed Boolean  @map("appearance_passed")
+  freshnessPassed  Boolean  @map("freshness_passed")
+  packagingPassed  Boolean? @map("packaging_passed")
+  damagePassed     Boolean  @map("damage_passed")
+  note             String?  @db.Text
+  inspectedAt      DateTime @map("inspected_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  productLot    ProductLot @relation(fields: [productLotId], references: [id])
+  inspectorUser User       @relation("QcInspector", fields: [inspectorUserId], references: [id])
+
+  @@index([productLotId])
+  @@map("qc_inspections")
+}
+
+// ---------------------------------------------------------------------------
+// H. Traceability
+// ---------------------------------------------------------------------------
+
+model TraceEvent {
+  id           Int            @id @default(autoincrement())
+  productLotId Int            @map("product_lot_id")
+  type         TraceEventType
+  occurredAt   DateTime       @map("occurred_at")
+  location     String?
+  description  String?        @db.Text
+  isPublic     Boolean        @default(true) @map("is_public")
+  createdAt    DateTime       @default(now()) @map("created_at")
+
+  productLot ProductLot @relation(fields: [productLotId], references: [id])
+
+  @@index([productLotId])
+  @@map("trace_events")
+}
+
+// ---------------------------------------------------------------------------
+// I. Warehouse & inventory
+// ---------------------------------------------------------------------------
+
+model Warehouse {
+  id        Int          @id @default(autoincrement())
+  code      String       @unique
+  name      String
+  address   String
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  inventoryBalances  InventoryBalance[]
+  warehouseDocuments WarehouseDocument[]
+  inventoryMovements InventoryMovement[]
+
+  @@map("warehouses")
+}
+
+model InventoryBalance {
+  id               Int      @id @default(autoincrement())
+  warehouseId      Int      @map("warehouse_id")
+  productLotId     Int      @map("product_lot_id")
+  productVariantId Int      @map("product_variant_id")
+  onHand           Decimal  @default(0) @map("on_hand") @db.Decimal(18, 3)
+  reserved         Decimal  @default(0) @db.Decimal(18, 3)
+  blocked          Decimal  @default(0) @db.Decimal(18, 3)
+  unit             String
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  warehouse      Warehouse             @relation(fields: [warehouseId], references: [id])
+  productLot     ProductLot            @relation(fields: [productLotId], references: [id])
+  productVariant ProductVariant        @relation(fields: [productVariantId], references: [id])
+  allocations    InventoryAllocation[]
+
+  @@unique([warehouseId, productLotId, productVariantId])
+  @@index([productVariantId])
+  @@map("inventory_balances")
+}
+
+model WarehouseDocument {
+  id              Int                     @id @default(autoincrement())
+  code            String                  @unique
+  warehouseId     Int                     @map("warehouse_id")
+  type            WarehouseDocumentType
+  sourceType      String?                 @map("source_type")
+  sourceId        Int?                    @map("source_id")
+  status          WarehouseDocumentStatus @default(DRAFT)
+  note            String?                 @db.Text
+  createdByUserId Int                     @map("created_by_user_id")
+  completedAt     DateTime?               @map("completed_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  warehouse     Warehouse               @relation(fields: [warehouseId], references: [id])
+  createdByUser User                    @relation("WarehouseDocCreator", fields: [createdByUserId], references: [id])
+  lines         WarehouseDocumentLine[]
+
+  @@index([warehouseId])
+  @@map("warehouse_documents")
+}
+
+model WarehouseDocumentLine {
+  id               Int     @id @default(autoincrement())
+  documentId       Int     @map("document_id")
+  productLotId     Int     @map("product_lot_id")
+  productVariantId Int     @map("product_variant_id")
+  quantity         Decimal @db.Decimal(18, 3)
+  unit             String
+
+  document       WarehouseDocument @relation(fields: [documentId], references: [id])
+  productLot     ProductLot        @relation(fields: [productLotId], references: [id])
+  productVariant ProductVariant    @relation(fields: [productVariantId], references: [id])
+
+  @@index([documentId])
+  @@map("warehouse_document_lines")
+}
+
+model InventoryMovement {
+  id               Int                   @id @default(autoincrement())
+  warehouseId      Int                   @map("warehouse_id")
+  productLotId     Int                   @map("product_lot_id")
+  productVariantId Int                   @map("product_variant_id")
+  type             InventoryMovementType
+  quantityDelta    Decimal               @map("quantity_delta") @db.Decimal(18, 3)
+  beforeQuantity   Decimal               @map("before_quantity") @db.Decimal(18, 3)
+  afterQuantity    Decimal               @map("after_quantity") @db.Decimal(18, 3)
+  referenceType    String?               @map("reference_type")
+  referenceId      Int?                  @map("reference_id")
+  note             String?               @db.Text
+  createdByUserId  Int?                  @map("created_by_user_id")
+  createdAt        DateTime              @default(now()) @map("created_at")
+
+  warehouse      Warehouse      @relation(fields: [warehouseId], references: [id])
+  productLot     ProductLot     @relation(fields: [productLotId], references: [id])
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+  createdByUser  User?          @relation("MovementCreator", fields: [createdByUserId], references: [id])
+
+  @@index([warehouseId])
+  @@index([productLotId])
+  @@map("inventory_movements")
+}
+
+// ---------------------------------------------------------------------------
+// J. Cart
+// ---------------------------------------------------------------------------
+
+model Cart {
+  id         Int      @id @default(autoincrement())
+  customerId Int      @unique @map("customer_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  customer User       @relation(fields: [customerId], references: [id])
+  items    CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id               Int      @id @default(autoincrement())
+  cartId           Int      @map("cart_id")
+  productVariantId Int      @map("product_variant_id")
+  quantity         Decimal  @db.Decimal(18, 3)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  cart           Cart           @relation(fields: [cartId], references: [id])
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@unique([cartId, productVariantId])
+  @@map("cart_items")
+}
+
+// ---------------------------------------------------------------------------
+// K. Order
+// ---------------------------------------------------------------------------
+
+model Order {
+  id                      Int         @id @default(autoincrement())
+  code                    String      @unique
+  customerId              Int         @map("customer_id")
+  shippingAddressSnapshot Json        @map("shipping_address_snapshot")
+  subtotal                Decimal     @db.Decimal(18, 2)
+  discountTotal           Decimal     @default(0) @map("discount_total") @db.Decimal(18, 2)
+  shippingFee             Decimal     @default(0) @map("shipping_fee") @db.Decimal(18, 2)
+  grandTotal              Decimal     @map("grand_total") @db.Decimal(18, 2)
+  status                  OrderStatus @default(PENDING_CONFIRMATION)
+  note                    String?     @db.Text
+  createdAt               DateTime    @default(now()) @map("created_at")
+  updatedAt               DateTime    @updatedAt @map("updated_at")
+
+  customer           User                @relation(fields: [customerId], references: [id])
+  partnerOrders      PartnerOrder[]
+  payments           Payment[]
+  voucherRedemptions VoucherRedemption[]
+  complaints         Complaint[]
+  returnRequests     ReturnRequest[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("orders")
+}
+
+model PartnerOrder {
+  id               Int                @id @default(autoincrement())
+  code             String             @unique
+  orderId          Int                @map("order_id")
+  partnerId        Int                @map("partner_id")
+  subtotal         Decimal            @db.Decimal(18, 2)
+  discountTotal    Decimal            @default(0) @map("discount_total") @db.Decimal(18, 2)
+  commissionAmount Decimal            @default(0) @map("commission_amount") @db.Decimal(18, 2)
+  payableAmount    Decimal            @default(0) @map("payable_amount") @db.Decimal(18, 2)
+  status           PartnerOrderStatus @default(PENDING_CONFIRMATION)
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  order           Order            @relation(fields: [orderId], references: [id])
+  partner         Partner          @relation(fields: [partnerId], references: [id])
+  items           OrderItem[]
+  fulfillments    Fulfillment[]
+  shipments       Shipment[]
+  settlementLines SettlementLine[]
+
+  @@index([orderId])
+  @@index([partnerId])
+  @@map("partner_orders")
+}
+
+model OrderItem {
+  id                  Int      @id @default(autoincrement())
+  partnerOrderId      Int      @map("partner_order_id")
+  productVariantId    Int      @map("product_variant_id")
+  productNameSnapshot String   @map("product_name_snapshot")
+  skuSnapshot         String   @map("sku_snapshot")
+  unitPriceSnapshot   Decimal  @map("unit_price_snapshot") @db.Decimal(18, 2)
+  quantity            Decimal  @db.Decimal(18, 3)
+  subtotal            Decimal  @db.Decimal(18, 2)
+  discountAmount      Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  partnerOrder   PartnerOrder          @relation(fields: [partnerOrderId], references: [id])
+  productVariant ProductVariant        @relation(fields: [productVariantId], references: [id])
+  allocations    InventoryAllocation[]
+  reviews        Review[]
+  returnRequests ReturnRequest[]
+  complaints     Complaint[]
+
+  @@index([partnerOrderId])
+  @@map("order_items")
+}
+
+// ---------------------------------------------------------------------------
+// L. FEFO allocation
+// ---------------------------------------------------------------------------
+
+model InventoryAllocation {
+  id                 Int      @id @default(autoincrement())
+  orderItemId        Int      @map("order_item_id")
+  inventoryBalanceId Int      @map("inventory_balance_id")
+  productLotId       Int      @map("product_lot_id")
+  quantity           Decimal  @db.Decimal(18, 3)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  orderItem        OrderItem        @relation(fields: [orderItemId], references: [id])
+  inventoryBalance InventoryBalance @relation(fields: [inventoryBalanceId], references: [id])
+  productLot       ProductLot       @relation(fields: [productLotId], references: [id])
+
+  @@index([orderItemId])
+  @@map("inventory_allocations")
+}
+
+// ---------------------------------------------------------------------------
+// M. Fulfillment & shipment
+// ---------------------------------------------------------------------------
+
+model Fulfillment {
+  id             Int               @id @default(autoincrement())
+  partnerOrderId Int               @map("partner_order_id")
+  status         FulfillmentStatus @default(PENDING)
+  packedAt       DateTime?         @map("packed_at")
+  note           String?           @db.Text
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  partnerOrder PartnerOrder @relation(fields: [partnerOrderId], references: [id])
+
+  @@index([partnerOrderId])
+  @@map("fulfillments")
+}
+
+model Shipment {
+  id             Int            @id @default(autoincrement())
+  code           String         @unique
+  partnerOrderId Int            @map("partner_order_id")
+  carrier        String?
+  trackingCode   String?        @map("tracking_code")
+  status         ShipmentStatus @default(PENDING)
+  failureReason  String?        @map("failure_reason") @db.Text
+  shippedAt      DateTime?      @map("shipped_at")
+  deliveredAt    DateTime?      @map("delivered_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  partnerOrder PartnerOrder    @relation(fields: [partnerOrderId], references: [id])
+  events       ShipmentEvent[]
+
+  @@index([partnerOrderId])
+  @@map("shipments")
+}
+
+model ShipmentEvent {
+  id         Int            @id @default(autoincrement())
+  shipmentId Int            @map("shipment_id")
+  status     ShipmentStatus
+  occurredAt DateTime       @map("occurred_at")
+  note       String?        @db.Text
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id])
+
+  @@index([shipmentId])
+  @@map("shipment_events")
+}
+
+// ---------------------------------------------------------------------------
+// N. Payment & refund
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id                   Int           @id @default(autoincrement())
+  orderId              Int           @map("order_id")
+  method               PaymentMethod
+  amount               Decimal       @db.Decimal(18, 2)
+  status               PaymentStatus @default(PENDING)
+  transactionReference String?       @map("transaction_reference")
+  paidAt               DateTime?     @map("paid_at")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  order   Order    @relation(fields: [orderId], references: [id])
+  refunds Refund[]
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+model Refund {
+  id          Int          @id @default(autoincrement())
+  paymentId   Int          @map("payment_id")
+  amount      Decimal      @db.Decimal(18, 2)
+  reason      String       @db.Text
+  status      RefundStatus @default(PENDING)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  completedAt DateTime?    @map("completed_at")
+
+  payment        Payment         @relation(fields: [paymentId], references: [id])
+  returnRequests ReturnRequest[]
+
+  @@index([paymentId])
+  @@map("refunds")
+}
+
+// ---------------------------------------------------------------------------
+// O. Promotion (Voucher / ProductDiscount / FlashSale kept separate)
+// ---------------------------------------------------------------------------
+
+model Voucher {
+  id               Int          @id @default(autoincrement())
+  code             String       @unique
+  name             String
+  discountType     DiscountType @map("discount_type")
+  discountValue    Decimal      @map("discount_value") @db.Decimal(18, 2)
+  minOrderAmount   Decimal      @default(0) @map("min_order_amount") @db.Decimal(18, 2)
+  maxDiscount      Decimal?     @map("max_discount") @db.Decimal(18, 2)
+  usageLimit       Int?         @map("usage_limit")
+  perCustomerLimit Int?         @map("per_customer_limit")
+  usedCount        Int          @default(0) @map("used_count")
+  startsAt         DateTime     @map("starts_at")
+  endsAt           DateTime     @map("ends_at")
+  status           RecordStatus @default(ACTIVE)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  redemptions VoucherRedemption[]
+
+  @@map("vouchers")
+}
+
+model VoucherRedemption {
+  id             Int      @id @default(autoincrement())
+  voucherId      Int      @map("voucher_id")
+  customerId     Int      @map("customer_id")
+  orderId        Int      @map("order_id")
+  discountAmount Decimal  @map("discount_amount") @db.Decimal(18, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  voucher  Voucher @relation(fields: [voucherId], references: [id])
+  customer User    @relation(fields: [customerId], references: [id])
+  order    Order   @relation(fields: [orderId], references: [id])
+
+  @@index([voucherId])
+  @@index([customerId])
+  @@map("voucher_redemptions")
+}
+
+model ProductDiscount {
+  id               Int          @id @default(autoincrement())
+  productVariantId Int          @map("product_variant_id")
+  discountType     DiscountType @map("discount_type")
+  discountValue    Decimal      @map("discount_value") @db.Decimal(18, 2)
+  startsAt         DateTime     @map("starts_at")
+  endsAt           DateTime     @map("ends_at")
+  status           RecordStatus @default(ACTIVE)
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@index([productVariantId])
+  @@map("product_discounts")
+}
+
+model FlashSale {
+  id        Int          @id @default(autoincrement())
+  name      String
+  startsAt  DateTime     @map("starts_at")
+  endsAt    DateTime     @map("ends_at")
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  items FlashSaleItem[]
+
+  @@map("flash_sales")
+}
+
+model FlashSaleItem {
+  id               Int      @id @default(autoincrement())
+  flashSaleId      Int      @map("flash_sale_id")
+  productVariantId Int      @map("product_variant_id")
+  flashPrice       Decimal  @map("flash_price") @db.Decimal(18, 2)
+  quota            Int
+  soldQuantity     Int      @default(0) @map("sold_quantity")
+  perCustomerLimit Int      @map("per_customer_limit")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  flashSale      FlashSale      @relation(fields: [flashSaleId], references: [id])
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+
+  @@unique([flashSaleId, productVariantId])
+  @@map("flash_sale_items")
+}
+
+// ---------------------------------------------------------------------------
+// P. Review
+// ---------------------------------------------------------------------------
+
+model Review {
+  id          Int          @id @default(autoincrement())
+  customerId  Int          @map("customer_id")
+  orderItemId Int          @map("order_item_id")
+  productId   Int          @map("product_id")
+  rating      Int
+  content     String?      @db.Text
+  status      ReviewStatus @default(PENDING)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  customer  User      @relation(fields: [customerId], references: [id])
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+  product   Product   @relation(fields: [productId], references: [id])
+
+  @@unique([orderItemId])
+  @@index([productId])
+  @@map("reviews")
+}
+
+// ---------------------------------------------------------------------------
+// Q. Complaint & return
+// ---------------------------------------------------------------------------
+
+model Complaint {
+  id          Int             @id @default(autoincrement())
+  customerId  Int             @map("customer_id")
+  orderId     Int             @map("order_id")
+  orderItemId Int?            @map("order_item_id")
+  type        ComplaintType
+  content     String          @db.Text
+  status      ComplaintStatus @default(OPEN)
+  resolution  String?         @db.Text
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+  resolvedAt  DateTime?       @map("resolved_at")
+
+  customer  User       @relation(fields: [customerId], references: [id])
+  order     Order      @relation(fields: [orderId], references: [id])
+  orderItem OrderItem? @relation(fields: [orderItemId], references: [id])
+
+  @@index([customerId])
+  @@index([orderId])
+  @@map("complaints")
+}
+
+model ReturnRequest {
+  id          Int                 @id @default(autoincrement())
+  orderId     Int                 @map("order_id")
+  orderItemId Int                 @map("order_item_id")
+  customerId  Int                 @map("customer_id")
+  quantity    Decimal             @db.Decimal(18, 3)
+  reason      String              @db.Text
+  status      ReturnRequestStatus @default(REQUESTED)
+  refundId    Int?                @map("refund_id")
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  order     Order     @relation(fields: [orderId], references: [id])
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+  customer  User      @relation(fields: [customerId], references: [id])
+  refund    Refund?   @relation(fields: [refundId], references: [id])
+
+  @@index([orderId])
+  @@map("return_requests")
+}
+
+// ---------------------------------------------------------------------------
+// R. Commission / Settlement / Payout
+// ---------------------------------------------------------------------------
+
+model CommissionRule {
+  id            Int          @id @default(autoincrement())
+  partnerId     Int?         @map("partner_id")
+  categoryId    Int?         @map("category_id")
+  ratePercent   Decimal      @map("rate_percent") @db.Decimal(5, 2)
+  effectiveFrom DateTime     @map("effective_from")
+  effectiveTo   DateTime?    @map("effective_to")
+  status        RecordStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  partner  Partner?  @relation(fields: [partnerId], references: [id])
+  category Category? @relation(fields: [categoryId], references: [id])
+
+  @@index([partnerId])
+  @@index([categoryId])
+  @@map("commission_rules")
+}
+
+model Settlement {
+  id               Int              @id @default(autoincrement())
+  code             String           @unique
+  partnerId        Int              @map("partner_id")
+  periodStart      DateTime         @map("period_start")
+  periodEnd        DateTime         @map("period_end")
+  grossAmount      Decimal          @map("gross_amount") @db.Decimal(18, 2)
+  refundAmount     Decimal          @default(0) @map("refund_amount") @db.Decimal(18, 2)
+  commissionAmount Decimal          @map("commission_amount") @db.Decimal(18, 2)
+  adjustmentAmount Decimal          @default(0) @map("adjustment_amount") @db.Decimal(18, 2)
+  payableAmount    Decimal          @map("payable_amount") @db.Decimal(18, 2)
+  status           SettlementStatus @default(DRAFT)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  confirmedAt      DateTime?        @map("confirmed_at")
+
+  partner Partner          @relation(fields: [partnerId], references: [id])
+  lines   SettlementLine[]
+  payouts Payout[]
+
+  @@index([partnerId])
+  @@map("settlements")
+}
+
+model SettlementLine {
+  id               Int      @id @default(autoincrement())
+  settlementId     Int      @map("settlement_id")
+  partnerOrderId   Int      @map("partner_order_id")
+  grossAmount      Decimal  @map("gross_amount") @db.Decimal(18, 2)
+  refundAmount     Decimal  @default(0) @map("refund_amount") @db.Decimal(18, 2)
+  commissionAmount Decimal  @map("commission_amount") @db.Decimal(18, 2)
+  payableAmount    Decimal  @map("payable_amount") @db.Decimal(18, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  settlement   Settlement   @relation(fields: [settlementId], references: [id])
+  partnerOrder PartnerOrder @relation(fields: [partnerOrderId], references: [id])
+
+  @@index([settlementId])
+  @@map("settlement_lines")
+}
+
+model Payout {
+  id           Int          @id @default(autoincrement())
+  code         String       @unique
+  settlementId Int          @map("settlement_id")
+  partnerId    Int          @map("partner_id")
+  amount       Decimal      @db.Decimal(18, 2)
+  status       PayoutStatus @default(PENDING)
+  reference    String?
+  requestedAt  DateTime     @map("requested_at")
+  paidAt       DateTime?    @map("paid_at")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  settlement Settlement @relation(fields: [settlementId], references: [id])
+  partner    Partner    @relation(fields: [partnerId], references: [id])
+
+  @@index([settlementId])
+  @@index([partnerId])
+  @@map("payouts")
+}
+
+// ---------------------------------------------------------------------------
+// S. Audit log
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  actorUserId Int?     @map("actor_user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id")
+  beforeJson  Json?    @map("before_json")
+  afterJson   Json?    @map("after_json")
+  reason      String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  actorUser User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
