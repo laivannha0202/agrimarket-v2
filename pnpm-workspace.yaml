@@ -6,3 +6,5 @@ allowBuilds:
   '@scarf/scarf': false
   esbuild: true
   prisma: true
+  sharp: false
+  unrs-resolver: false
