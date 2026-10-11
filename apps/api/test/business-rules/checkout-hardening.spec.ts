@@ -500,6 +500,85 @@ describe('Checkout hardening', () => {
     );
   });
 
+  describe('DELIVERED — stock leaves, COD is NOT auto-settled', () => {
+    function stubDelivery() {
+      prisma.order.findUnique.mockResolvedValue({
+        id: 500,
+        customerId: 7,
+        status: 'SHIPPING',
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 500, status: 'DELIVERED' });
+      prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
+      prisma.inventoryAllocation.findMany.mockResolvedValue([
+        {
+          id: 1,
+          quantity: 5,
+          productLotId: 77,
+          inventoryBalanceId: 9,
+          inventoryBalance: {
+            id: 9,
+            warehouseId: 1,
+            productLotId: 77,
+            productVariantId: 1,
+          },
+        },
+      ]);
+      // `consumeStock` claim wins; read-back shows on_hand 100 -> 95.
+      prisma.$executeRaw.mockResolvedValue(1);
+      prisma.inventoryBalance.findUniqueOrThrow.mockResolvedValue({
+        id: 9,
+        warehouseId: 1,
+        productLotId: 77,
+        productVariantId: 1,
+        onHand: 95,
+        reserved: 0,
+        blocked: 0,
+      });
+      prisma.inventoryMovement.create.mockResolvedValue({});
+    }
+
+    it('consumes the reservation and writes an OUTBOUND movement', async () => {
+      stubDelivery();
+
+      const order = await service.updateStatus(500, 'DELIVERED' as never, 7);
+
+      expect(order.status).toBe('DELIVERED');
+      const movement = prisma.inventoryMovement.create.mock.calls[0][0].data as {
+        type: string;
+        quantityDelta: number;
+        referenceType: string;
+        referenceId: number;
+      };
+      expect(movement.type).toBe('OUTBOUND');
+      expect(movement.quantityDelta).toBe(-5);
+      expect(movement.referenceType).toBe('Order');
+      expect(movement.referenceId).toBe(500);
+    });
+
+    it('never marks COD PAID on delivery', async () => {
+      stubDelivery();
+
+      await service.updateStatus(500, 'DELIVERED' as never, 7);
+
+      // The payment status is untouched: collection is confirmed separately.
+      expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+      expect(prisma.payment.update).not.toHaveBeenCalled();
+    });
+
+    it('rolls back with 409 when the reservation no longer exists', async () => {
+      stubDelivery();
+      // The guarded consume matches 0 rows: a concurrent writer changed the
+      // balance, so delivery must not pretend the goods left.
+      prisma.$executeRaw.mockResolvedValue(0);
+
+      await expect(service.updateStatus(500, 'DELIVERED' as never, 7)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    });
+  });
+
   it('filters my orders in SQL and returns an exact total', async () => {
     prisma.order.findMany.mockResolvedValue([]);
     prisma.order.count.mockResolvedValue(3);

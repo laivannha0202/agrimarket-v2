@@ -13,7 +13,7 @@ import { PageLoading, ErrorState } from "@/components/common/States";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { useExportDownload } from "@/hooks/useExportDownload";
-import { formatMoney, formatNumber } from "@/lib/format";
+import { formatMoney, formatNumber, formatQuantity } from "@/lib/format";
 import type { ReportsSummary } from "@/types/api";
 import { complaintStatus, orderStatus, returnStatus } from "@/lib/status";
 
@@ -220,10 +220,12 @@ export default function ReportsPage() {
                     ),
                 },
                 {
-                  title: "SL bán",
+                  title: "SL đã giao",
                   dataIndex: "quantity",
                   align: "right",
-                  render: (v: number) => <span className="agri-nowrap">{formatNumber(v)}</span>,
+                  render: (v: number, row) => (
+                    <span className="agri-nowrap">{formatQuantity(v, row.unit)}</span>
+                  ),
                 },
                 {
                   title: "Doanh thu",

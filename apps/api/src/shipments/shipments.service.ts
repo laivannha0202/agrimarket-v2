@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
+import { InventoryService } from '../inventory/inventory.service.js';
 import { buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDatedSequence } from '../common/utils/code.util.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateShipmentDto, UpdateShipmentStatusDto } from './dto/shipment.dto.js';
@@ -25,6 +26,7 @@ export class ShipmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly inventory: InventoryService,
   ) {}
 
   async create(dto: CreateShipmentDto) {
@@ -142,11 +144,26 @@ export class ShipmentsService {
           where: { orderId: partnerOrder.orderId, status: { not: 'DELIVERED' } },
         });
         if (remaining === 0) {
-          await tx.order.update({ where: { id: partnerOrder.orderId }, data: { status: 'DELIVERED' } });
-          await tx.payment.updateMany({
-            where: { orderId: partnerOrder.orderId, method: 'COD', status: 'PENDING' },
-            data: { status: 'PAID', paidAt: now },
+          // Guard: if the order was already moved to DELIVERED (e.g. through the
+          // orders endpoint), its stock was already consumed there — consuming
+          // again would be refused by the atomic guard and fail this shipment
+          // update for no reason.
+          const order = await tx.order.findUniqueOrThrow({
+            where: { id: partnerOrder.orderId },
+            select: { status: true },
           });
+          if (order.status !== 'DELIVERED') {
+            await tx.order.update({
+              where: { id: partnerOrder.orderId },
+              data: { status: 'DELIVERED' },
+            });
+            // Goods physically leave the warehouse: consume the order's
+            // reservations and write the OUTBOUND movements. COD is
+            // deliberately NOT marked PAID — a delivered parcel does not prove
+            // the courier collected cash; collection is confirmed through the
+            // payments module.
+            await this.inventory.consumeOrderStock(tx, partnerOrder.orderId);
+          }
         }
       }
 

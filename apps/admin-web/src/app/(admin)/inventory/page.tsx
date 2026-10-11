@@ -16,7 +16,7 @@ import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDateTime, formatQuantity } from "@/lib/format";
 import { toNumeric } from "@/lib/format/form";
-import { lotStatus, inventoryMovementType } from "@/lib/status";
+import { lotStatus, inventoryMovementType, inventoryMovementBasis } from "@/lib/status";
 import type { InventoryBalance, InventoryMovement } from "@/types/api";
 
 function BalancesTab() {
@@ -258,9 +258,26 @@ function MovementsTab() {
     },
     {
       title: "Thay đổi",
-      dataIndex: "quantityDelta",
       align: "right",
-      render: (v: string) => <span className="agri-nowrap">{formatQuantity(v)}</span>,
+      // The delta the row actually represents, plus which quantity moved:
+      // reserve/release/quarantine move `reserved` (on-hand delta 0), the rest
+      // move `on-hand`. Without the basis a reserve row shows "0" next to
+      // changing Trước/Sau values and reads like a bug.
+      render: (_, row) => {
+        const reservedBasis =
+          row.type === "RESERVE" || row.type === "RELEASE" || row.type === "QUARANTINE";
+        const delta = reservedBasis
+          ? Number(row.afterQuantity) - Number(row.beforeQuantity)
+          : Number(row.quantityDelta);
+        const sign = delta > 0 ? "+" : "";
+        return (
+          <span className="agri-nowrap">
+            {sign}
+            {formatQuantity(delta)}{" "}
+            <span className="agri-muted">({inventoryMovementBasis(row.type)})</span>
+          </span>
+        );
+      },
     },
     {
       title: "Trước",

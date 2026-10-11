@@ -26,33 +26,58 @@ import { colors, radius, spacing } from "../lib/theme";
 /**
  * Fetches one evidence photo as a `data:` URI with the session attached.
  *
- * Returns `null` on any failure — the caller renders a placeholder. The `data:`
- * URI avoids blob-URL lifetime handling (RN has no `URL.revokeObjectURL`
- * contract to rely on); evidence photos are already server-resized, so the
- * base64 cost stays small.
+ * Returns `null` on any failure — the caller renders a placeholder.
+ *
+ * WHY XHR INSTEAD OF `res.blob()`: React Native's `Response.blob()`
+ * implementation is not spec-compliant and warns on every call (the warning
+ * shown in the Android logs came from here). The photo is small (already
+ * server-resized), so the bytes are read as an `ArrayBuffer` through
+ * `XMLHttpRequest` — which RN supports without the blob shim — and encoded to
+ * base64 by hand, avoiding both `Blob` and Node's `Buffer` (not present in RN).
  */
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function base64FromArrayBuffer(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i] ?? 0;
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : undefined;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : undefined;
+    out += BASE64_CHARS[b0 >> 2];
+    out += BASE64_CHARS[((b0 & 0x03) << 4) | ((b1 ?? 0) >> 4)];
+    out += b1 === undefined ? "=" : BASE64_CHARS[((b1 & 0x0f) << 2) | ((b2 ?? 0) >> 6)];
+    out += b2 === undefined ? "=" : BASE64_CHARS[b2 & 0x3f];
+  }
+  return out;
+}
+
 export async function fetchEvidenceImage(id: number): Promise<string | null> {
   try {
     const token = await getToken();
-    const res = await fetch(buildUrl(`/evidence/${id}/file`), {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    const url = buildUrl(`/evidence/${id}/file`);
+    return await new Promise<string | null>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", url);
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.responseType = "arraybuffer";
+      xhr.onerror = () => resolve(null);
+      xhr.onabort = () => resolve(null);
+      xhr.onload = () => {
+        if (xhr.status < 200 || xhr.status >= 300 || !xhr.response) {
+          resolve(null);
+          return;
+        }
+        try {
+          const mime =
+            xhr.getResponseHeader("Content-Type")?.split(";")[0]?.trim() || "image/jpeg";
+          resolve(`data:${mime};base64,${base64FromArrayBuffer(xhr.response as ArrayBuffer)}`);
+        } catch {
+          resolve(null);
+        }
+      };
+      xhr.send();
     });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    const dataUri = await new Promise<string | null>((resolve) => {
-      try {
-        const reader = new FileReader();
-        reader.onerror = () => resolve(null);
-        reader.onload = () => {
-          const result = reader.result;
-          resolve(typeof result === "string" ? result : null);
-        };
-        reader.readAsDataURL(blob);
-      } catch {
-        resolve(null);
-      }
-    });
-    return dataUri;
   } catch {
     return null;
   }

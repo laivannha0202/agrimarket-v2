@@ -248,6 +248,21 @@ export const INVENTORY_MOVEMENT_TYPE: Map = {
 export const inventoryMovementType = (v?: string | null) =>
   resolve(INVENTORY_MOVEMENT_TYPE, v);
 
+/**
+ * Which quantity the movement's `before`/`after` columns describe.
+ *
+ * RESERVE / RELEASE / QUARANTINE move the *reserved* (and blocked) quantity —
+ * `quantity_delta` stays 0 because on-hand did not change — while
+ * INBOUND / OUTBOUND / ADJUSTMENT / RETURN move the *on-hand* quantity. The
+ * table must say which one it is showing, otherwise a reserve row reads as
+ * "Thay đổi: 0" next to changing numbers and looks broken.
+ */
+export function inventoryMovementBasis(type?: string | null): string {
+  return type === "RESERVE" || type === "RELEASE" || type === "QUARANTINE"
+    ? "Đã giữ"
+    : "Tồn thực tế";
+}
+
 // Finance -------------------------------------------------------------------
 
 export const SETTLEMENT_STATUS: Map = {

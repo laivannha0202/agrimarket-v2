@@ -18,7 +18,14 @@ describe('Lot & QC rules', () => {
 
   describe('new lot', () => {
     it('starts as PENDING_QC, never SELLABLE', async () => {
-      prisma.harvest.findUnique.mockResolvedValue({ id: 1, quantity: 1000, harvestDate: new Date() });
+      prisma.harvest.findUnique.mockResolvedValue({
+        id: 1,
+        quantity: 1000,
+        harvestDate: new Date(),
+        season: { farmId: 10, farm: { partnerId: 1 } },
+      } as never);
+      // The product belongs to the same partner, so the consistency check passes.
+      prisma.product.findUnique.mockResolvedValue({ id: 1, farmId: 10, partnerId: 1 } as never);
       prisma.productLot.aggregate.mockResolvedValue({ _sum: { quantity: 0 } });
       // The next LOT code comes from the highest existing code of the day.
       prisma.productLot.findMany.mockResolvedValue([]);

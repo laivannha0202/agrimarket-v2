@@ -91,9 +91,9 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Khách hàng",
+    label: "Người dùng",
     items: [
-      { key: "/customers", label: "Khách hàng", icon: <UserOutlined /> },
+      { key: "/customers", label: "Người dùng", icon: <UserOutlined /> },
       { key: "/reviews", label: "Đánh giá", icon: <StarOutlined /> },
     ],
   },

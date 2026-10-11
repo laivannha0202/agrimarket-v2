@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ShipmentsService } from '../../src/shipments/shipments.service.js';
+import { InventoryService } from '../../src/inventory/inventory.service.js';
 import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
 import { ShipmentStatus, TraceEventType } from '../../generated/prisma/enums.js';
 
@@ -10,7 +11,11 @@ describe('Delivery failure & return rules', () => {
 
   beforeEach(() => {
     prisma = createMockPrisma();
-    service = new ShipmentsService(prisma as never, audit as never);
+    service = new ShipmentsService(
+      prisma as never,
+      audit as never,
+      new InventoryService(prisma as never, audit as never),
+    );
   });
 
   it('follows the OUT_FOR_DELIVERY -> DELIVERY_FAILED -> RETURNING -> RETURNED path', async () => {

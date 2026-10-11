@@ -15,7 +15,7 @@ const QC_CHECKS: { key: "appearancePassed" | "freshnessPassed" | "packagingPasse
   { key: "appearancePassed", label: "Ngoại quan" },
   { key: "freshnessPassed", label: "Độ tươi" },
   { key: "packagingPassed", label: "Bao bì" },
-  { key: "damagePassed", label: "Hư hỏng" },
+  { key: "damagePassed", label: "Không hư hỏng" },
 ];
 
 export default function TraceDetailScreen() {
@@ -276,7 +276,7 @@ export default function TraceDetailScreen() {
       <Card style={styles.noteCard}>
         <Ionicons name="shield-checkmark-outline" size={18} color={colors.primary} />
         <Text style={styles.noteText}>
-          Toàn bộ thông tin trên do hệ thống AgriMarket ghi nhận từ lô hàng thực tế. Không có dữ liệu mẫu.
+          Hồ sơ truy xuất do AgriMarket cung cấp theo dữ liệu ghi nhận của đơn vị sản xuất. AgriMarket không tự xác minh ngoài thực địa.
         </Text>
       </Card>
 

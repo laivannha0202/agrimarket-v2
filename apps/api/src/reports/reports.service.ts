@@ -57,6 +57,8 @@ export interface ReportsSummary {
     productId: number;
     productName: string;
     sku: string;
+    /** Sale unit of the variant (gói, túi, kg, …) — the quantity column is meaningless without it. */
+    unit: string;
     quantity: number;
     revenue: number;
   }[];
@@ -211,10 +213,14 @@ export class ReportsService {
         this.prisma.certificate.count({
           where: { verificationStatus: 'PENDING' },
         }),
+        // "Bán chạy" = goods that actually reached the buyer. Only DELIVERED
+        // orders count: a PENDING_CONFIRMATION order is a request, not a sale,
+        // and counting it (as the old `status != CANCELLED` filter did) inflated
+        // the ranking with goods that may never ship.
         this.prisma.orderItem.groupBy({
           by: ['productVariantId'],
           where: {
-            partnerOrder: { order: { ...orderWhere, status: { not: 'CANCELLED' } } },
+            partnerOrder: { order: { ...orderWhere, status: 'DELIVERED' } },
           },
           _sum: { quantity: true, subtotal: true },
           orderBy: { _sum: { subtotal: 'desc' } },
@@ -263,6 +269,7 @@ export class ReportsService {
           select: {
             id: true,
             sku: true,
+            saleUnit: true,
             product: { select: { id: true, name: true } },
           },
         })
@@ -274,6 +281,7 @@ export class ReportsService {
         productId: v?.product.id ?? 0,
         productName: v?.product.name ?? '—',
         sku: v?.sku ?? '—',
+        unit: v?.saleUnit ?? '',
         quantity: Number(l._sum.quantity ?? 0),
         revenue: Number(l._sum.subtotal ?? 0),
       };

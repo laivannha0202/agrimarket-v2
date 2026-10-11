@@ -3,11 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button, Form, Input, Select } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined, QrcodeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
+import { LotQrModal, canShowLotQr } from "@/components/lot/LotQrModal";
 import { useListState } from "@/hooks/useListState";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
@@ -22,6 +23,7 @@ import type { ProductLot } from "@/types/api";
 export default function LotsPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
+  const [qrLot, setQrLot] = useState<ProductLot | null>(null);
   const [form] = Form.useForm();
   const products = useProductOptions();
   const harvests = useHarvestOptions();
@@ -84,6 +86,25 @@ export default function LotsPage() {
       title: "Trạng thái",
       dataIndex: "status",
       render: (s: string) => <StatusTag status={lotStatus(s)} />,
+    },
+    {
+      title: "QR",
+      width: 90,
+      fixed: "right",
+      render: (_, row) =>
+        canShowLotQr(row) ? (
+          <Button
+            type="link"
+            size="small"
+            icon={<QrcodeOutlined />}
+            style={{ paddingInline: 0 }}
+            onClick={() => setQrLot(row)}
+          >
+            Xem QR
+          </Button>
+        ) : (
+          <span className="agri-muted">—</span>
+        ),
     },
   ];
 
@@ -183,6 +204,8 @@ export default function LotsPage() {
           Lô mới luôn ở trạng thái Chờ kiểm định — chỉ chuyển sang Có thể bán sau khi kiểm định đạt.
         </p>
       </FormModal>
+
+      <LotQrModal open={!!qrLot} lot={qrLot} onClose={() => setQrLot(null)} />
     </>
   );
 }

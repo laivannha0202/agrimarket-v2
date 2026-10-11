@@ -227,6 +227,43 @@ describe('Inventory rules', () => {
     });
   });
 
+  describe('consumeStock (goods leaving the warehouse)', () => {
+    it('drops both on_hand and reserved in one guarded statement', async () => {
+      prisma.$executeRaw.mockResolvedValue(1);
+      // After the statement: on_hand 100 -> 95, reserved 10 -> 5.
+      prisma.inventoryBalance.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        onHand: 95,
+        reserved: 5,
+        blocked: 0,
+        unit: 'kg',
+      });
+
+      const { service } = makeService(prisma);
+      const result = await service.consumeStock(prisma as never, 1, 5);
+
+      expect(result).not.toBeNull();
+      expect(result?.before).toBe(100);
+      expect(result?.after).toBe(95);
+      // One atomic statement performs the guard and both subtractions.
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns null when the reservation is gone (guard matches 0 rows)', async () => {
+      prisma.$executeRaw.mockResolvedValue(0);
+
+      const { service } = makeService(prisma);
+      const result = await service.consumeStock(prisma as never, 1, 5);
+
+      expect(result).toBeNull();
+      // The row is never re-read: no movement may be fabricated.
+      expect(prisma.inventoryBalance.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+  });
+
   describe('adjust', () => {
     it('rejects an adjustment that would make stock negative', async () => {
       prisma.inventoryBalance.findUnique.mockResolvedValue({

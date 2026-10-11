@@ -1124,7 +1124,11 @@ async function main() {
 
   const flashSale = await prisma.flashSale.create({
     data: {
-      name: 'Flash Sale cuối tuần Hưng Yên',
+      // The window spans 60 days, so the name must not claim a weekend —
+      // a "cuối tuần" (weekend) label on a 2-month programme misleads both
+      // operators and customers. This is a fresh-seed fix; the existing DEV
+      // row is left untouched (documented, not rewritten).
+      name: 'Flash Sale nông sản Hưng Yên',
       startsAt: addDays(-30),
       endsAt: addDays(30),
       status: RecordStatus.ACTIVE,

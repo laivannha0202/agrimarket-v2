@@ -26,6 +26,7 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProductCard } from "../../src/components/ProductCard";
 import { Card, EmptyView, ErrorView, LinkPress, LoadingView, ProductThumb, SectionHeader } from "../../src/components/ui";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
@@ -54,6 +55,7 @@ export default function HomeScreen() {
   const [q, setQ] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const columns = width >= GRID_MIN_WIDTH ? 2 : 1;
 
@@ -181,7 +183,11 @@ export default function HomeScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
     >
       {/* ------------------------------------------------------------ header -- */}
-      <View style={styles.header}>
+      {/* This tab has `headerShown: false`, so its own brand header must carry
+          the Android top inset itself: without it the status bar (clock, signal)
+          sits on top of the logo and the QR/cart buttons. Padding, not margin,
+          so the white header background fills the status-bar strip. */}
+      <View style={[styles.header, { paddingTop: spacing.md + insets.top }]}>
         <View style={styles.brandRow}>
           <Image source={designAssets.brandLeafMark} style={styles.logo} resizeMode="contain" />
           <View style={styles.brandText}>

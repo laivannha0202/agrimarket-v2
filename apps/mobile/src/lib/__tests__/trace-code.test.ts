@@ -63,6 +63,20 @@ describe("parseTraceCode", () => {
     expect(parseTraceCode("/x?a=1&b=TRC-000019-BAPCA&c=2")).toBe("TRC-000019-BAPCA");
   });
 
+  it("gives the same result for a scanned QR and manual entry of the same lot", () => {
+    // Both paths must land on the same trace code: this is exactly what the
+    // admin QR encodes for LOT-20260930-0015 (bare code in dev, public URL in
+    // production) and what a user types from the printed label.
+    const scannedBare = parseTraceCode("TRC-000015-RAUMU");
+    const scannedUrl = parseTraceCode("https://shop.agrimarket.vn/truy-xuat/TRC-000015-RAUMU");
+    const manual = parseTraceCode("  trc-000015-raumu ");
+    expect(scannedBare).toBe("TRC-000015-RAUMU");
+    expect(scannedUrl).toBe("TRC-000015-RAUMU");
+    expect(manual).toBe("TRC-000015-RAUMU");
+    expect(scannedBare).toBe(manual);
+    expect(scannedUrl).toBe(manual);
+  });
+
   it("survives malformed percent-encoding instead of throwing", () => {
     // A lone "%" is invalid percent-encoding; the parser must not throw.
     expect(parseTraceCode("https://x.vn/trace/%E0%A4%A")).toBeNull();

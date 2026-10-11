@@ -25,19 +25,32 @@ export class LotsService {
    * Create a lot from a harvest. The sum of all lots of a harvest must never
    * exceed the harvest quantity — this is the core traceability invariant.
    * A new lot always starts as PENDING_QC: it can never be SELLABLE directly.
+   *
+   * The product must belong to the same farm as the harvest's season (or, for a
+   * product with no farm, at least to the same partner): a lot is the physical
+   * goods of one harvest, so attributing it to another producer's product would
+   * make the public trace chain claim an origin the goods never had.
+   *
+   * The Σ ≤ harvest check runs inside the same transaction as the insert and
+   * re-reads the harvest with `SELECT ... FOR UPDATE` (`lockHarvest`), so two
+   * concurrent creations for one harvest serialise on the row: the second one
+   * sees the first one's committed lot and is refused instead of both passing
+   * the check and overshooting the harvest.
    */
   async create(dto: CreateLotDto, actorUserId?: number): Promise<ProductLot> {
-    const harvest = await this.prisma.harvest.findUnique({ where: { id: dto.harvestId } });
+    const harvest = await this.prisma.harvest.findUnique({
+      where: { id: dto.harvestId },
+      include: { season: { include: { farm: true } } },
+    });
     if (!harvest) throw new NotFoundException('Harvest not found');
 
-    const allocated = await this.prisma.productLot.aggregate({
-      where: { harvestId: dto.harvestId },
-      _sum: { quantity: true },
-    });
-    const already = Number(allocated._sum.quantity ?? 0);
-    if (already + dto.quantity > Number(harvest.quantity)) {
+    const product = await this.prisma.product.findUnique({ where: { id: dto.productId } });
+    if (!product) throw new NotFoundException('Product not found');
+    const sameFarm = product.farmId !== null && product.farmId === harvest.season.farmId;
+    const samePartner = product.partnerId === harvest.season.farm.partnerId;
+    if (!sameFarm && !samePartner) {
       throw new BadRequestException(
-        `Total lot quantity (${already + dto.quantity}) would exceed harvest quantity (${Number(harvest.quantity)})`,
+        'The product must belong to the same farm (or at least the same partner) as the harvest',
       );
     }
 
@@ -55,6 +68,20 @@ export class LotsService {
     }
   }
 
+  /**
+   * Re-read the harvest inside the transaction, holding the row (`FOR UPDATE`)
+   * until the lot insert commits. Two concurrent lot creations for the same
+   * harvest therefore serialise here: the second one's aggregate sees the first
+   * one's committed lot. Returns the locked harvest row.
+   */
+  private async lockHarvest(tx: Prisma.TransactionClient, harvestId: number) {
+    const rows = await tx.$queryRaw<
+      { id: number; quantity: unknown; harvest_date: Date }[]
+    >`SELECT id, quantity, harvest_date FROM harvests WHERE id = ${harvestId} FOR UPDATE`;
+    if (rows.length === 0) throw new NotFoundException('Harvest not found');
+    return rows[0];
+  }
+
   private async nextLotSequence(date: Date): Promise<number> {
     const prefix = datedCodePrefix('LOT', date);
     const existing = await this.prisma.productLot.findMany({
@@ -70,7 +97,7 @@ export class LotsService {
 
   private async createLotWithSequence(
     dto: CreateLotDto,
-    harvest: { harvestDate: Date; quantity: unknown },
+    harvest: { id: number; harvestDate: Date; quantity: unknown },
     sequence: number,
     date: Date,
     actorUserId?: number,
@@ -78,41 +105,60 @@ export class LotsService {
     const code = buildDatedCode('LOT', sequence, date);
     const traceCode = `TRC-${formatSequence(sequence, 6)}-${date.getTime().toString(36).toUpperCase()}`;
 
-    const lot = await this.prisma.productLot.create({
-      data: {
-        code,
-        traceCode,
-        productId: dto.productId,
-        harvestId: dto.harvestId,
-        quantity: dto.quantity,
-        unit: dto.unit,
-        remainingQuantity: dto.quantity,
-        grade: dto.grade,
-        packedAt: dto.packedAt ? new Date(dto.packedAt) : null,
-        expiresAt: new Date(dto.expiresAt),
-        status: ProductLotStatus.PENDING_QC,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the harvest row first: the Σ-check and the insert are then atomic
+      // against concurrent creations for the same harvest (see `lockHarvest`).
+      const locked = await this.lockHarvest(tx, dto.harvestId);
+      const allocated = await tx.productLot.aggregate({
+        where: { harvestId: dto.harvestId },
+        _sum: { quantity: true },
+      });
+      const already = Number(allocated._sum.quantity ?? 0);
+      if (already + dto.quantity > Number(locked.quantity)) {
+        throw new BadRequestException(
+          `Total lot quantity (${already + dto.quantity}) would exceed harvest quantity (${Number(locked.quantity)})`,
+        );
+      }
 
-    await this.prisma.traceEvent.create({
-      data: {
-        productLotId: lot.id,
-        type: TraceEventType.HARVEST,
-        occurredAt: harvest.harvestDate,
-        location: null,
-        description: `Lô ${lot.code} được tạo từ vụ thu hoạch ngày ${harvest.harvestDate.toISOString().slice(0, 10)}`,
-        isPublic: true,
-      },
-    });
+      const lot = await tx.productLot.create({
+        data: {
+          code,
+          traceCode,
+          productId: dto.productId,
+          harvestId: dto.harvestId,
+          quantity: dto.quantity,
+          unit: dto.unit,
+          remainingQuantity: dto.quantity,
+          grade: dto.grade,
+          packedAt: dto.packedAt ? new Date(dto.packedAt) : null,
+          expiresAt: new Date(dto.expiresAt),
+          status: ProductLotStatus.PENDING_QC,
+        },
+      });
 
-    await this.audit.record({
-      actorUserId,
-      action: 'CREATE',
-      entityType: 'ProductLot',
-      entityId: String(lot.id),
-      afterJson: lot,
+      await tx.traceEvent.create({
+        data: {
+          productLotId: lot.id,
+          type: TraceEventType.HARVEST,
+          occurredAt: harvest.harvestDate,
+          location: null,
+          description: `Lô ${lot.code} được tạo từ vụ thu hoạch ngày ${harvest.harvestDate.toISOString().slice(0, 10)}`,
+          isPublic: true,
+        },
+      });
+
+      await this.audit.record(
+        {
+          actorUserId,
+          action: 'CREATE',
+          entityType: 'ProductLot',
+          entityId: String(lot.id),
+          afterJson: lot,
+        },
+        tx,
+      );
+      return lot;
     });
-    return lot;
   }
 
   async findAll(query: {

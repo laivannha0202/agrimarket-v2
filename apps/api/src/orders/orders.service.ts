@@ -1003,11 +1003,16 @@ export class OrdersService {
       });
 
       if (status === OrderStatus.DELIVERED) {
-        // COD is collected on delivery.
-        await tx.payment.updateMany({
-          where: { orderId: id, method: PaymentMethod.COD, status: PaymentStatus.PENDING },
-          data: { status: PaymentStatus.PAID, paidAt: new Date() },
-        });
+        // The goods physically leave the warehouse at this moment: consume the
+        // order's reservations (on_hand and reserved both drop) and record the
+        // OUTBOUND movements. Without this the reservation was held forever and
+        // delivered stock stayed sellable.
+        //
+        // COD is deliberately NOT marked PAID here. Delivery success proves the
+        // parcel arrived; it does not prove the courier collected cash. The
+        // collection is confirmed explicitly through `PATCH /payments/:id/status`
+        // (ADMIN) — the only path that sets `paidAt` for a COD payment.
+        await this.inventory.consumeOrderStock(tx, id);
       }
 
       if (status === OrderStatus.CANCELLED) {

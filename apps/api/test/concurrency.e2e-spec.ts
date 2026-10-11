@@ -602,12 +602,21 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
 
       // Exactly one outcome must hold, and it must be internally consistent.
       if (final.status === 'DELIVERED') {
-        expect(Number(bal.reserved)).toBe(3);
+        // Delivery consumes the reservation: on_hand 10 -> 7, reserved 3 -> 0,
+        // and an OUTBOUND movement records the goods leaving the warehouse.
+        expect(Number(bal.reserved)).toBe(0);
+        expect(Number(bal.onHand)).toBe(7);
         expect(released).toBe(0);
-        expect(payment.status).toBe('PAID');
+        // Delivery never settles COD by itself: cash is confirmed separately.
+        expect(payment.status).toBe('PENDING');
+        const outbound = await prisma.inventoryMovement.count({
+          where: { referenceType: 'Order', referenceId: order.id, type: 'OUTBOUND' },
+        });
+        expect(outbound).toBe(1);
       } else {
         expect(final.status).toBe('CANCELLED');
         expect(Number(bal.reserved)).toBe(0);
+        expect(Number(bal.onHand)).toBe(10);
         expect(released).toBe(1);
       }
     }

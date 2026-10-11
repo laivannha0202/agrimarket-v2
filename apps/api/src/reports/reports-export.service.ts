@@ -111,15 +111,26 @@ export class ReportsExportService {
           columns: [
             { header: 'Sản phẩm', align: 'left' },
             { header: 'SKU', align: 'left' },
-            { header: 'Số lượng bán', align: 'right' },
+            { header: 'SL đã giao', align: 'right' },
+            { header: 'Đơn vị', align: 'left' },
             { header: 'Doanh thu', align: 'right' },
           ],
           rows:
             summary.topProducts.length > 0
               ? summary.topProducts.map((p) => ({
-                  cells: [text(p.productName), text(p.sku), num(p.quantity), money(p.revenue)],
+                  cells: [
+                    text(p.productName),
+                    text(p.sku),
+                    num(p.quantity),
+                    text(p.unit),
+                    money(p.revenue),
+                  ],
                 }))
-              : [{ cells: [text('Chưa có dữ liệu bán hàng'), text(''), num(0), money(0)] }],
+              : [
+                  {
+                    cells: [text('Chưa có dữ liệu bán hàng'), text(''), num(0), text(''), money(0)],
+                  },
+                ],
         },
         {
           title: 'Trả hàng theo trạng thái',

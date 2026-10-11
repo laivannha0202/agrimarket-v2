@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
@@ -312,6 +312,90 @@ export class InventoryService {
     const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
     const after = Number(balance.reserved);
     return { balance, before: after + quantity, after, blocked: Number(balance.blocked) };
+  }
+
+  /**
+   * Consume `quantity` reserved units: the goods physically leave the warehouse,
+   * so BOTH `on_hand` and `reserved` drop in one conditional UPDATE
+   * (`WHERE reserved >= ? AND on_hand >= ?`). The predicate is re-evaluated
+   * under the row's exclusive lock, so two concurrent consumptions (or a
+   * consumption racing a release) can never drive either column negative or
+   * consume a reservation the balance no longer holds. Returns `null` when the
+   * guard rejected the change; the caller must roll back rather than leave the
+   * order half-processed. `before`/`after` are the on-hand quantities around
+   * the update, for the movement ledger.
+   */
+  async consumeStock(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number } | null> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET on_hand = on_hand - ${quantity},
+             reserved = reserved - ${quantity},
+             updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+         AND reserved >= ${quantity}
+         AND on_hand >= ${quantity}
+    `;
+    if (affected === 0) return null;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.onHand);
+    return { balance, before: after + quantity, after };
+  }
+
+  /**
+   * Consume every reservation an order holds: called when the order reaches
+   * `DELIVERED`, i.e. the moment its goods physically leave the warehouse.
+   *
+   * Without this the reservation was held forever (`reserved` never dropped,
+   * `on_hand` never fell) — delivered stock stayed "available" and could be
+   * oversold while the warehouse no longer held it. Each allocation is consumed
+   * atomically (see `consumeStock`) and recorded as an `OUTBOUND` movement tied
+   * to the order, so the movement ledger shows the goods leaving. The lot's
+   * `remaining_quantity` is decremented in the same transaction so the lot
+   * balance shown to customers tracks real deliveries.
+   *
+   * Throws `ConflictException` when a balance no longer holds the reservation
+   * (a concurrent writer changed it): the caller's transaction rolls back and
+   * the operator can reload, instead of fabricating a shipment of stock the
+   * warehouse does not have.
+   */
+  async consumeOrderStock(tx: Tx, orderId: number): Promise<void> {
+    const allocations = await tx.inventoryAllocation.findMany({
+      where: { orderItem: { partnerOrder: { orderId } } },
+      include: { inventoryBalance: true },
+    });
+    for (const alloc of allocations) {
+      const quantity = Number(alloc.quantity);
+      const consumed = await this.consumeStock(tx, alloc.inventoryBalanceId, quantity);
+      if (!consumed) {
+        throw new ConflictException(
+          'The order stock changed while this request was being processed, please reload',
+        );
+      }
+      const balance = alloc.inventoryBalance;
+      await this.recordMovement(tx, {
+        warehouseId: balance.warehouseId,
+        productLotId: balance.productLotId,
+        productVariantId: balance.productVariantId,
+        type: InventoryMovementType.OUTBOUND,
+        quantityDelta: -quantity,
+        beforeQuantity: consumed.before,
+        afterQuantity: consumed.after,
+        referenceType: 'Order',
+        referenceId: orderId,
+        note: 'Giao hàng — hàng rời kho',
+      });
+      // The lot's remaining quantity follows the goods that actually left.
+      await tx.$executeRaw`
+        UPDATE product_lots
+           SET remaining_quantity = GREATEST(remaining_quantity - ${quantity}, 0),
+               updated_at = UTC_TIMESTAMP(3)
+         WHERE id = ${alloc.productLotId}
+      `;
+    }
   }
 
   /**

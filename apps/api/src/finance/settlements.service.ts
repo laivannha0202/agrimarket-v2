@@ -20,7 +20,11 @@ function round2(n: number): number {
 /**
  * Settlement formula:
  *   grossAmount - refundAmount - commissionAmount + adjustmentAmount = payableAmount
- * Built from delivered/confirmed PartnerOrders in the period.
+ *
+ * Built from DELIVERED partner orders in the period only — money on an order
+ * still in transit is not payable yet, and an order already claimed by another
+ * settlement can never be claimed again (each partner order contributes to at
+ * most one settlement line, across all periods).
  */
 @Injectable()
 export class SettlementsService {
@@ -51,11 +55,18 @@ export class SettlementsService {
       throw new BadRequestException('periodEnd must be after periodStart');
     }
 
+    // Only DELIVERED partner orders are settled: the goods reached the buyer,
+    // so the partner's money is actually owed. A READY_TO_SHIP/SHIPPING order is
+    // still in transit and including it would pay for goods that may come back.
+    // `settlementLines: { none: {} }` excludes every order already claimed by a
+    // settlement (DRAFT included), so the same order can never be paid twice
+    // across two periods.
     const partnerOrders = await this.prisma.partnerOrder.findMany({
       where: {
         partnerId: dto.partnerId,
-        status: { in: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.SHIPPING, PartnerOrderStatus.READY_TO_SHIP] },
+        status: PartnerOrderStatus.DELIVERED,
         createdAt: { gte: periodStart, lte: periodEnd },
+        settlementLines: { none: {} },
       },
     });
 

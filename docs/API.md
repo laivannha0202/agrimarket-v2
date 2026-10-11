@@ -364,7 +364,7 @@ PENDING_QC, QUARANTINED, RECALLED or expired is not counted.
 | POST   | `/me/:id/cancel` | CUSTOMER | Cancel my own order (order state machine, releases reservations) |
 | GET    | `/`              | ADMIN    | List all orders (`search`, `status`)               |
 | GET    | `/:id`           | ADMIN    | Get an order                                       |
-| PATCH  | `/:id/status`    | ADMIN    | Advance status (DELIVERED settles COD)             |
+| PATCH  | `/:id/status`    | ADMIN    | Advance status (DELIVERED consumes stock reservations; COD collection is confirmed separately via `PATCH /payments/:id/status`) |
 
 **Checkout money.** `POST /orders/checkout` has no `shippingFee` field: the fee is
 decided by the backend (`FLAT_SHIPPING_FEE` in `src/orders/shipping-policy.ts`)
@@ -398,7 +398,7 @@ Stock reservations are released with `RELEASE` movements.
 | GET    | `/`            | ADMIN  | List shipments (`status`)                          |
 | GET    | `/:id`         | ADMIN  | Shipment with events                               |
 | POST   | `/`            | ADMIN  | Create a shipment for a partner order              |
-| PATCH  | `/:id/status`  | ADMIN  | Advance status (DELIVERED settles, RETURNED quarantines) |
+| PATCH  | `/:id/status`  | ADMIN  | Advance status (DELIVERED consumes stock reservations, RETURNED quarantines; COD is settled only by an explicit payment confirmation) |
 
 ## Payments & refunds — ADMIN
 

@@ -178,6 +178,8 @@ export const resources = {
 
   // Payments & shipments (order context)
   payments: (p?: ListParams) => api.get<Paginated<Payment>>("/payments", toQuery(p)),
+  updatePaymentStatus: (id: number | string, status: string, transactionReference?: string) =>
+    api.patch<Payment>(`/payments/${id}/status`, { status, transactionReference }),
   shipments: (p?: ListParams) => api.get<Paginated<Shipment>>("/shipments", toQuery(p)),  createShipment: (body: unknown) => api.post<Shipment>("/shipments", body),
   updateShipmentStatus: (id: number | string, body: unknown) =>
     api.patch<Shipment>(`/shipments/${id}/status`, body),

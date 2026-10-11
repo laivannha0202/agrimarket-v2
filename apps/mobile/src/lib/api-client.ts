@@ -124,15 +124,98 @@ function extractMessage(status: number, body: unknown): string {
   return fallback;
 }
 
-async function parseBody(res: Response): Promise<unknown> {
-  if (res.status === 204) return undefined;
-  const text = await res.text();
+function parseBodyText(status: number, text: string): unknown {
+  if (status === 204) return undefined;
   if (!text) return undefined;
   try {
     return JSON.parse(text);
   } catch {
     return text;
   }
+}
+
+/**
+ * Turns a completed HTTP response into either the parsed payload or an
+ * `ApiError`, applying the same 401/session policy as `apiFetch`.
+ *
+ * Shared by the fetch and XHR transports so an upload cannot drift away from
+ * the rest of the client: the caller sees one error shape and one auth rule.
+ */
+async function handleResponse(
+  status: number,
+  text: string,
+  options: RequestOptions,
+): Promise<unknown> {
+  const parsed = parseBodyText(status, text);
+
+  if (status < 200 || status >= 300) {
+    if (status === 401) {
+      await clearSession();
+      if (unauthorizedHandler) unauthorizedHandler();
+      else if (options.onUnauthorized) options.onUnauthorized();
+    }
+    throw new ApiError(
+      status,
+      extractMessage(status, parsed),
+      parsed && typeof parsed === "object" ? (parsed as ApiErrorBody) : undefined,
+    );
+  }
+
+  return parsed;
+}
+
+/**
+ * Multipart upload over `XMLHttpRequest`.
+ *
+ * WHY NOT `fetch`
+ *
+ * Expo SDK 57 replaces the global `fetch` with `expo/fetch`
+ * (`expo/src/winter/runtime.native.ts` -> `install('fetch', ...)`). That
+ * implementation converts a `FormData` body itself, and its converter only
+ * understands string / Blob / `{ bytes() }` parts — a React Native file part
+ * shaped `{ uri, name, type }` hits the `else` branch and it throws
+ * `Unsupported FormDataPart implementation`
+ * (`expo/src/winter/fetch/convertFormData.ts`). The rejection happens before a
+ * socket is opened, so it surfaced to the customer as the generic
+ * "Không kết nối được máy chủ" message even though the network was fine.
+ *
+ * React Native's own `XMLHttpRequest` handles the `{ uri }` shape natively
+ * (`Libraries/Network/convertRequestBody.js` -> `getParts()` -> the Android
+ * `NetworkingModule` streams the file), which is exactly the transport the
+ * camera-roll upload was written for. So multipart requests take this path
+ * while everything else keeps using `fetch`.
+ *
+ * The XHR deliberately does NOT set `Content-Type`: the platform generates the
+ * multipart boundary and the header, and hand-writing it is the classic reason
+ * an upload works in Postman and fails on device.
+ */
+function xhrSendFormData(
+  url: string,
+  headers: Record<string, string>,
+  form: FormData,
+  timeoutMs: number,
+): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url, true);
+    xhr.timeout = timeoutMs;
+    xhr.responseType = "text";
+
+    for (const [key, value] of Object.entries(headers)) {
+      // Content-Type is intentionally absent from `headers` for a raw body.
+      if (key.toLowerCase() === "content-type") continue;
+      xhr.setRequestHeader(key, value);
+    }
+
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText ?? "" });
+    xhr.onerror = () =>
+      reject(new ApiError(0, "Không kết nối được máy chủ. Vui lòng kiểm tra Wi-Fi và địa chỉ API."));
+    xhr.ontimeout = () =>
+      reject(new ApiError(0, "Yêu cầu quá thời gian chờ. Vui lòng thử lại."));
+    xhr.onabort = () => reject(new ApiError(0, "Yêu cầu đã bị huỷ."));
+
+    xhr.send(form);
+  });
 }
 
 let unauthorizedHandler: (() => void) | null = null;
@@ -165,6 +248,25 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   if (body !== undefined && !raw) headers["Content-Type"] = "application/json";
   if (extraHeaders) Object.assign(headers, extraHeaders);
 
+  /**
+   * Multipart goes through `XMLHttpRequest`, not `fetch`.
+   *
+   * `raw` means the caller built a `FormData` holding React Native file parts
+   * (`{ uri, name, type }`). The global `fetch` in Expo SDK 57 is `expo/fetch`,
+   * whose FormData converter rejects that shape outright, so the request dies
+   * before it leaves the device. RN's XHR streams those file parts natively.
+   * Every other request keeps using `fetch` below, unchanged.
+   */
+  if (raw && body instanceof FormData) {
+    let response: { status: number; text: string };
+    try {
+      response = await xhrSendFormData(buildUrl(path, params), headers, body, timeoutMs);
+    } finally {
+      clearTimeout(timeout);
+    }
+    return (await handleResponse(response.status, response.text, options)) as T;
+  }
+
   let res: Response;
   try {
     res = await fetch(buildUrl(path, params), {
@@ -182,22 +284,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   }
   clearTimeout(timeout);
 
-  const parsed = await parseBody(res);
-
-  if (!res.ok) {
-    if (res.status === 401) {
-      await clearSession();
-      if (unauthorizedHandler) unauthorizedHandler();
-      else if (options.onUnauthorized) options.onUnauthorized();
-    }
-    throw new ApiError(
-      res.status,
-      extractMessage(res.status, parsed),
-      parsed && typeof parsed === "object" ? (parsed as ApiErrorBody) : undefined,
-    );
-  }
-
-  return parsed as T;
+  return (await handleResponse(res.status, await res.text(), options)) as T;
 }
 
 export const api = {

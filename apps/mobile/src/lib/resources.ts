@@ -258,8 +258,11 @@ export const resources = {
    * anything yet: the id is passed as `evidenceIds` when the request is
    * created, and the backend binds it in the same transaction.
    *
-   * `FormData` is left alone — React Native sets the multipart boundary itself,
-   * and setting `Content-Type` by hand is what breaks uploads on device.
+   * `raw: true` tells the client to leave this body alone. It also routes the
+   * request over `XMLHttpRequest` instead of `fetch`: Expo SDK 57's `fetch`
+   * cannot encode a React Native `{ uri, name, type }` file part (see the note
+   * on `xhrSendFormData` in api-client.ts). No `Content-Type` is set by hand —
+   * the platform generates the multipart boundary.
    */
   uploadEvidence: async (file: { uri: string; name: string; type: string }) => {
     const form = new FormData();

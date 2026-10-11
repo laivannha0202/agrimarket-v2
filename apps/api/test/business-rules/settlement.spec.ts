@@ -58,6 +58,36 @@ describe('Settlement formula', () => {
     expect(Number(settlement.payableAmount)).toBe(267000);
   });
 
+  it('only selects DELIVERED partner orders that no settlement already claimed', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([]);
+    prisma.settlement.findMany.mockResolvedValue([]);
+    prisma.settlement.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: 1,
+      ...data,
+    }));
+
+    await service.create(
+      {
+        partnerId: 1,
+        periodStart: '2026-04-01T00:00:00.000Z',
+        periodEnd: '2026-04-30T23:59:59.000Z',
+      },
+      99,
+    );
+
+    // Money on an order still in transit is not payable: READY_TO_SHIP and
+    // SHIPPING are excluded. An order already claimed by any settlement
+    // (DRAFT included) can never be claimed again.
+    expect(prisma.partnerOrder.findMany).toHaveBeenCalledWith({
+      where: {
+        partnerId: 1,
+        status: PartnerOrderStatus.DELIVERED,
+        createdAt: { gte: new Date('2026-04-01T00:00:00.000Z'), lte: new Date('2026-04-30T23:59:59.000Z') },
+        settlementLines: { none: {} },
+      },
+    });
+  });
+
   it('rejects an invalid period', async () => {
     await expect(
       service.create(

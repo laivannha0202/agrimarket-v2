@@ -79,7 +79,7 @@ export default function QualityControlPage() {
         const items = [
           ["Ngoại hình", row.appearancePassed],
           ["Độ tươi", row.freshnessPassed],
-          ["Hư hỏng", row.damagePassed],
+          ["Không hư hỏng", row.damagePassed],
         ] as const;
         return (
           <span style={{ fontSize: 12 }} className="agri-muted">

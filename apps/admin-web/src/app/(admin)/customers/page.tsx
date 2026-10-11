@@ -54,7 +54,7 @@ export default function CustomersPage() {
 
   const columns: ColumnsType<Customer> = [
     {
-      title: "Khách hàng",
+      title: "Người dùng",
       render: (_, row) => (
         <div>
           <Link href={`/customers/${row.id}`} className="agri-link">
@@ -103,7 +103,7 @@ export default function CustomersPage() {
   return (
     <>
       <ListPage<Customer>
-        title="Khách hàng"
+        title="Người dùng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         searchPlaceholder="Tìm theo tên, email, số điện thoại..."
@@ -131,9 +131,9 @@ export default function CustomersPage() {
         columns={columns}
         data={data?.data ?? []}
         loading={isLoading}
-        error={isError ? new Error("Không tải được danh sách khách hàng.") : undefined}
+        error={isError ? new Error("Không tải được danh sách người dùng.") : undefined}
         onRetry={() => void refetch()}
-        emptyText="Không có khách hàng phù hợp"
+        emptyText="Không có người dùng phù hợp"
         total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}

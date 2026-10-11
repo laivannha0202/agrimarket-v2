@@ -5,11 +5,12 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Form, Input, Table, Timeline, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { WarningOutlined } from "@ant-design/icons";
+import { QrcodeOutlined, WarningOutlined } from "@ant-design/icons";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
 import { InfoDescriptions } from "@/components/common/InfoDescriptions";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
+import { LotQrModal, canShowLotQr } from "@/components/lot/LotQrModal";
 import { useDetailQuery } from "@/hooks/useDetailQuery";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
@@ -21,6 +22,7 @@ import {
   qcResult,
   traceEventType,
   inventoryMovementType,
+  inventoryMovementBasis,
 } from "@/lib/status";
 import type {
   InventoryBalance,
@@ -34,6 +36,7 @@ export default function LotDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [recallOpen, setRecallOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   const [form] = Form.useForm();
 
   const { data: lot, isLoading, isError, refetch } = useDetailQuery<ProductLot>(
@@ -62,7 +65,7 @@ export default function LotDetailPage() {
         const items = [
           ["Ngoại hình", row.appearancePassed],
           ["Độ tươi", row.freshnessPassed],
-          ["Hư hỏng", row.damagePassed],
+          ["Không hư hỏng", row.damagePassed],
         ] as const;
         return (
           <span className="agri-muted" style={{ fontSize: 12 }}>
@@ -127,6 +130,11 @@ export default function LotDetailPage() {
         lot ? (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <StatusTag status={lotStatus(lot.status)} />
+            {canShowLotQr(lot) ? (
+              <Button icon={<QrcodeOutlined />} onClick={() => setQrOpen(true)}>
+                Xem QR
+              </Button>
+            ) : null}
             {canRecall ? (
               <Button danger icon={<WarningOutlined />} onClick={() => setRecallOpen(true)}>
                 Thu hồi lô
@@ -257,9 +265,30 @@ export default function LotDetailPage() {
                 },
                 {
                   title: "Thay đổi",
-                  dataIndex: "quantityDelta",
                   align: "right",
-                  render: (v: string) => <span className="agri-nowrap">{formatQuantity(v)}</span>,
+                  // The movement's own delta, plus WHICH quantity moved:
+                  // a reserve/release moves `reserved` (on-hand delta is 0),
+                  // everything else moves `on-hand`. Showing the basis is what
+                  // makes "0" next to changing Trước/Sau values readable.
+                  render: (_, row) => {
+                    const reservedBasis =
+                      row.type === "RESERVE" ||
+                      row.type === "RELEASE" ||
+                      row.type === "QUARANTINE";
+                    const delta = reservedBasis
+                      ? Number(row.afterQuantity) - Number(row.beforeQuantity)
+                      : Number(row.quantityDelta);
+                    const sign = delta > 0 ? "+" : "";
+                    return (
+                      <span className="agri-nowrap">
+                        {sign}
+                        {formatQuantity(delta)}{" "}
+                        <span className="agri-muted">
+                          ({inventoryMovementBasis(row.type)})
+                        </span>
+                      </span>
+                    );
+                  },
                 },
                 {
                   title: "Trước",
@@ -302,6 +331,8 @@ export default function LotDetailPage() {
               <Input.TextArea rows={3} placeholder="VD: Phát hiện dư lượng thuốc bảo vệ thực vật vượt ngưỡng" />
             </Form.Item>
           </FormModal>
+
+          <LotQrModal open={qrOpen} lot={lot} onClose={() => setQrOpen(false)} />
         </>
       ) : null}
     </DetailPage>

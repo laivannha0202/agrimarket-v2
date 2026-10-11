@@ -318,7 +318,8 @@ export type InventoryMovementType =
   | "ADJUSTMENT"
   | "RESERVE"
   | "RELEASE"
-  | "RETURN";
+  | "RETURN"
+  | "QUARANTINE";
 
 export interface InventoryMovement {
   id: number;
@@ -747,6 +748,8 @@ export interface ReportsSummary {
     productId: number;
     productName: string;
     sku: string;
+    /** Sale unit of the variant (gói, túi, kg, …). */
+    unit: string;
     quantity: number;
     revenue: number;
   }[];

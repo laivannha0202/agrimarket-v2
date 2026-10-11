@@ -188,6 +188,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     let seasonId: number;
     let harvestId: number;
     let lotId: number;
+    let productId: number;
 
     it('creates a partner', async () => {
       const res = await post('/api/v1/partners', adminToken, {
@@ -254,9 +255,35 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       harvestId = res.body.id;
     });
 
-    it('creates a lot from the harvest, starting as PENDING_QC', async () => {
+    it('creates a product under the new partner (same farm as the harvest)', async () => {
+      const res = await post('/api/v1/products', adminToken, {
+        partnerId,
+        categoryId: fixtures.categoryAId,
+        farmId,
+        name: `Sản phẩm lô E2E ${RUN_ID}`,
+        status: 'ACTIVE',
+      }).expect(201);
+      productId = res.body.id;
+      expect(res.body.farmId).toBe(farmId);
+    });
+
+    it('refuses a lot whose product belongs to another partner', async () => {
+      // The fixture product belongs to a different partner/farm than this
+      // harvest: attributing the lot to it would forge the public trace chain.
       const res = await post('/api/v1/lots', adminToken, {
         productId: fixtures.productAId,
+        harvestId,
+        quantity: 10,
+        unit: 'kg',
+        grade: 'Loại 1',
+        expiresAt: new Date(Date.now() + 86400000 * 20).toISOString(),
+      }).expect(400);
+      expect(res.body.message).toMatch(/same farm \(or at least the same partner\)/i);
+    });
+
+    it('creates a lot from the harvest, starting as PENDING_QC', async () => {
+      const res = await post('/api/v1/lots', adminToken, {
+        productId,
         harvestId,
         quantity: 60,
         unit: 'kg',
@@ -270,7 +297,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
 
     it('refuses a second lot that would exceed the harvest quantity', async () => {
       const res = await post('/api/v1/lots', adminToken, {
-        productId: fixtures.productAId,
+        productId,
         harvestId,
         quantity: 60,
         unit: 'kg',
@@ -281,7 +308,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     });
 
     it('filters lots by productId and finds the new lot', async () => {
-      const res = await get(`/api/v1/lots?productId=${fixtures.productAId}`, adminToken).expect(200);
+      const res = await get(`/api/v1/lots?productId=${productId}`, adminToken).expect(200);
       expect(res.body.data.some((l: { id: number }) => l.id === lotId)).toBe(true);
     });
 
@@ -294,6 +321,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       await prisma.harvest.deleteMany({ where: { id: harvestId } });
       await prisma.farmingEvent.deleteMany({ where: { seasonId } });
       await prisma.season.deleteMany({ where: { id: seasonId } });
+      await prisma.product.deleteMany({ where: { id: productId } });
       await prisma.farm.deleteMany({ where: { id: farmId } });
       await prisma.partner.deleteMany({ where: { id: partnerId } });
     });
@@ -1233,7 +1261,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       await patch(`/api/v1/orders/${orderId}/status`, adminToken, { status: 'NOPE' }).expect(400);
     });
 
-    it('advances the order to DELIVERED and settles COD', async () => {
+    it('advances the order to DELIVERED without pretending COD was collected', async () => {
       for (const status of ['CONFIRMED', 'PREPARING', 'READY_TO_SHIP', 'SHIPPING', 'DELIVERED']) {
         await patch(`/api/v1/orders/${orderId}/status`, adminToken, { status }).expect(200);
       }
@@ -1244,7 +1272,39 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       });
       expect(order.status).toBe('DELIVERED');
       expect(order.partnerOrders.every((po) => po.status === 'DELIVERED')).toBe(true);
-      expect(order.payments.some((p) => p.method === 'COD' && p.status === 'PAID')).toBe(true);
+      // Delivery success does NOT prove the courier collected cash: the COD
+      // payment stays PENDING until the collection is confirmed explicitly.
+      expect(order.payments.some((p) => p.method === 'COD' && p.status === 'PENDING')).toBe(true);
+      expect(order.payments.every((p) => p.paidAt === null)).toBe(true);
+
+      // The goods physically left the warehouse: the reservation is consumed
+      // (reserved drops, on_hand drops) and an OUTBOUND movement is recorded.
+      const balance = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+      expect(Number(balance.reserved)).toBe(0);
+      expect(Number(balance.onHand)).toBe(195);
+      const outbound = await prisma.inventoryMovement.count({
+        where: { referenceType: 'Order', referenceId: orderId, type: 'OUTBOUND' },
+      });
+      expect(outbound).toBe(1);
+    });
+
+    it('records the COD collection explicitly and only then marks the payment PAID', async () => {
+      const payment = await prisma.payment.findFirstOrThrow({
+        where: { orderId, method: 'COD' },
+      });
+      expect(payment.status).toBe('PENDING');
+
+      const res = await patch(`/api/v1/payments/${payment.id}/status`, adminToken, {
+        status: 'PAID',
+        transactionReference: `COD-${RUN_ID}`,
+      }).expect(200);
+      expect(res.body.status).toBe('PAID');
+      expect(res.body.paidAt).toBeTruthy();
+
+      // Marking it paid twice is idempotent at the data level but still writes
+      // a fresh audit row; what matters is the payment is PAID exactly once.
+      const paid = await prisma.payment.count({ where: { orderId, status: 'PAID' } });
+      expect(paid).toBe(1);
     });
 
     it('filters orders by the new order status', async () => {

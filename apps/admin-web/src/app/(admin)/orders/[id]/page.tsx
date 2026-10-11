@@ -67,6 +67,19 @@ export default function OrderDetailPage() {
     },
   );
 
+  /**
+   * Records that the courier actually handed over the cash. This is the ONLY
+   * action that marks a COD payment PAID — moving the order to DELIVERED no
+   * longer does, because a delivered parcel does not prove collection.
+   */
+  const confirmCollection = useAction(
+    (paymentId: number) => resources.updatePaymentStatus(paymentId, "PAID"),
+    {
+      invalidate: [queryKeys.order(id), ["orders"], ["payments"]],
+      successMessage: "Đã ghi nhận thu tiền COD.",
+    },
+  );
+
   const itemColumns: ColumnsType<OrderItem> = [
     { title: "Sản phẩm", dataIndex: "productNameSnapshot" },
     { title: "SKU", dataIndex: "skuSnapshot", render: (v: string) => <span className="agri-mono">{v}</span> },
@@ -130,17 +143,15 @@ export default function OrderDetailPage() {
                   </Button>
                 </Dropdown>
                 {/**
-                 * SHIPPING → DELIVERED settles COD automatically. The button
-                 * itself stays enabled (the state machine owns the guard), but
-                 * the operator is told what the click MEANS for money: marking
-                 * a COD order delivered records the cash as collected. There is
-                 * no photo/proof field on this transition — the settlement is
-                 * the courier's handover record, not a status image.
+                 * Marking a COD order delivered does NOT record the cash as
+                 * collected — delivery success only proves the parcel arrived.
+                 * The operator records the collection explicitly in the
+                 * "Thanh toán" card below, after checking the courier's receipt.
                  */}
                 {isCodUnpaid ? (
                   <span style={{ fontSize: 12, color: "rgba(0,0,0,0.45)" }}>
-                    Chuyển sang Đã giao sẽ ghi nhận COD đã thu — chỉ xác nhận
-                    khi shipper đã thu tiền.
+                    COD chỉ được ghi nhận thu khi bạn xác nhận ở mục Thanh toán
+                    bên dưới.
                   </span>
                 ) : null}
               </>
@@ -286,10 +297,11 @@ export default function OrderDetailPage() {
              * COD settlement note: `payment.status` is the ONLY proof that
              * money was collected. `order.status = DELIVERED` (or a delivery
              * photo / shipment event) proves the parcel arrived — it does NOT
-             * prove the courier collected cash. DELIVERED settles COD
-             * automatically (see `OrdersService.applyStatusChange`), so a
+             * prove the courier collected cash. Collection is recorded with the
+             * explicit button below (PATCH /payments/:id/status), so a
              * DELIVERED order with a PENDING COD payment is a real
-             * inconsistency the operator must see, not a state to gloss over.
+             * inconsistency the operator must resolve, not a state to gloss
+             * over.
              */}
             {order.payments?.some(
               (p) => p.method === "COD" && p.status !== "PAID",
@@ -346,6 +358,24 @@ export default function OrderDetailPage() {
                           </div>
                         ))}
                       </div>
+                    ) : (
+                      "—"
+                    ),
+                },
+                {
+                  title: "Thao tác",
+                  width: 150,
+                  render: (_, row) =>
+                    row.status === "PENDING" ? (
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ paddingInline: 0 }}
+                        loading={confirmCollection.isPending}
+                        onClick={() => confirmCollection.mutate(row.id)}
+                      >
+                        Ghi nhận thu tiền
+                      </Button>
                     ) : (
                       "—"
                     ),

@@ -62,13 +62,26 @@ One customer order that spans several partners is split into one
 - Shipments, fulfillments and settlements all hang off the partner order, not
   the order.
 
-## 6. COD is not PAID early
+## 6. COD is collected, not assumed
 
 - Every payment is created as `PENDING` at checkout, including COD.
-- A COD payment becomes `PAID` **only** when the order is delivered — either via
-  `OrdersService.updateStatus(DELIVERED)` or when the last partner order's
-  shipment is marked `DELIVERED` (`ShipmentsService.updateStatus`).
+- A COD payment becomes `PAID` **only** when an admin confirms the collection
+  through `PATCH /payments/:id/status` — the moment the courier hands the cash
+  over. Delivery success is **not** proof of collection: a delivered parcel
+  proves the goods arrived, not that money changed hands, so moving an order to
+  `DELIVERED` leaves its COD payment `PENDING` until the receipt is confirmed.
 - Online payments follow the same lifecycle through the payments module.
+
+## 6b. Delivery consumes the reservation
+
+When an order reaches `DELIVERED`, its goods physically leave the warehouse, so
+`OrdersService.applyStatusChange` / `ShipmentsService.updateStatus` consume the
+order's reservations: `on_hand` and `reserved` both drop in one conditional
+UPDATE per allocation (`InventoryService.consumeStock`), an `OUTBOUND` movement
+is written (`referenceType: "Order"`), and the lot's `remaining_quantity` is
+decremented. A delivered order therefore frees no stock back for sale and holds
+no phantom reservation; the guard refuses (409) when a balance no longer holds
+the reservation instead of fabricating a shipment.
 
 ## 7. Delivery failure → quarantine
 
@@ -130,8 +143,11 @@ Three separate concepts with three separate behaviours:
 payableAmount = grossAmount − refundAmount − commissionAmount + adjustmentAmount
 ```
 
-- `SettlementsService.create` builds the settlement from the partner's delivered
-  / in-progress partner orders within `[periodStart, periodEnd]`.
+- `SettlementsService.create` builds the settlement from the partner's
+  **DELIVERED** partner orders within `[periodStart, periodEnd]`. Orders still in
+  transit (`READY_TO_SHIP`, `SHIPPING`) are excluded — their money is not payable
+  yet — and an order already claimed by any settlement (DRAFT included) is
+  excluded too, so the same order can never be paid twice across periods.
 - Each `SettlementLine` records `gross − refund − commission = payable` for one
   partner order.
 - A settlement starts `DRAFT` and must be `CONFIRMED` before a payout.
@@ -182,8 +198,9 @@ PENDING_CONFIRMATION → CONFIRMED → PREPARING → READY_TO_SHIP → SHIPPING 
 
 - `DELIVERED` and `CANCELLED` are terminal.
 - Illegal jumps are rejected with `400` (`assertTransition`).
-- Moving to `DELIVERED` settles COD (rule 6); moving to `CANCELLED` releases all
-  inventory reservations for the order.
+- Moving to `DELIVERED` consumes the order's stock reservations (rule 6b); it
+  does **not** settle COD (rule 6 — collection is confirmed explicitly). Moving
+  to `CANCELLED` releases all inventory reservations for the order.
 - Partner-order statuses are kept in sync with the order.
 
 ## 16. Shipment state machine
@@ -194,8 +211,9 @@ PENDING → READY → IN_TRANSIT → OUT_FOR_DELIVERY → DELIVERED
 ```
 
 Every transition writes a `ShipmentEvent`. `DELIVERED` propagates to the partner
-order and, once all partner orders are delivered, to the parent order (settling
-COD). `RETURNED` flags goods for quarantine (rule 7).
+order and, once all partner orders are delivered, to the parent order (consuming
+its stock reservations; COD is settled only by an explicit collection
+confirmation — rule 6). `RETURNED` flags goods for quarantine (rule 7).
 
 ## 17. Audit trail
 

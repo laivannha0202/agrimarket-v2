@@ -132,7 +132,7 @@ export default function TraceTabScreen() {
         <View style={styles.noteRow}>
           <Ionicons name="information-circle-outline" size={16} color={colors.info} />
           <Text style={styles.noteText}>
-            Hồ sơ truy xuất do backend AgriMarket trả về theo từng lô hàng thực tế. Không hiển thị dữ liệu mẫu.
+            Hồ sơ truy xuất do AgriMarket cung cấp theo dữ liệu ghi nhận của đơn vị sản xuất. AgriMarket không tự xác minh ngoài thực địa.
           </Text>
         </View>
 

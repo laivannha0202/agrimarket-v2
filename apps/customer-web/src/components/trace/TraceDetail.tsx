@@ -257,7 +257,7 @@ export function TraceDetail({ traceCode }: { traceCode: string }) {
                 <CheckRow label="Ngoại hình" ok={qualityControl.appearancePassed} />
                 <CheckRow label="Độ tươi" ok={qualityControl.freshnessPassed} />
                 <CheckRow label="Đóng gói" ok={qualityControl.packagingPassed} />
-                <CheckRow label="Tổn thương" ok={qualityControl.damagePassed} />
+                <CheckRow label="Không tổn thương" ok={qualityControl.damagePassed} />
               </>
             ) : (
               <Text size="sm" c="dimmed">
@@ -282,8 +282,12 @@ export function TraceDetail({ traceCode }: { traceCode: string }) {
                       <Text size="sm" fw={700}>
                         {certificate.type}
                       </Text>
+                      {/* "Hồ sơ đã đối chiếu" is what the system actually
+                          checked (the certificate record exists, is active and
+                          within validity). It must not claim a site audit that
+                          never happened. */}
                       <Badge color="agri" variant="light" size="xs" radius="sm">
-                        Đã xác minh bởi AgriMarket
+                        Hồ sơ đã đối chiếu
                       </Badge>
                     </Group>
                     <Text size="xs" c="dimmed">
