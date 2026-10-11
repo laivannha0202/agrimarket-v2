@@ -179,7 +179,7 @@ export default function OrderDetailScreen() {
            */}
           <Pressable
             onPress={() =>
-              router.push({ pathname: "/complaints", params: { orderId: String(o.id) } })
+              router.push({ pathname: "/complaints-new", params: { orderId: String(o.id) } })
             }
             style={({ pressed }) => [styles.itemAction, styles.orderAction, pressed && styles.pressed]}
             accessibilityRole="button"
@@ -283,7 +283,7 @@ export default function OrderDetailScreen() {
                     <Pressable
                       onPress={() =>
                         router.push({
-                          pathname: "/returns",
+                          pathname: "/returns-new",
                           params: { orderItemId: String(item.id) },
                         })
                       }
@@ -297,7 +297,7 @@ export default function OrderDetailScreen() {
                     <Pressable
                       onPress={() =>
                         router.push({
-                          pathname: "/my-reviews",
+                          pathname: "/my-reviews-new",
                           params: { orderItemId: String(item.id) },
                         })
                       }

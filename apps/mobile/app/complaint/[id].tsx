@@ -1,13 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Badge, Card, EmptyView, ErrorView, LoadingView } from "../../src/components/ui";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { EvidenceGallery } from "../../src/components/EvidenceGallery";
+import { Badge, Card, EmptyView, ErrorView, LoadingView, PrimaryButton } from "../../src/components/ui";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
 import { formatDateTime } from "../../src/lib/format";
 import { resources } from "../../src/lib/resources";
 import { complaintStatusMeta, complaintTypeLabel } from "../../src/lib/status";
-import { colors, radius, spacing, toneColors } from "../../src/lib/theme";
+import { colors, radius, spacing, toneColors, TOUCH } from "../../src/lib/theme";
 import { useAuth } from "../../src/providers";
 
 export default function ComplaintDetailScreen() {
@@ -104,6 +105,11 @@ export default function ComplaintDetailScreen() {
           <Text style={styles.bodyLabel}>Nội dung</Text>
           <Text style={styles.body}>{c.content}</Text>
         </View>
+        {/**
+         * The customer's own photos for this complaint, fetched with the
+         * session. Only the owner (and an ADMIN) can load them.
+         */}
+        <EvidenceGallery images={c.evidence} label="Ảnh minh chứng đã gửi" />
       </Card>
 
       <Card>
@@ -130,6 +136,32 @@ export default function ComplaintDetailScreen() {
           </View>
         )}
       </Card>
+
+      {/**
+       * Post-submit navigation: the detail is a dead end unless the customer
+       * can return to the order it came from or to the list of complaints.
+       */}
+      <View style={styles.navRow}>
+        <Pressable
+          onPress={() => router.push({ pathname: "/order/[id]", params: { id: String(c.orderId) } })}
+          style={({ pressed }) => [styles.navBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Về đơn ${c.order?.code ?? `#${c.orderId}`}`}
+        >
+          <Ionicons name="receipt-outline" size={15} color={colors.primary} />
+          <Text style={styles.navText}>Về đơn {c.order?.code ?? `#${c.orderId}`}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/complaints")}
+          style={({ pressed }) => [styles.navBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Danh sách khiếu nại"
+        >
+          <Ionicons name="list-outline" size={15} color={colors.primary} />
+          <Text style={styles.navText}>Danh sách khiếu nại</Text>
+        </Pressable>
+      </View>
+      <PrimaryButton label="Tạo khiếu nại mới" onPress={() => router.push("/complaints-new")} />
 
       <View style={styles.bottomPad} />
     </ScrollView>
@@ -169,4 +201,21 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
   },
   pendingText: { flex: 1, fontSize: 12.5, color: toneColors.yellow.fg, lineHeight: 18 },
+
+  navRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  navBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    borderColor: colors.primaryBorder,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    minHeight: TOUCH,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  navText: { fontSize: 12.5, fontWeight: "700", color: colors.primary },
+  pressed: { opacity: 0.85 },
 });

@@ -16,16 +16,20 @@
  * request was never created. Keeping the two steps adjacent removes that whole
  * class of half-state.
  *
- * WHY expo-image-picker
+ * WHY expo-image-picker (+ expo-image-manipulator)
  *
- * It is the Expo-managed picker: no prebuild, no eject, no native module
- * configuration, so the app stays on Expo Go. `requestMediaLibraryPermissions`
- * is called at the moment of use rather than on mount, because a permission
- * prompt that appears before the customer has asked for anything is the usual
- * reason people deny it.
+ * Both are Expo-managed modules: no prebuild, no eject, no native-module
+ * configuration, so the app stays on Expo Go. Permissions are requested at the
+ * moment of use rather than on mount, because a permission prompt that appears
+ * before the customer has asked for anything is the usual reason people deny
+ * it. `expo-image-manipulator` resizes photos to 1600px / JPEG 0.8 before
+ * upload so a 12 MP phone photo does not burn the customer's data allowance —
+ * the server still re-validates magic bytes, size and dimensions and
+ * re-encodes, so client compression is an optimisation, never a trust decision.
  */
 
 import { Ionicons } from "@expo/vector-icons";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
@@ -38,10 +42,19 @@ import {
   Text,
   View,
 } from "react-native";
+import {
+  EVIDENCE_MAX_SIDE_PX,
+  MAX_EVIDENCE,
+  MAX_EVIDENCE_BYTES,
+  buildEvidenceFileName,
+  isConvertibleEvidence,
+  isSupportedEvidence,
+  needsCompression,
+  rejectReasonForAsset,
+} from "../lib/evidence";
 import { colors, radius, spacing, TOUCH } from "../lib/theme";
 
-/** Max photos per request. Mirrors the backend cap. */
-export const MAX_EVIDENCE = 5;
+export { MAX_EVIDENCE };
 
 /**
  * One picked photo, before upload.
@@ -116,6 +129,64 @@ export async function uploadEvidence(
   return ids;
 }
 
+/**
+ * Resize / convert one picked asset with expo-image-manipulator.
+ *
+ * Returns the file to upload, or `null` when the image cannot be salvaged
+ * (manipulator unavailable AND conversion required). Any other failure falls
+ * back to the original: the server is the authority and will reject a truly
+ * bad file with its own message at submit time.
+ */
+async function prepareAssetFile(asset: {
+  uri: string;
+  width?: number;
+  height?: number;
+  fileName?: string | null;
+  mimeType?: string | null;
+  fileSize?: number | null;
+}): Promise<{ uri: string; mimeType: string; width?: number; height?: number } | null> {
+  const originalName = asset.fileName ?? "anh.jpg";
+  const originalMime = asset.mimeType ?? "image/jpeg";
+  const mustConvert = isConvertibleEvidence(originalName, asset.mimeType ?? undefined);
+  const tooBig =
+    typeof asset.fileSize === "number" && asset.fileSize > MAX_EVIDENCE_BYTES;
+  const tooLarge = needsCompression(asset.width, asset.height);
+
+  if (!mustConvert && !tooBig && !tooLarge && isSupportedEvidence(originalName, asset.mimeType ?? undefined)) {
+    return { uri: asset.uri, mimeType: originalMime, width: asset.width, height: asset.height };
+  }
+
+  try {
+    const ctx = ImageManipulator.manipulate(asset.uri);
+    if (tooLarge || mustConvert || tooBig) {
+      const w = asset.width ?? 0;
+      const h = asset.height ?? 0;
+      if (w > 0 && h > 0 && (w > EVIDENCE_MAX_SIDE_PX || h > EVIDENCE_MAX_SIDE_PX)) {
+        if (w >= h) ctx.resize({ width: EVIDENCE_MAX_SIDE_PX });
+        else ctx.resize({ height: EVIDENCE_MAX_SIDE_PX });
+      }
+    }
+    const ref = await ctx.renderAsync();
+    const out = await ref.saveAsync({ compress: 0.8, format: SaveFormat.JPEG });
+    return { uri: out.uri, mimeType: "image/jpeg", width: out.width, height: out.height };
+  } catch {
+    // HEIC cannot go to the server unconverted (sharp may not decode it), so a
+    // failed conversion is a real rejection, not a fallback.
+    if (mustConvert) return null;
+    if (isSupportedEvidence(originalName, asset.mimeType ?? undefined)) {
+      return { uri: asset.uri, mimeType: originalMime, width: asset.width, height: asset.height };
+    }
+    return null;
+  }
+}
+
+function settingsAlert(title: string, message: string): void {
+  Alert.alert(title, message, [
+    { text: "Để sau", style: "cancel" },
+    { text: "Mở cài đặt", onPress: () => void Linking.openSettings() },
+  ]);
+}
+
 export function EvidencePicker({
   items,
   onChange,
@@ -124,6 +195,122 @@ export function EvidencePicker({
 }: EvidencePickerProps) {
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Turns raw picker assets into `PickedEvidence`, compressing each one.
+   * Unsupported files are skipped and reported in ONE alert (not one per
+   * file), so picking 5 files with 1 bad GIF does not bury the 4 good ones.
+   */
+  const acceptAssets = async (
+    assets: ImagePicker.ImagePickerAsset[],
+    startIndex: number,
+  ): Promise<void> => {
+    const skipped: string[] = [];
+    const picked: PickedEvidence[] = [];
+
+    for (let i = 0; i < assets.length; i += 1) {
+      const asset = assets[i]!;
+      const rejected = rejectReasonForAsset({
+        fileName: asset.fileName ?? undefined,
+        mimeType: asset.mimeType,
+        fileSize: asset.fileSize,
+      });
+      if (rejected) {
+        skipped.push(asset.fileName ?? `ảnh ${startIndex + i + 1}`);
+        continue;
+      }
+      const prepared = await prepareAssetFile(asset);
+      if (!prepared) {
+        skipped.push(asset.fileName ?? `ảnh ${startIndex + i + 1}`);
+        continue;
+      }
+      const fileName = buildEvidenceFileName(asset.fileName ?? undefined, prepared.mimeType, startIndex + i);
+      picked.push({
+        key: `${Date.now()}-${startIndex + i}-${asset.assetId ?? asset.uri}`,
+        uri: prepared.uri,
+        fileName,
+        mimeType: prepared.mimeType,
+        status: "pending" as const,
+      });
+    }
+
+    if (picked.length > 0) onChange([...items, ...picked]);
+    if (skipped.length > 0) {
+      Alert.alert(
+        "Một số ảnh không thêm được",
+        `${skipped.length} ảnh bị bỏ qua (chỉ nhận JPG, PNG, WebP; mỗi ảnh tối đa 5 MB). Các ảnh còn lại vẫn được giữ.`,
+      );
+    }
+  };
+
+  const pickFromLibrary = async () => {
+    /**
+     * Permission first. A denial is a normal outcome, not an error: the
+     * message explains what to do and offers the settings screen, because on
+     * Android a denied permission cannot be re-requested from the app.
+     */
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      settingsAlert(
+        "Cần quyền truy cập ảnh",
+        "AgriMarket cần quyền đọc thư viện ảnh để bạn đính kèm ảnh minh chứng. Hãy cấp quyền trong Cài đặt.",
+      );
+      return;
+    }
+
+    const remaining = MAX_EVIDENCE - items.length;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      // A first-pass quality cut; the manipulator pass below resizes to 1600px.
+      quality: 0.8,
+      exif: false,
+    });
+    // Cancelled is a normal outcome — no alert, form untouched.
+    if (result.canceled) return;
+
+    /**
+     * Extra selections beyond the remaining slots are dropped here rather
+     * than at submit time, so the counter the customer sees is always the
+     * truth about what will be sent.
+     */
+    await acceptAssets(result.assets.slice(0, remaining), items.length);
+  };
+
+  const takePhoto = async () => {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      settingsAlert(
+        "Cần quyền camera",
+        "AgriMarket cần quyền camera để bạn chụp ảnh minh chứng. Hãy cấp quyền trong Cài đặt.",
+      );
+      return;
+    }
+
+    let result: ImagePicker.ImagePickerResult;
+    try {
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        allowsEditing: false,
+        quality: 0.8,
+        exif: false,
+      });
+    } catch {
+      Alert.alert(
+        "Không mở được camera",
+        "Thiết bị không có camera hoặc camera đang bận. Vui lòng thử chọn ảnh từ thư viện.",
+      );
+      return;
+    }
+    if (result.canceled) return;
+    await acceptAssets(result.assets.slice(0, MAX_EVIDENCE - items.length), items.length);
+  };
+
+  /**
+   * The "Thêm ảnh" entry point: an action sheet with exactly the two mandated
+   * choices — camera or library — plus cancel. A denied-then-cancelled flow
+   * leaves the form untouched.
+   */
   const pick = async () => {
     if (items.length >= MAX_EVIDENCE) {
       Alert.alert("Đã đủ ảnh", `Mỗi yêu cầu gửi tối đa ${MAX_EVIDENCE} ảnh.`);
@@ -132,53 +319,27 @@ export function EvidencePicker({
 
     setBusy(true);
     try {
-      /**
-       * Permission first. A denial is a normal outcome, not an error: the
-       * message explains what to do and offers the settings screen, because on
-       * Android a denied permission cannot be re-requested from the app.
-       */
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          "Cần quyền truy cập ảnh",
-          "AgriMarket cần quyền đọc thư viện ảnh để bạn đính kèm ảnh minh chứng.",
-          [
-            { text: "Để sau", style: "cancel" },
-            { text: "Mở cài đặt", onPress: () => void Linking.openSettings() },
-          ],
-        );
-        return;
-      }
-
-      const remaining = MAX_EVIDENCE - items.length;
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ["images"],
-        allowsMultipleSelection: true,
-        selectionLimit: remaining,
-        // The image is re-encoded server-side, so asking the picker for full
-        // quality only wastes the customer's data allowance.
-        quality: 0.8,
+      await new Promise<void>((resolve) => {
+        Alert.alert("Thêm ảnh minh chứng", `Tối đa ${MAX_EVIDENCE} ảnh (JPG, PNG, WebP).`, [
+          {
+            text: "Chụp ảnh bằng camera",
+            onPress: () => {
+              void takePhoto()
+                .catch(() => Alert.alert("Không chụp được ảnh", "Vui lòng thử lại."))
+                .finally(() => resolve());
+            },
+          },
+          {
+            text: "Chọn ảnh từ thư viện",
+            onPress: () => {
+              void pickFromLibrary()
+                .catch(() => Alert.alert("Không chọn được ảnh", "Vui lòng thử lại."))
+                .finally(() => resolve());
+            },
+          },
+          { text: "Hủy", style: "cancel", onPress: () => resolve() },
+        ]);
       });
-      if (result.canceled) return;
-
-      /**
-       * Extra selections beyond the remaining slots are dropped here rather
-       * than at submit time, so the counter the customer sees is always the
-       * truth about what will be sent.
-       */
-      const picked: PickedEvidence[] = result.assets.slice(0, remaining).map((asset, index) => {
-        const name = asset.fileName ?? `anh-${Date.now()}-${index}.jpg`;
-        return {
-          key: `${Date.now()}-${index}-${asset.assetId ?? asset.uri}`,
-          uri: asset.uri,
-          fileName: name,
-          mimeType: asset.mimeType ?? guessMime(name),
-          status: "pending" as const,
-        };
-      });
-      onChange([...items, ...picked]);
-    } catch {
-      Alert.alert("Không chọn được ảnh", "Vui lòng thử lại.");
     } finally {
       setBusy(false);
     }
@@ -259,14 +420,6 @@ export function EvidencePicker({
   );
 }
 
-/** Best-effort MIME from the file name; the server re-checks the real bytes. */
-function guessMime(name: string): string {
-  const ext = (name.split(".").pop() ?? "").toLowerCase();
-  if (ext === "png") return "image/png";
-  if (ext === "webp") return "image/webp";
-  return "image/jpeg";
-}
-
 const styles = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   label: { fontSize: 13, fontWeight: "600", color: colors.text, marginTop: spacing.sm },
@@ -324,4 +477,3 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.6 },
   errorHint: { fontSize: 12.5, color: colors.danger, marginTop: spacing.sm, lineHeight: 18 },
 });
-

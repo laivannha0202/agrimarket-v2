@@ -34,10 +34,13 @@ export default function RootLayout() {
           <Stack.Screen name="trace/[code]" options={{ title: "Truy xuất" }} />
           <Stack.Screen name="scan" options={{ title: "Quét mã QR" }} />
           <Stack.Screen name="returns" options={{ title: "Trả hàng" }} />
+          <Stack.Screen name="returns-new" options={{ title: "Tạo yêu cầu trả hàng" }} />
           <Stack.Screen name="return/[id]" options={{ title: "Chi tiết trả hàng" }} />
           <Stack.Screen name="complaints" options={{ title: "Khiếu nại" }} />
+          <Stack.Screen name="complaints-new" options={{ title: "Gửi khiếu nại" }} />
           <Stack.Screen name="complaint/[id]" options={{ title: "Chi tiết khiếu nại" }} />
           <Stack.Screen name="my-reviews" options={{ title: "Đánh giá của tôi" }} />
+          <Stack.Screen name="my-reviews-new" options={{ title: "Viết đánh giá" }} />
           <Stack.Screen name="vouchers" options={{ title: "Mã giảm giá" }} />
         </Stack>
       </AppProviders>

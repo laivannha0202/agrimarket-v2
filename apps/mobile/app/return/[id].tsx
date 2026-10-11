@@ -1,13 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { Badge, Card, EmptyView, ErrorView, LoadingView } from "../../src/components/ui";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { EvidenceGallery } from "../../src/components/EvidenceGallery";
+import { Badge, Card, EmptyView, ErrorView, LoadingView, PrimaryButton } from "../../src/components/ui";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
 import { formatDateTime, formatMoney } from "../../src/lib/format";
 import { resources } from "../../src/lib/resources";
 import { RETURN_FLOW, returnStatusMeta } from "../../src/lib/status";
-import { colors, spacing } from "../../src/lib/theme";
+import { colors, radius, spacing, TOUCH } from "../../src/lib/theme";
 import { useAuth } from "../../src/providers";
 
 export default function ReturnDetailScreen() {
@@ -99,6 +100,12 @@ export default function ReturnDetailScreen() {
           <Text style={styles.reasonLabel}>Lý do</Text>
           <Text style={styles.reasonText}>{r.reason}</Text>
         </View>
+        {/**
+         * The customer's own photos for this request, fetched with the
+         * session. Only the owner (and an ADMIN) can load them — a plain
+         * `<Image>` URL would arrive anonymous and be refused.
+         */}
+        <EvidenceGallery images={r.evidence} label="Ảnh minh chứng đã gửi" />
       </Card>
 
       {/* Progress through the real backend status flow (rejected is off-flow). */}
@@ -153,6 +160,32 @@ export default function ReturnDetailScreen() {
         )}
       </Card>
 
+      {/**
+       * Post-submit navigation: the detail is a dead end unless the customer
+       * can return to the order it came from or to the list of requests.
+       */}
+      <View style={styles.navRow}>
+        <Pressable
+          onPress={() => router.push({ pathname: "/order/[id]", params: { id: String(r.orderId) } })}
+          style={({ pressed }) => [styles.navBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Về đơn ${r.order?.code ?? `#${r.orderId}`}`}
+        >
+          <Ionicons name="receipt-outline" size={15} color={colors.primary} />
+          <Text style={styles.navText}>Về đơn {r.order?.code ?? `#${r.orderId}`}</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push("/returns")}
+          style={({ pressed }) => [styles.navBtn, pressed && styles.pressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Danh sách trả hàng"
+        >
+          <Ionicons name="list-outline" size={15} color={colors.primary} />
+          <Text style={styles.navText}>Danh sách trả hàng</Text>
+        </Pressable>
+      </View>
+      <PrimaryButton label="Tạo yêu cầu trả hàng mới" onPress={() => router.push("/returns-new")} />
+
       <View style={styles.bottomPad} />
     </ScrollView>
   );
@@ -196,4 +229,21 @@ const styles = StyleSheet.create({
 
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm, paddingVertical: 3 },
   amount: { fontSize: 15, fontWeight: "700", color: colors.primary },
+
+  navRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  navBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    borderColor: colors.primaryBorder,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    minHeight: TOUCH,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  navText: { fontSize: 12.5, fontWeight: "700", color: colors.primary },
+  pressed: { opacity: 0.85 },
 });

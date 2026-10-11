@@ -33,6 +33,16 @@ const MESSAGES: Record<string, string> = {
     "Bạn chỉ có thể khiếu nại cho đơn hàng của mình.",
   "Complaint not found": "Không tìm thấy khiếu nại.",
   "This item has already been reviewed": "Sản phẩm này đã được đánh giá.",
+  "This item has already been fully claimed in another return request":
+    "Sản phẩm này đã được yêu cầu trả toàn bộ trong yêu cầu khác.",
+  "Sản phẩm khiếu nại không thuộc đơn hàng này.": "Sản phẩm khiếu nại không thuộc đơn hàng này.",
+  "Ảnh đính kèm không hợp lệ hoặc đã thuộc yêu cầu khác. Vui lòng tải lại ảnh.":
+    "Ảnh đính kèm không hợp lệ hoặc đã thuộc yêu cầu khác. Vui lòng tải lại ảnh.",
+  "Tối đa 5 ảnh cho mỗi yêu cầu.": "Mỗi yêu cầu gửi tối đa 5 ảnh.",
+  "Chỉ nhận ảnh JPG, PNG hoặc WebP.": "Chỉ nhận ảnh JPG, PNG hoặc WebP.",
+  "Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.": "Ảnh vượt quá 5 MB. Vui lòng chọn ảnh nhỏ hơn.",
+  "Tệp không phải ảnh hợp lệ. Vui lòng tải lên ảnh JPG, PNG hoặc WebP thật.":
+    "Tệp không phải ảnh hợp lệ. Vui lòng tải lên ảnh JPG, PNG hoặc WebP thật.",
   "You can only review items you purchased": "Bạn chỉ có thể đánh giá sản phẩm mình đã mua.",
   "You can only review delivered orders": "Chỉ đơn hàng đã giao mới được đánh giá.",
   "Review not found": "Không tìm thấy đánh giá.",
@@ -77,6 +87,10 @@ const MESSAGES: Record<string, string> = {
 
 const PREFIXES: { pattern: RegExp; text: string }[] = [
   { pattern: /^Product variant \d+ not found$/, text: "Không tìm thấy loại đóng gói của sản phẩm." },
+  {
+    pattern: /^You can return at most [\d.]+ of this item$/,
+    text: "Số lượng trả vượt quá số lượng còn có thể trả của sản phẩm này.",
+  },
   {
     pattern: /^Flash sale quota exceeded for variant \d+$/,
     text: "Sản phẩm này đã hết suất trong chương trình giảm giá nhanh.",

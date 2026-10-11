@@ -91,6 +91,10 @@ export default function OrderDetailPage() {
   ];
 
   const transitions = order ? NEXT_STATUS[order.status] ?? [] : [];
+  const isCodUnpaid = Boolean(
+    order?.status === "SHIPPING" &&
+      order?.payments?.some((p) => p.method === "COD" && p.status !== "PAID"),
+  );
   const menuItems: MenuProps["items"] = transitions.map((t) => ({
     key: t.value,
     label: t.label,
@@ -111,19 +115,35 @@ export default function OrderDetailPage() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <StatusTag status={orderStatus(order.status)} />
             {transitions.length > 0 ? (
-              <Dropdown
-                menu={{
-                  items: menuItems,
-                  onClick: ({ key }) => {
-                    setPending(true);
-                    updateStatus.mutate(key);
-                  },
-                }}
-              >
-                <Button type="primary" loading={updateStatus.isPending || pending}>
-                  Chuyển trạng thái
-                </Button>
-              </Dropdown>
+              <>
+                <Dropdown
+                  menu={{
+                    items: menuItems,
+                    onClick: ({ key }) => {
+                      setPending(true);
+                      updateStatus.mutate(key);
+                    },
+                  }}
+                >
+                  <Button type="primary" loading={updateStatus.isPending || pending}>
+                    Chuyển trạng thái
+                  </Button>
+                </Dropdown>
+                {/**
+                 * SHIPPING → DELIVERED settles COD automatically. The button
+                 * itself stays enabled (the state machine owns the guard), but
+                 * the operator is told what the click MEANS for money: marking
+                 * a COD order delivered records the cash as collected. There is
+                 * no photo/proof field on this transition — the settlement is
+                 * the courier's handover record, not a status image.
+                 */}
+                {isCodUnpaid ? (
+                  <span style={{ fontSize: 12, color: "rgba(0,0,0,0.45)" }}>
+                    Chuyển sang Đã giao sẽ ghi nhận COD đã thu — chỉ xác nhận
+                    khi shipper đã thu tiền.
+                  </span>
+                ) : null}
+              </>
             ) : (
               <Tag>Đã kết thúc</Tag>
             )}
@@ -262,6 +282,33 @@ export default function OrderDetailPage() {
           ))}
 
           <DetailCard title="Thanh toán">
+            {/**
+             * COD settlement note: `payment.status` is the ONLY proof that
+             * money was collected. `order.status = DELIVERED` (or a delivery
+             * photo / shipment event) proves the parcel arrived — it does NOT
+             * prove the courier collected cash. DELIVERED settles COD
+             * automatically (see `OrdersService.applyStatusChange`), so a
+             * DELIVERED order with a PENDING COD payment is a real
+             * inconsistency the operator must see, not a state to gloss over.
+             */}
+            {order.payments?.some(
+              (p) => p.method === "COD" && p.status !== "PAID",
+            ) && order.status === "DELIVERED" ? (
+              <div
+                style={{
+                  marginBottom: 12,
+                  padding: "8px 12px",
+                  border: "1px solid #faad14",
+                  borderRadius: 6,
+                  background: "#fffbe6",
+                  fontSize: 13,
+                }}
+              >
+                Đơn đã giao nhưng tiền COD chưa được ghi nhận thu. Kiểm tra lại
+                biên lai thu tiền của đơn vị vận chuyển trước khi xử lý tiếp —
+                ảnh giao hàng không thay thế bằng chứng đã thu tiền.
+              </div>
+            ) : null}
             <Table<Payment>
               size="small"
               rowKey="id"

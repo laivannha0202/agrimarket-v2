@@ -617,6 +617,8 @@ export interface ReturnRequest {
   updatedAt: string;
   order?: { id: number; code: string };
   refund?: PaymentRefund | null;
+  /** Evidence photos attached when the request was created (list + detail). */
+  evidence?: EvidenceImage[];
 }
 
 export type ComplaintType = "PRODUCT_QUALITY" | "DELIVERY" | "WRONG_ITEM" | "OTHER";
@@ -635,6 +637,8 @@ export interface Complaint {
   updatedAt: string;
   resolvedAt: string | null;
   order?: { id: number; code: string };
+  /** Evidence photos attached when the complaint was filed (list + detail). */
+  evidence?: EvidenceImage[];
 }
 
 export interface MyReview {

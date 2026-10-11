@@ -35,3 +35,8 @@ Thumbs.db
 
 # git
 *.orig
+
+# local tooling state / scratch dirs (may contain tokens — never commit)
+.kilo/
+.playwright-mcp/
+.tmp-verify/
