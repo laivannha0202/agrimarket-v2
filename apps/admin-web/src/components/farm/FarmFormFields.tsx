@@ -27,13 +27,13 @@ export function FarmFormFields({ partnerLocked = false }: { partnerLocked?: bool
         <Input placeholder="VD: Thôn Đa Hòa, xã Minh Châu, Hưng Yên" />
       </Form.Item>
       <Form.Item label="Vĩ độ" name="latitude">
-        <Input type="number" placeholder="VD: 20.6464" />
+        <Input inputMode="decimal" placeholder="VD: 20.6464" />
       </Form.Item>
       <Form.Item label="Kinh độ" name="longitude">
-        <Input type="number" placeholder="VD: 106.0512" />
+        <Input inputMode="decimal" placeholder="VD: 106.0512" />
       </Form.Item>
       <Form.Item label="Diện tích (ha)" name="areaHa">
-        <Input type="number" placeholder="VD: 2.5" />
+        <Input inputMode="decimal" placeholder="VD: 2.5" />
       </Form.Item>
       <Form.Item label="Mô tả" name="description">
         <Input.TextArea rows={3} />

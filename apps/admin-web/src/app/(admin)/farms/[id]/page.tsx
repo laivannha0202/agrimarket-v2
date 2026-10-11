@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Button, Form, Input, Select, Table, Typography } from "antd";
+import { Button, Form, Input, Select, Table } from "antd";
 import { EditOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
@@ -41,18 +41,18 @@ export default function FarmDetailPage() {
   );
 
   const seasons = useListQuery<Season>(
-    queryKeys.seasons({ farmId: id, scope: "farm-detail" }),
+    queryKeys.seasons({ farmId: id }),
     resources.seasons,
-    { limit: 100 },
+    { farmId: id, limit: 100 },
   );
-  const farmSeasons = (seasons.data?.data ?? []).filter((s) => String(s.farmId) === id);
+  const farmSeasons = seasons.data?.data ?? [];
 
   const certificates = useListQuery<Certificate>(
-    queryKeys.certificates({ farmId: id, scope: "farm-detail" }),
+    queryKeys.certificates({ farmId: id }),
     resources.certificates,
-    { limit: 100 },
+    { farmId: id, limit: 100 },
   );
-  const farmCerts = (certificates.data?.data ?? []).filter((c) => String(c.farmId) === id);
+  const farmCerts = certificates.data?.data ?? [];
 
   const update = useAction(
     (values: Record<string, unknown>) =>
@@ -265,10 +265,6 @@ export default function FarmDetailPage() {
               <Select options={statusOptions(SEASON_STATUS)} />
             </Form.Item>
           </FormModal>
-
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-            Chứng nhận chỉ hiển thị các bản ghi thuộc trang trại này.
-          </Typography.Paragraph>
         </>
       ) : null}
     </DetailPage>

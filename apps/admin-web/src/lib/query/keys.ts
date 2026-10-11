@@ -49,4 +49,7 @@ export const queryKeys = {
   settlements: (params?: ListParams) => ["settlements", params ?? {}] as const,
   settlement: (id: number | string) => ["settlement", String(id)] as const,
   payouts: (params?: ListParams) => ["payouts", params ?? {}] as const,
+
+  reportsSummary: (params?: ListParams) => ["reports-summary", params ?? {}] as const,
+  reportsDaily: (params?: ListParams) => ["reports-daily", params ?? {}] as const,
 };

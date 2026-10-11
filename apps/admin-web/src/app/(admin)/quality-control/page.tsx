@@ -9,7 +9,7 @@ import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { useListState } from "@/hooks/useListState";
-import { useClientList } from "@/hooks/useClientList";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { useLotOptions } from "@/hooks/useOptions";
 import { resources } from "@/lib/api/resources";
@@ -18,25 +18,17 @@ import { formatDateTime } from "@/lib/format";
 import { QC_RESULT, qcResult, lotStatus, statusOptions } from "@/lib/status";
 import type { QcInspection } from "@/types/api";
 
-// /qc only whitelists page/limit/search/status, so the lot filter is applied
-// in the browser.
-const qcFilter = (row: QcInspection, filters: Record<string, string | undefined>) => {
-  if (filters.productLotId && String(row.productLotId) !== filters.productLotId) return false;
-  return true;
-};
-
 export default function QualityControlPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
   const lots = useLotOptions();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<QcInspection>({
-    queryKey: queryKeys.qc({ scope: "admin-list" }),
-    fetcher: resources.qc,
-    state: list,
-    filter: qcFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<QcInspection>(
+    queryKeys.qc(list.params),
+    resources.qc,
+    list.params,
+  );
 
   const inspect = useAction(
     (values: {
@@ -57,6 +49,10 @@ export default function QualityControlPage() {
       },
     },
   );
+
+  // A FAIL record without a reason is rejected by the backend — require the
+  // note as soon as FAIL is selected so the inspector is not surprised.
+  const result = Form.useWatch("result", form);
 
   const columns: ColumnsType<QcInspection> = [
     {
@@ -108,7 +104,6 @@ export default function QualityControlPage() {
     <>
       <ListPage<QcInspection>
         title="Kiểm định chất lượng"
-        subtitle="Ghi nhận kết quả kiểm định lô hàng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -129,12 +124,12 @@ export default function QualityControlPage() {
           </Button>
         }
         columns={columns}
-        data={data}
+        data={data?.data ?? []}
         loading={isLoading}
         error={isError ? new Error("Không tải được danh sách kiểm định.") : undefined}
         onRetry={() => void refetch()}
         emptyText="Chưa có phiếu kiểm định"
-        total={total}
+        total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}
         onPageChange={list.setPage}
@@ -177,8 +172,14 @@ export default function QualityControlPage() {
         <Form.Item name="packagingPassed" valuePropName="checked" initialValue={false}>
           <Checkbox>Đóng gói đạt</Checkbox>
         </Form.Item>
-        <Form.Item label="Ghi chú" name="note">
-          <Input.TextArea rows={3} />
+        <Form.Item
+          label="Ghi chú"
+          name="note"
+          rules={
+            result === "FAIL" ? [{ required: true, message: "Nhập lý do không đạt." }] : undefined
+          }
+        >
+          <Input.TextArea rows={3} placeholder={result === "FAIL" ? "VD: Dập nát nhiều, loại bỏ lô." : undefined} />
         </Form.Item>
       </FormModal>
     </>

@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsDateString,
   IsEnum,
   IsInt,
@@ -8,8 +9,10 @@ import {
   IsOptional,
   IsString,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { DiscountType, RecordStatus } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateVoucherDto {
   @ApiProperty({ example: 'HUNGYEN50K' })
@@ -142,6 +145,45 @@ export class CreateFlashSaleDto {
   status?: RecordStatus;
 
   @ApiProperty({ type: [CreateFlashSaleItemDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
   @Type(() => CreateFlashSaleItemDto)
   items!: CreateFlashSaleItemDto[];
+}
+
+/**
+ * Query DTO shared by `GET /vouchers`, `/product-discounts` and
+ * `/flash-sales`. All three are `RecordStatus`-filtered, and the strict enum
+ * turns an unknown status into a 400 instead of a Prisma error.
+ */
+export class PromotionQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: RecordStatus })
+  @IsOptional()
+  @IsEnum(RecordStatus)
+  declare status?: RecordStatus;
+}
+
+/**
+ * `PATCH /vouchers/:id`. Only the record status is editable after creation:
+ * discount terms and the validity window are fixed once a voucher may have
+ * been redeemed, so history is never re-priced by an edit.
+ */
+export class UpdateVoucherStatusDto {
+  @ApiProperty({ enum: RecordStatus })
+  @IsEnum(RecordStatus)
+  status!: RecordStatus;
+}
+
+/** `PATCH /product-discounts/:id` — status only, same reasoning as vouchers. */
+export class UpdateProductDiscountStatusDto {
+  @ApiProperty({ enum: RecordStatus })
+  @IsEnum(RecordStatus)
+  status!: RecordStatus;
+}
+
+/** `PATCH /flash-sales/:id` — status only. */
+export class UpdateFlashSaleStatusDto {
+  @ApiProperty({ enum: RecordStatus })
+  @IsEnum(RecordStatus)
+  status!: RecordStatus;
 }

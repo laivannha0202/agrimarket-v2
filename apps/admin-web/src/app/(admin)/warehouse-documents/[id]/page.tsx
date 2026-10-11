@@ -33,17 +33,25 @@ export default function WarehouseDocumentDetailPage() {
   const lineColumns: ColumnsType<WarehouseDocumentLine> = [
     {
       title: "Lô hàng",
-      dataIndex: "productLotId",
-      render: (v: number) => (
-        <Link href={`/lots/${v}`} className="agri-link agri-mono">
-          #{v}
+      render: (_, row) => (
+        <Link href={`/lots/${row.productLotId}`} className="agri-link agri-mono">
+          {row.productLot?.code ?? `#${row.productLotId}`}
         </Link>
       ),
     },
     {
-      title: "Biến thể",
-      dataIndex: "productVariantId",
-      render: (v: number) => <span className="agri-mono">#{v}</span>,
+      title: "Quy cách bán",
+      render: (_, row) =>
+        row.productVariant ? (
+          <span>
+            {row.productVariant.name}{" "}
+            <span className="agri-muted agri-mono" style={{ fontSize: 12 }}>
+              {row.productVariant.sku}
+            </span>
+          </span>
+        ) : (
+          <span className="agri-mono">#{row.productVariantId}</span>
+        ),
     },
     {
       title: "Số lượng",
@@ -58,7 +66,13 @@ export default function WarehouseDocumentDetailPage() {
   return (
     <DetailPage
       title={doc ? `Phiếu kho ${doc.code}` : "Chi tiết phiếu kho"}
-      subtitle={doc ? `Tạo lúc ${formatDateTime(doc.createdAt)}` : undefined}
+      subtitle={
+        doc
+          ? doc.completedAt
+            ? `Ngày chứng từ ${formatDateTime(doc.completedAt)}`
+            : "Phiếu nháp — chưa hoàn thành"
+          : undefined
+      }
       backHref="/warehouse-documents"
       backLabel="Danh sách phiếu kho"
       loading={isLoading}
@@ -96,9 +110,14 @@ export default function WarehouseDocumentDetailPage() {
                   children: doc.sourceType ? `${doc.sourceType} #${doc.sourceId ?? ""}` : "—",
                 },
                 {
-                  key: "completed",
-                  label: "Hoàn thành lúc",
-                  children: doc.completedAt ? formatDateTime(doc.completedAt) : "—",
+                  key: "businessDate",
+                  label: "Ngày chứng từ",
+                  children: doc.completedAt ? formatDateTime(doc.completedAt) : "Chưa hoàn thành",
+                },
+                {
+                  key: "created",
+                  label: "Tạo bản ghi lúc",
+                  children: formatDateTime(doc.createdAt),
                 },
                 { key: "note", label: "Ghi chú", span: 2, children: doc.note ?? "—" },
               ]}

@@ -111,7 +111,6 @@ function SettlementsTab() {
     <>
       <ListPage<Settlement>
         title="Đối soát"
-        subtitle="Đối soát doanh thu và hoa hồng theo đối tác"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -178,14 +177,20 @@ function PayoutsTab() {
   const list = useListState();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
-  const settlements = useListQuery<Settlement>(
-    queryKeys.settlements({ scope: "payout-lookup" }),
+  // Payouts can only be created for CONFIRMED (or already PAID) settlements, so
+  // the lookup runs two server-side filtered queries and merges them.
+  const confirmed = useListQuery<Settlement>(
+    queryKeys.settlements({ status: "CONFIRMED" }),
     resources.settlements,
-    { limit: 100 },
+    { status: "CONFIRMED", limit: 100 },
   );
-  const payableSettlements = (settlements.data?.data ?? []).filter(
-    (s) => s.status === "CONFIRMED" || s.status === "PAID",
+  const paid = useListQuery<Settlement>(
+    queryKeys.settlements({ status: "PAID" }),
+    resources.settlements,
+    { status: "PAID", limit: 100 },
   );
+  const payableSettlements = [...(confirmed.data?.data ?? []), ...(paid.data?.data ?? [])];
+  const settlementsLoading = confirmed.isLoading || paid.isLoading;
 
   const { data, isLoading, isError, refetch } = useListQuery<Payout>(
     queryKeys.payouts(list.params),
@@ -273,7 +278,6 @@ function PayoutsTab() {
     <>
       <ListPage<Payout>
         title="Chi trả"
-        subtitle="Lệnh chi trả cho đối tác"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -326,7 +330,7 @@ function PayoutsTab() {
           <Select
             showSearch
             optionFilterProp="label"
-            loading={settlements.isLoading}
+            loading={settlementsLoading}
             options={payableSettlements.map((s) => ({
               label: `${s.code} — ${s.partner?.name ?? ""} (${formatMoney(s.payableAmount)})`,
               value: s.id,

@@ -69,4 +69,29 @@ describe('Commission rules', () => {
     const rate = await service.resolveRatePercent({ partnerId: 1, categoryId: 1 }, now);
     expect(rate).toBe(0);
   });
+
+  it('reads the rate through the caller transaction, never the outer client', async () => {
+    // Regression guard for the checkout stall. `calculateForPartnerOrder` runs
+    // inside the checkout transaction; if it resolved the rate through the
+    // outer `this.prisma` it would check out a SECOND pool connection while the
+    // first is still held. N concurrent checkouts then need 2N connections and
+    // the whole checkout stalls with P2028 timeouts (measured: 0/12 succeeded,
+    // 5060ms). The lookup must go through the passed `tx`.
+    const outer = createMockPrisma();
+    const serviceUsingOuter = new CommissionService(outer as never);
+    const tx = createMockPrisma();
+    tx.commissionRule.findMany.mockResolvedValue([
+      { id: 1, partnerId: null, categoryId: null, ratePercent: 7 },
+    ]);
+
+    const result = await serviceUsingOuter.calculateForPartnerOrder(tx as never, {
+      partnerId: 1,
+      categoryId: 1,
+      commissionBase: 100000,
+    });
+
+    expect(result.ratePercent).toBe(7);
+    expect(tx.commissionRule.findMany).toHaveBeenCalledTimes(1);
+    expect(outer.commissionRule.findMany).not.toHaveBeenCalled();
+  });
 });

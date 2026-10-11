@@ -9,7 +9,7 @@ import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { useListState } from "@/hooks/useListState";
-import { useClientList } from "@/hooks/useClientList";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { useLotOptions, useVariantOptions, useWarehouseOptions } from "@/hooks/useOptions";
 import { resources } from "@/lib/api/resources";
@@ -32,15 +32,6 @@ interface DocLine {
   unit?: string;
 }
 
-// /warehouse-documents only whitelists page/limit/search/status, so the type
-// filter is applied in the browser (status is also handled here for a single
-// consistent filter pass).
-const docFilter = (d: WarehouseDocument, filters: Record<string, string | undefined>) => {
-  if (filters.type && d.type !== filters.type) return false;
-  if (filters.status && d.status !== filters.status) return false;
-  return true;
-};
-
 export default function WarehouseDocumentsPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
@@ -49,12 +40,11 @@ export default function WarehouseDocumentsPage() {
   const lots = useLotOptions();
   const variants = useVariantOptions();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<WarehouseDocument>({
-    queryKey: queryKeys.warehouseDocuments({ scope: "admin-list" }),
-    fetcher: resources.warehouseDocuments,
-    state: list,
-    filter: docFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<WarehouseDocument>(
+    queryKeys.warehouseDocuments(list.params),
+    resources.warehouseDocuments,
+    list.params,
+  );
 
   const create = useAction(
     (values: { warehouseId: number; type: string; note?: string; lines: DocLine[] }) => {
@@ -118,7 +108,6 @@ export default function WarehouseDocumentsPage() {
     <>
       <ListPage<WarehouseDocument>
         title="Phiếu kho"
-        subtitle="Phiếu nhập, xuất và hoàn hàng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -146,12 +135,12 @@ export default function WarehouseDocumentsPage() {
           </Button>
         }
         columns={columns}
-        data={data}
+        data={data?.data ?? []}
         loading={isLoading}
         error={isError ? new Error("Không tải được danh sách phiếu kho.") : undefined}
         onRetry={() => void refetch()}
         emptyText="Không có phiếu kho phù hợp"
-        total={total}
+        total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}
         onPageChange={list.setPage}
@@ -217,14 +206,14 @@ export default function WarehouseDocumentsPage() {
                   <Form.Item
                     {...rest}
                     name={[name, "productVariantId"]}
-                    rules={[{ required: true, message: "Biến thể" }]}
+                    rules={[{ required: true, message: "Quy cách bán" }]}
                   >
                     <Select
                       showSearch
                       optionFilterProp="label"
                       loading={variants.isLoading}
                       options={variants.data}
-                      placeholder="Biến thể"
+                      placeholder="Quy cách bán"
                       style={{ width: 220 }}
                     />
                   </Form.Item>

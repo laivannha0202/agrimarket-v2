@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
-import { buildCode } from '../common/utils/code.util.js';
+import { buildCode, isUniqueViolationOn, nextSequence } from '../common/utils/code.util.js';
 import {
   buildPagination,
   normalizeSearch,
@@ -11,13 +11,31 @@ import { CreateFarmDto, UpdateFarmDto } from './dto/farm.dto.js';
 import type { Farm, Prisma } from '../../generated/prisma/client.js';
 import type { RecordStatus } from '../../generated/prisma/enums.js';
 
+const CODE_ATTEMPTS = 3;
+
 @Injectable()
 export class FarmsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateFarmDto): Promise<Farm> {
-    const count = await this.prisma.farm.count();
-    const code = buildCode('FARM', count + 1);
+    // Sequence from the highest existing code (never a row count), with a retry
+    // when a concurrent insert wins the race for the same number.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await this.createWithNextCode(dto);
+      } catch (error) {
+        if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
+        throw error;
+      }
+    }
+  }
+
+  private async createWithNextCode(dto: CreateFarmDto): Promise<Farm> {
+    const existing = await this.prisma.farm.findMany({
+      where: { code: { startsWith: 'FARM-' } },
+      select: { code: true },
+    });
+    const code = buildCode('FARM', nextSequence(existing.map((row) => row.code), 'FARM'));
     return this.prisma.farm.create({
       data: {
         ...dto,
@@ -33,12 +51,14 @@ export class FarmsService {
     page?: number;
     limit?: number;
     search?: string;
-    status?: string;
+    status?: RecordStatus;
+    partnerId?: number;
   }): Promise<PaginatedResult<Farm>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const search = normalizeSearch(query.search);
     const where: Prisma.FarmWhereInput = {
-      ...(query.status ? { status: query.status as RecordStatus } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.partnerId ? { partnerId: query.partnerId } : {}),
       ...(search
         ? {
             OR: [

@@ -203,3 +203,56 @@ Significant actions (inventory adjustments, lot recalls, QC results, order and
 shipment status changes, settlement/payout changes) are written to
 `audit_logs` with actor, action, entity, before/after JSON and an optional
 reason. `AuditService.record` is the single writer.
+
+## 18. Delivery address follows the 2025 administrative reorganisation
+
+The 2025 reorganisation merged the province level and **abolished the district
+(huyện) level**, so an address is now two levels: **tỉnh → xã/phường**. Hưng Yên
+has exactly **104** commune-level units (93 xã + 11 phường).
+
+- **The API is the single source of truth for the catalogue.** Clients fetch it
+  from `GET /locations/provinces/:code/wards`; no frontend ships its own copy of
+  the 104-unit list, because three copies would drift.
+- **Codes are strings.** A commune code is 5 characters (`"11953"`), never a
+  number, so a leading zero can never be lost.
+- **The server resolves the name.** The client sends `provinceCode` + `wardCode`;
+  `wardName` is taken from the catalogue and the client's own spelling is
+  discarded. A client cannot store a commune name that does not match its code.
+- **Validation is server-side.** An unknown code, or one belonging to a different
+  province, is refused with `400`. A `wardCode` without a `provinceCode` is also
+  refused — it cannot be checked against the right province otherwise.
+- **A bad address is refused before anything is claimed.** Checkout validates and
+  snapshots the address *before* the transaction opens, so an invalid commune
+  never consumes a voucher, an order code or stock.
+- **Legacy addresses are preserved, not migrated by guesswork.** Pre-reorganisation
+  addresses keep their free-text `province` / `district` / `ward` exactly as
+  saved, and remain usable. Editing one to a catalogue commune drops `district`,
+  because that level no longer exists.
+- **No invented data.** Thôn / tổ dân phố stays free text (`village`): no verified
+  list was delivered, so none was fabricated. Likewise no GPS coordinates and no
+  postal codes.
+
+## 19. Customer accounts and password recovery
+
+One account system serves both Customer Web and Mobile; `users` is the single
+table, with `role` distinguishing `ADMIN` from `CUSTOMER`.
+
+- **Self-registration cannot escalate privileges.** `POST /auth/register` always
+  creates an `ACTIVE` `CUSTOMER`. The DTO has no `role` field and the global
+  `ValidationPipe` rejects unknown properties, so `role: "ADMIN"` is a `400`, not
+  a silent upgrade. Registration does **not** issue a session — the customer signs
+  in through `/login`, one flow for both clients.
+- **Changing a password ends the other sessions.** `users.password_changed_at`
+  backs a password-version claim in the JWT, so every token issued before the
+  change is rejected. The device that made the change receives a fresh token and
+  stays signed in.
+- **Recovery is a real token flow, and does not reveal accounts.**
+  `POST /forgot-password` answers **identically** whether or not the address is
+  registered, so it cannot be used to enumerate customers. When a link is issued,
+  only the SHA-256 **hash** is stored; the raw token exists only in the e-mail.
+  Tokens last 1 hour, are single-use, and a new request supersedes the old one.
+  Every failure mode returns one generic error.
+- **Mail delivery is reported honestly.** The response carries
+  `delivery: { mode, delivered }`. `mode: "test"` means the message was captured
+  in memory and **nothing was sent** — a test transport is never presented as a
+  delivered e-mail.

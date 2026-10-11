@@ -37,12 +37,12 @@ export class PartnersService {
     page?: number;
     limit?: number;
     search?: string;
-    status?: string;
+    status?: RecordStatus;
   }): Promise<PaginatedResult<Partner>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const search = normalizeSearch(query.search);
     const where: Prisma.PartnerWhereInput = {
-      ...(query.status ? { status: query.status as RecordStatus } : {}),
+      ...(query.status ? { status: query.status } : {}),
       ...(search
         ? {
             OR: [

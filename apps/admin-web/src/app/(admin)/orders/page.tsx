@@ -68,7 +68,6 @@ export default function OrdersPage() {
   return (
     <ListPage<Order>
       title="Đơn hàng"
-      subtitle="Quản lý đơn hàng và tiến trình giao nhận"
       searchValue={list.search}
       onSearchChange={list.setSearch}
       searchPlaceholder="Tìm theo mã đơn, tên khách hàng..."

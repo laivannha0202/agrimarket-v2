@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button, Form } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { EditOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -19,9 +19,12 @@ import { toNumeric } from "@/lib/format/form";
 import { recordStatus } from "@/lib/status";
 import type { Farm } from "@/types/api";
 
+const NUMERIC_KEYS = ["partnerId", "latitude", "longitude", "areaHa"] as const;
+
 export default function FarmsPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Farm | null>(null);
   const [form] = Form.useForm();
 
   const { data, isLoading, isError, refetch } = useListQuery<Farm>(
@@ -30,18 +33,34 @@ export default function FarmsPage() {
     list.params,
   );
 
-  const create = useAction(
+  const save = useAction(
     (values: Record<string, unknown>) =>
-      resources.createFarm(toNumeric(values, ["partnerId", "latitude", "longitude", "areaHa"])),
+      editing
+        ? resources.updateFarm(editing.id, toNumeric(values, [...NUMERIC_KEYS]))
+        : resources.createFarm(toNumeric(values, [...NUMERIC_KEYS])),
     {
       invalidate: [["farms"]],
-      successMessage: "Đã tạo trang trại.",
+      successMessage: "Đã lưu trang trại.",
       onSuccess: () => {
         setOpen(false);
+        setEditing(null);
         form.resetFields();
       },
     },
   );
+
+  const openCreate = () => {
+    setEditing(null);
+    form.resetFields();
+    setOpen(true);
+  };
+
+  const openEdit = (row: Farm) => {
+    setEditing(row);
+    form.resetFields();
+    form.setFieldsValue(row);
+    setOpen(true);
+  };
 
   const columns: ColumnsType<Farm> = [
     {
@@ -70,19 +89,34 @@ export default function FarmsPage() {
       dataIndex: "status",
       render: (s: string) => <StatusTag status={recordStatus(s)} />,
     },
+    {
+      title: "Thao tác",
+      width: 90,
+      fixed: "right",
+      render: (_, row) => (
+        <Button
+          type="link"
+          size="small"
+          icon={<EditOutlined />}
+          style={{ paddingInline: 0 }}
+          onClick={() => openEdit(row)}
+        >
+          Sửa
+        </Button>
+      ),
+    },
   ];
 
   return (
     <>
       <ListPage<Farm>
         title="Trang trại"
-        subtitle="Cơ sở sản xuất trực thuộc đối tác"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         searchPlaceholder="Tìm theo tên, mã trang trại..."
         onReset={list.reset}
         toolbarExtra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             Thêm trang trại
           </Button>
         }
@@ -97,20 +131,23 @@ export default function FarmsPage() {
         limit={list.limit}
         onPageChange={list.setPage}
         onLimitChange={list.setLimit}
-        scrollX={960}
+        scrollX={1040}
         itemLabel="trang trại"
       />
 
       <FormModal
         open={open}
-        title="Thêm trang trại"
+        title={editing ? "Chỉnh sửa trang trại" : "Thêm trang trại"}
         form={form}
-        onCancel={() => setOpen(false)}
-        onSubmit={(values) => create.mutate(values)}
-        submitting={create.isPending}
+        onCancel={() => {
+          setOpen(false);
+          setEditing(null);
+        }}
+        onSubmit={(values) => save.mutate(values as Record<string, unknown>)}
+        submitting={save.isPending}
         width={600}
       >
-        <FarmFormFields />
+        <FarmFormFields partnerLocked={editing !== null} />
       </FormModal>
     </>
   );

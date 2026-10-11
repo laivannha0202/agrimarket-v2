@@ -11,6 +11,20 @@ import { vi } from 'vitest';
  *
  * `$transaction` runs the callback with the same mock so transactional
  * services behave normally. This keeps business-rule tests focused on logic.
+ *
+ * The concurrency fixes moved several invariants into the database itself, so
+ * the services now use raw statements that the model delegates cannot express:
+ *
+ *   - `$executeRaw`  — the atomic conditional UPDATEs (`reserved = reserved + ?
+ *     WHERE on_hand - reserved - blocked >= ?`, the flash-quota claim, the
+ *     voucher usage claim, the `INSERT ... ON DUPLICATE KEY UPDATE` counter).
+ *     It returns the number of affected rows, so the default is `1` (the claim
+ *     won). A test that wants to exercise the guard rejects it with `0`.
+ *   - `$queryRaw`    — the counter read-back. `claimSequence` throws when it
+ *     gets no row, so the default is a single `code_sequences` row.
+ *
+ * These defaults are re-applied by `resetMockPrisma` so a `mockReset()` between
+ * tests cannot silently strip them.
  */
 type MockFn = ReturnType<typeof vi.fn>;
 
@@ -52,8 +66,11 @@ const DELEGATE_METHODS: (keyof MockDelegate)[] = [
 
 const MODELS = [
   'user',
+  'passwordResetToken',
   'customerProfile',
   'address',
+  'province',
+  'ward',
   'partner',
   'farm',
   'season',
@@ -75,6 +92,7 @@ const MODELS = [
   'cart',
   'cartItem',
   'order',
+  'checkoutIdempotencyKey',
   'partnerOrder',
   'orderItem',
   'inventoryAllocation',
@@ -91,6 +109,7 @@ const MODELS = [
   'review',
   'complaint',
   'returnRequest',
+  'evidenceImage',
   'commissionRule',
   'settlement',
   'settlementLine',
@@ -119,19 +138,35 @@ export function createMockPrisma(): MockPrisma {
     mock[model] = delegate;
   }
 
-  // $transaction(callback) runs the callback with the same mock.
+  mock.$connect = vi.fn(async () => undefined);
+  mock.$disconnect = vi.fn(async () => undefined);
+  applyTransactionDefault(mock);
+  applyRawDefaults(mock);
+
+  return mock as unknown as MockPrisma;
+}
+
+/**
+ * Defaults for the raw statements the atomic claims use.
+ *
+ * `$executeRaw` resolves `1` (the conditional UPDATE matched and claimed its
+ * row); `$queryRaw` resolves one `code_sequences` row so `claimSequence` can
+ * read its value back. Tests override these when they need the "claim lost"
+ * path (`mockResolvedValue(0)`) or a specific sequence number.
+ */
+function applyRawDefaults(mock: Record<string, unknown>): void {
+  mock.$queryRaw = vi.fn(async () => [{ value: 1 }]);
+  mock.$executeRaw = vi.fn(async () => 1);
+}
+
+/** `$transaction(fn)` runs `fn` with the same mock; `$transaction([...])` awaits. */
+function applyTransactionDefault(mock: Record<string, unknown>): void {
   mock.$transaction = vi.fn(async (arg: unknown) => {
     if (typeof arg === 'function') {
       return (arg as (tx: unknown) => unknown)(mock);
     }
     return Promise.all(arg as Promise<unknown>[]);
   });
-  mock.$connect = vi.fn(async () => undefined);
-  mock.$disconnect = vi.fn(async () => undefined);
-  mock.$queryRaw = vi.fn();
-  mock.$executeRaw = vi.fn();
-
-  return mock as unknown as MockPrisma;
 }
 
 /** Helper to reset every mock function between tests. */
@@ -142,11 +177,6 @@ export function resetMockPrisma(prisma: MockPrisma): void {
       delegate[method].mockReset();
     }
   }
-  prisma.$transaction.mockReset();
-  prisma.$transaction.mockImplementation(async (arg: unknown) => {
-    if (typeof arg === 'function') {
-      return (arg as (tx: unknown) => unknown)(prisma);
-    }
-    return Promise.all(arg as Promise<unknown>[]);
-  });
+  applyTransactionDefault(prisma as unknown as Record<string, unknown>);
+  applyRawDefaults(prisma as unknown as Record<string, unknown>);
 }

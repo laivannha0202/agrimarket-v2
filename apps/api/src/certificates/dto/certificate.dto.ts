@@ -1,10 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import {
   CertificateVerificationStatus,
   RecordStatus,
 } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateCertificateDto {
   @ApiProperty({ example: 1 })
@@ -52,4 +53,23 @@ export class VerifyCertificateDto {
   @IsOptional()
   @IsString()
   rejectionReason?: string;
+}
+
+/**
+ * Query DTO for `GET /certificates`. `status` filters the verification state
+ * (PENDING/VERIFIED/REJECTED), matching the existing runtime behaviour, but is
+ * now a strict enum so an unknown value returns 400 instead of 500.
+ */
+export class CertificateQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: CertificateVerificationStatus })
+  @IsOptional()
+  @IsEnum(CertificateVerificationStatus)
+  declare status?: CertificateVerificationStatus;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  farmId?: number;
 }

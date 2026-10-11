@@ -4,6 +4,7 @@ import { PaymentsService } from './payments.service.js';
 import {
   CreatePaymentDto,
   CreateRefundDto,
+  PaymentQueryDto,
   UpdatePaymentStatusDto,
 } from './dto/payment.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
@@ -19,8 +20,8 @@ export class PaymentsController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('payments')
-  @ApiOperation({ summary: 'List payments (ADMIN)' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List payments (status filter, ADMIN)' })
+  findAll(@Query() query: PaymentQueryDto) {
     return this.paymentsService.findAll(query);
   }
 

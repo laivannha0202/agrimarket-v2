@@ -10,8 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FarmsService } from './farms.service.js';
-import { CreateFarmDto, UpdateFarmDto } from './dto/farm.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { CreateFarmDto, FarmQueryDto, UpdateFarmDto } from './dto/farm.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 
@@ -22,8 +21,8 @@ export class FarmsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List farms' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List farms (search/status/partnerId filters)' })
+  findAll(@Query() query: FarmQueryDto) {
     return this.farmsService.findAll(query);
   }
 

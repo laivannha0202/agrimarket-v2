@@ -4,10 +4,12 @@ import { APP_GUARD } from '@nestjs/core';
 import configuration from './config/configuration.js';
 import { DatabaseModule } from './database/database.module.js';
 import { AuditModule } from './common/audit/audit.module.js';
+import { MailModule } from './mail/mail.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { JwtAuthGuard } from './auth/jwt-auth.guard.js';
 import { RolesGuard } from './common/guards/roles.guard.js';
 import { UsersModule } from './users/users.module.js';
+import { LocationsModule } from './locations/locations.module.js';
 import { PartnersModule } from './partners/partners.module.js';
 import { FarmsModule } from './farms/farms.module.js';
 import { SeasonsModule } from './seasons/seasons.module.js';
@@ -15,6 +17,7 @@ import { HarvestsModule } from './harvests/harvests.module.js';
 import { CertificatesModule } from './certificates/certificates.module.js';
 import { CategoriesModule } from './categories/categories.module.js';
 import { ProductsModule } from './products/products.module.js';
+import { EvidenceModule } from './evidence/evidence.module.js';
 import { LotsModule } from './lots/lots.module.js';
 import { QualityControlModule } from './quality-control/quality-control.module.js';
 import { TraceabilityModule } from './traceability/traceability.module.js';
@@ -30,15 +33,18 @@ import { ComplaintsModule } from './complaints/complaints.module.js';
 import { ReturnsModule } from './returns/returns.module.js';
 import { FinanceModule } from './finance/finance.module.js';
 import { HealthModule } from './health/health.module.js';
+import { ReportsModule } from './reports/reports.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [configuration] }),
     DatabaseModule,
     AuditModule,
+    MailModule,
     HealthModule,
     AuthModule,
     UsersModule,
+    LocationsModule,
     PartnersModule,
     FarmsModule,
     SeasonsModule,
@@ -59,7 +65,9 @@ import { HealthModule } from './health/health.module.js';
     ReviewsModule,
     ComplaintsModule,
     ReturnsModule,
+    EvidenceModule,
     FinanceModule,
+    ReportsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

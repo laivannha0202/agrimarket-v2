@@ -1,7 +1,8 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, OmitType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { InventoryMovementType } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class AdjustInventoryDto {
   @ApiProperty({ example: 1 })
@@ -84,4 +85,45 @@ export class ReserveInventoryDto {
   @IsOptional()
   @IsEnum(InventoryMovementType)
   type?: InventoryMovementType;
+}
+
+/**
+ * Query DTO for `GET /inventory`: filter balances by warehouse/variant.
+ *
+ * `status` and `search` are omitted because an inventory balance has no status
+ * of its own (the lot does) and the service does not search; advertising them
+ * would let callers send parameters that are silently ignored.
+ */
+export class InventoryQueryDto extends OmitType(PaginationQueryDto, ['status', 'search'] as const) {
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  warehouseId?: number;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  productVariantId?: number;
+}
+
+/**
+ * Query DTO for `GET /inventory/movements`: filter by lot.
+ *
+ * The ledger is append-only with no status column and is not searched, so
+ * `status`/`search` are omitted rather than advertised as no-ops.
+ */
+export class InventoryMovementQueryDto extends OmitType(PaginationQueryDto, [
+  'status',
+  'search',
+] as const) {
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  productLotId?: number;
 }

@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { PaymentMethod, PaymentStatus } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreatePaymentDto {
   @ApiProperty({ example: 1 })
@@ -46,4 +47,12 @@ export class CreateRefundDto {
   @ApiProperty({ example: 'Hoàn tiền do hàng dập nát' })
   @IsString()
   reason!: string;
+}
+
+/** Query DTO for `GET /payments` (admin): strict payment-status enum. */
+export class PaymentQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: PaymentStatus })
+  @IsOptional()
+  @IsEnum(PaymentStatus)
+  declare status?: PaymentStatus;
 }

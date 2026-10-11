@@ -8,8 +8,10 @@ import {
   IsOptional,
   IsString,
   MaxLength,
+  Min,
 } from 'class-validator';
 import { SeasonStatus } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateSeasonDto {
   @ApiProperty({ example: 1 })
@@ -62,4 +64,19 @@ export class UpdateSeasonDto extends CreateSeasonDto {
   @ApiPropertyOptional()
   @IsOptional()
   declare cropName: string;
+}
+
+/** Query DTO for `GET /seasons`: strict season-status enum (400 on unknown). */
+export class SeasonQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: SeasonStatus })
+  @IsOptional()
+  @IsEnum(SeasonStatus)
+  declare status?: SeasonStatus;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  farmId?: number;
 }

@@ -8,7 +8,7 @@ import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { useListState } from "@/hooks/useListState";
-import { useClientList } from "@/hooks/useClientList";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
@@ -16,31 +16,20 @@ import { formatDateTime } from "@/lib/format";
 import { RECORD_STATUS, recordStatus, statusOptions } from "@/lib/status";
 import type { Category } from "@/types/api";
 
-// /categories accepts `search` but the backend ignores it, so search and the
-// status filter are applied in the browser.
-const categorySearchText = (c: Category) => `${c.name} ${c.slug}`;
-
-const categoryFilter = (c: Category, filters: Record<string, string | undefined>) => {
-  if (filters.status && c.status !== filters.status) return false;
-  return true;
-};
-
 export default function CategoriesPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Category | null>(null);
   const [form] = Form.useForm();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<Category>({
-    queryKey: queryKeys.categories({ scope: "admin-list" }),
-    fetcher: resources.categories,
-    state: list,
-    searchText: categorySearchText,
-    filter: categoryFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<Category>(
+    queryKeys.categories(list.params),
+    resources.categories,
+    list.params,
+  );
 
   const save = useAction(
-    (values: { name: string; slug: string; status: string }) =>
+    (values: { name: string; status: string }) =>
       editing ? resources.updateCategory(editing.id, values) : resources.createCategory(values),
     {
       invalidate: [["categories"]],
@@ -62,13 +51,15 @@ export default function CategoriesPage() {
 
   const openEdit = (row: Category) => {
     setEditing(row);
-    form.setFieldsValue({ name: row.name, slug: row.slug, status: row.status });
+    // Reset first so a value left over from a previous create/edit never leaks
+    // into this record, then hydrate from the row being edited.
+    form.resetFields();
+    form.setFieldsValue({ name: row.name, status: row.status });
     setOpen(true);
   };
 
   const columns: ColumnsType<Category> = [
     { title: "Tên danh mục", dataIndex: "name" },
-    { title: "Slug", dataIndex: "slug", render: (v: string) => <span className="agri-mono">{v}</span> },
     {
       title: "Trạng thái",
       dataIndex: "status",
@@ -95,10 +86,9 @@ export default function CategoriesPage() {
     <>
       <ListPage<Category>
         title="Danh mục"
-        subtitle="Nhóm sản phẩm nông sản"
         searchValue={list.search}
         onSearchChange={list.setSearch}
-        searchPlaceholder="Tìm theo tên, slug..."
+        searchPlaceholder="Tìm theo tên danh mục..."
         filters={[
           {
             key: "status",
@@ -115,12 +105,12 @@ export default function CategoriesPage() {
           </Button>
         }
         columns={columns}
-        data={data}
+        data={data?.data ?? []}
         loading={isLoading}
         error={isError ? new Error("Không tải được danh sách danh mục.") : undefined}
         onRetry={() => void refetch()}
         emptyText="Không có danh mục"
-        total={total}
+        total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}
         onPageChange={list.setPage}
@@ -136,21 +126,11 @@ export default function CategoriesPage() {
           setOpen(false);
           setEditing(null);
         }}
-        onSubmit={(values) => save.mutate(values as { name: string; slug: string; status: string })}
+        onSubmit={(values) => save.mutate(values as { name: string; status: string })}
         submitting={save.isPending}
       >
         <Form.Item label="Tên danh mục" name="name" rules={[{ required: true, message: "Nhập tên danh mục." }]}>
           <Input placeholder="VD: Rau ăn lá" />
-        </Form.Item>
-        <Form.Item
-          label="Slug"
-          name="slug"
-          rules={[
-            { required: true, message: "Nhập slug." },
-            { pattern: /^[a-z0-9-]+$/, message: "Slug chỉ gồm chữ thường, số và dấu gạch ngang." },
-          ]}
-        >
-          <Input placeholder="rau-an-la" />
         </Form.Item>
         <Form.Item label="Trạng thái" name="status" initialValue="ACTIVE">
           <Select options={statusOptions(RECORD_STATUS)} />

@@ -1,172 +1,170 @@
 "use client";
 
-import { useMemo } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Alert, Button, Col, Row, Table, Typography } from "antd";
-import { ReloadOutlined } from "@ant-design/icons";
+import { Button, Col, DatePicker, Dropdown, Row, Table, Typography } from "antd";
+import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import dayjs, { type Dayjs } from "dayjs";
 import { PageHeader } from "@/components/common/PageHeader";
 import { KpiCard } from "@/components/common/Kpi";
 import { StatusTag } from "@/components/common/StatusTag";
 import { PageLoading, ErrorState } from "@/components/common/States";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
+import { useExportDownload } from "@/hooks/useExportDownload";
 import { formatMoney, formatNumber } from "@/lib/format";
-import { orderStatus } from "@/lib/status";
-import type { Product } from "@/types/api";
+import type { ReportsSummary } from "@/types/api";
+import { complaintStatus, orderStatus, returnStatus } from "@/lib/status";
+
+type Range = [Dayjs | null, Dayjs | null] | null;
+
+const STATUS_ORDER = [
+  "PENDING_CONFIRMATION",
+  "CONFIRMED",
+  "PREPARING",
+  "READY_TO_SHIP",
+  "SHIPPING",
+  "DELIVERED",
+  "CANCELLED",
+];
+
+const RETURN_ORDER = ["REQUESTED", "APPROVED", "RETURNING", "RECEIVED", "QC_PENDING", "REFUNDED", "REJECTED"];
+const COMPLAINT_ORDER = ["OPEN", "PROCESSING", "RESOLVED", "REJECTED"];
 
 /**
  * Reports.
  *
- * The V2 backend exposes no aggregate/report endpoint, and the demo dataset is
- * well under the 100-row list cap, so reports are derived by aggregating the
- * real list endpoints client-side (no fabricated numbers, no SQL in the UI).
+ * Every figure comes from the backend aggregate `GET /reports/summary` over
+ * the selected window — full-set counts and sums, never a capped list.
+ * - "Tổng giá trị đơn hàng" is non-cancelled order value, not money received.
+ * - "Doanh thu thực nhận" is collected payments minus completed refunds.
  */
 export default function ReportsPage() {
-  const orders = useQuery({
-    queryKey: queryKeys.orders({ scope: "reports" }),
-    queryFn: () => resources.orders({ limit: 100 }),
-  });
-  const products = useQuery({
-    queryKey: queryKeys.products({ scope: "reports" }),
-    queryFn: () => resources.products({ limit: 100 }),
-  });
-  const inventory = useQuery({
-    queryKey: queryKeys.inventory({ scope: "reports" }),
-    queryFn: () => resources.inventory({ limit: 100 }),
-  });
-  const returns = useQuery({
-    queryKey: queryKeys.returns({ scope: "reports" }),
-    queryFn: () => resources.returns({ limit: 100 }),
-  });
-  const complaints = useQuery({
-    queryKey: queryKeys.complaints({ scope: "reports" }),
-    queryFn: () => resources.complaints({ limit: 100 }),
+  const [range, setRange] = useState<Range>([dayjs().subtract(30, "day"), dayjs()]);
+
+  const from = range?.[0]?.startOf("day").toISOString();
+  const to = range?.[1]?.endOf("day").toISOString();
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: queryKeys.reportsSummary({ scope: "reports", from, to }),
+    queryFn: () => resources.reportsSummary({ from, to }),
   });
 
-  const isLoading =
-    orders.isLoading ||
-    products.isLoading ||
-    inventory.isLoading ||
-    returns.isLoading ||
-    complaints.isLoading;
-  const isError =
-    orders.isError ||
-    products.isError ||
-    inventory.isError ||
-    returns.isError ||
-    complaints.isError;
-
-  const refetchAll = () => {
-    void orders.refetch();
-    void products.refetch();
-    void inventory.refetch();
-    void returns.refetch();
-    void complaints.refetch();
-  };
-
-  const report = useMemo(() => {
-    const orderList = orders.data?.data ?? [];
-    const productList = products.data?.data ?? [];
-    const inventoryList = inventory.data?.data ?? [];
-    const returnList = returns.data?.data ?? [];
-    const complaintList = complaints.data?.data ?? [];
-
-    const activeOrders = orderList.filter((o) => o.status !== "CANCELLED");
-    const grossRevenue = activeOrders.reduce((sum, o) => sum + Number(o.grandTotal), 0);
-    const commission = orderList
-      .flatMap((o) => o.partnerOrders ?? [])
-      .reduce((sum, po) => sum + Number(po.commissionAmount), 0);
-    const aov = activeOrders.length > 0 ? grossRevenue / activeOrders.length : 0;
-
-    const statusBreakdown = [
-      "PENDING_CONFIRMATION",
-      "CONFIRMED",
-      "PREPARING",
-      "READY_TO_SHIP",
-      "SHIPPING",
-      "DELIVERED",
-      "CANCELLED",
-    ].map((status) => ({
-      status,
-      count: orderList.filter((o) => o.status === status).length,
-    }));
-
-    const topProducts = productList
-      .map((p: Product) => {
-        const sales = orderList
-          .flatMap((o) => o.partnerOrders ?? [])
-          .flatMap((po) => po.items ?? [])
-          .filter((item) =>
-            (p.variants ?? []).some((v) => v.sku === item.skuSnapshot),
-          );
-        const quantity = sales.reduce((sum, item) => sum + Number(item.quantity), 0);
-        const revenue = sales.reduce((sum, item) => sum + Number(item.subtotal), 0);
-        return { id: p.id, name: p.name, quantity, revenue };
-      })
-      .filter((row) => row.quantity > 0)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
-
-    const lowStock = inventoryList.filter((b) => Number(b.available) <= 20);
-
-    const returnsByStatus = ["REQUESTED", "APPROVED", "RETURNING", "RECEIVED", "QC_PENDING", "REFUNDED", "REJECTED"].map(
-      (status) => ({ status, count: returnList.filter((r) => r.status === status).length }),
-    );
-    const complaintsByStatus = ["OPEN", "PROCESSING", "RESOLVED", "REJECTED"].map((status) => ({
-      status,
-      count: complaintList.filter((c) => c.status === status).length,
-    }));
-
-    return {
-      grossRevenue,
-      orderCount: orderList.length,
-      activeOrderCount: activeOrders.length,
-      commission,
-      aov,
-      productCount: productList.length,
-      lowStockCount: lowStock.length,
-      statusBreakdown,
-      topProducts,
-      returnsByStatus,
-      complaintsByStatus,
-    };
-  }, [orders.data, products.data, inventory.data, returns.data, complaints.data]);
+  const { downloading, download } = useExportDownload();
+  const exportFile = (format: "xlsx" | "pdf") =>
+    download(format, () => resources.exportReport({ format, from, to }));
 
   if (isLoading) return <PageLoading />;
-  if (isError) return <ErrorState onRetry={refetchAll} />;
+  if (isError || !data) return <ErrorState onRetry={() => void refetch()} />;
+
+  const statusBreakdown = STATUS_ORDER.map((status) => ({
+    status,
+    count: data.orders.byStatus[status] ?? 0,
+  }));
+  const returnsByStatus = RETURN_ORDER.map((status) => ({
+    status,
+    count: data.returns.byStatus[status] ?? 0,
+  }));
+  const complaintsByStatus = COMPLAINT_ORDER.map((status) => ({
+    status,
+    count: data.complaints.byStatus[status] ?? 0,
+  }));
 
   return (
     <>
       <PageHeader
         title="Báo cáo"
-        subtitle="Tổng hợp số liệu vận hành (tính từ dữ liệu thật)"
+        subtitle={`Số liệu tính trong khoảng: ${dayjs(data.from).format("DD/MM/YYYY")} – ${dayjs(data.to).format("DD/MM/YYYY")}`}
         extra={
-          <Button icon={<ReloadOutlined />} onClick={refetchAll}>
-            Làm mới
-          </Button>
+          <>
+            <DatePicker.RangePicker
+              value={range}
+              onChange={(v) => setRange(v)}
+              format="DD/MM/YYYY"
+              allowClear={false}
+            />
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "xlsx",
+                    label: "Excel (.xlsx)",
+                    onClick: () => void exportFile("xlsx"),
+                  },
+                  {
+                    key: "pdf",
+                    label: "PDF (.pdf)",
+                    onClick: () => void exportFile("pdf"),
+                  },
+                ],
+              }}
+              placement="bottomRight"
+            >
+              <Button
+                type="primary"
+                icon={<DownloadOutlined />}
+                loading={downloading !== null}
+              >
+                Xuất báo cáo
+              </Button>
+            </Dropdown>
+            <Button icon={<ReloadOutlined />} onClick={() => void refetch()}>
+              Làm mới
+            </Button>
+          </>
         }
       />
 
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
           <KpiCard
-            label="Doanh thu (đơn không hủy)"
-            value={formatMoney(report.grossRevenue)}
-            hint={`${report.activeOrderCount}/${report.orderCount} đơn`}
+            label="Tổng giá trị đơn hàng"
+            value={formatMoney(data.orders.totalOrderValue)}
+            hint={`${data.orders.activeCount}/${data.orders.count} đơn không hủy`}
           />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <KpiCard label="Giá trị đơn trung bình" value={formatMoney(report.aov)} />
-        </Col>
-        <Col xs={24} sm={12} xl={6}>
-          <KpiCard label="Hoa hồng đối tác" value={formatMoney(report.commission)} />
+          <KpiCard
+            label="Doanh thu thực nhận"
+            value={formatMoney(data.revenue.netCollected)}
+            hint="Tiền đã thu trừ tiền đã hoàn trong kỳ"
+          />
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <KpiCard
-            label="Tồn kho khả dụng thấp (≤ 20)"
-            value={formatNumber(report.lowStockCount)}
-            tone={report.lowStockCount > 0 ? "warning" : "success"}
+            label="Giá trị hoàn tiền"
+            value={formatMoney(data.revenue.refundTotal)}
+            hint="Hoàn tất trong kỳ"
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard label="Hoa hồng đã ghi nhận" value={formatMoney(data.commissionRecorded)} />
+        </Col>
+      </Row>
+
+      <div style={{ height: 16 }} />
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard label="Giá trị đơn trung bình" value={formatMoney(data.orders.averageOrderValue)} />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard
+            label="Đơn chờ xử lý"
+            value={formatNumber(data.orders.pendingConfirmation)}
+            tone={data.orders.pendingConfirmation > 0 ? "warning" : "success"}
+            href="/orders"
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard label="Đơn đang giao" value={formatNumber(data.orders.shipping)} href="/orders" />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <KpiCard
+            label={`Dòng tồn kho sắp hết (≤ ${data.inventory.lowStockThreshold})`}
+            value={formatNumber(data.inventory.lowStockLines)}
+            tone={data.inventory.lowStockLines > 0 ? "warning" : "success"}
             href="/inventory"
           />
         </Col>
@@ -184,7 +182,7 @@ export default function ReportsPage() {
               size="small"
               rowKey="status"
               pagination={false}
-              dataSource={report.statusBreakdown}
+              dataSource={statusBreakdown}
               columns={[
                 {
                   title: "Trạng thái",
@@ -202,21 +200,24 @@ export default function ReportsPage() {
             <Typography.Title level={5} style={{ marginTop: 0 }}>
               Sản phẩm bán chạy
             </Typography.Title>
-            <Table
+            <Table<ReportsSummary["topProducts"][number]>
               size="small"
-              rowKey="id"
+              rowKey={(row) => `${row.productId}-${row.sku}`}
               pagination={false}
-              dataSource={report.topProducts}
+              dataSource={data.topProducts}
               locale={{ emptyText: "Chưa có dữ liệu bán hàng" }}
               columns={[
                 {
                   title: "Sản phẩm",
-                  dataIndex: "name",
-                  render: (name: string, row) => (
-                    <Link href={`/products/${row.id}`} className="agri-link">
-                      {name}
-                    </Link>
-                  ),
+                  dataIndex: "productName",
+                  render: (name: string, row) =>
+                    row.productId ? (
+                      <Link href={`/products/${row.productId}`} className="agri-link">
+                        {name}
+                      </Link>
+                    ) : (
+                      name
+                    ),
                 },
                 {
                   title: "SL bán",
@@ -248,9 +249,13 @@ export default function ReportsPage() {
               size="small"
               rowKey="status"
               pagination={false}
-              dataSource={report.returnsByStatus}
+              dataSource={returnsByStatus}
               columns={[
-                { title: "Trạng thái", dataIndex: "status" },
+                {
+                  title: "Trạng thái",
+                  dataIndex: "status",
+                  render: (s: string) => <StatusTag status={returnStatus(s)} />,
+                },
                 { title: "Số yêu cầu", dataIndex: "count", align: "right", width: 110 },
               ]}
             />
@@ -265,24 +270,19 @@ export default function ReportsPage() {
               size="small"
               rowKey="status"
               pagination={false}
-              dataSource={report.complaintsByStatus}
+              dataSource={complaintsByStatus}
               columns={[
-                { title: "Trạng thái", dataIndex: "status" },
+                {
+                  title: "Trạng thái",
+                  dataIndex: "status",
+                  render: (s: string) => <StatusTag status={complaintStatus(s)} />,
+                },
                 { title: "Số khiếu nại", dataIndex: "count", align: "right", width: 110 },
               ]}
             />
           </div>
         </Col>
       </Row>
-
-      <div style={{ marginTop: 16 }}>
-        <Alert
-          type="info"
-          showIcon
-          message="Báo cáo tổng hợp từ API"
-          description="Số liệu được tổng hợp từ các endpoint danh sách thật (tối đa 100 bản ghi mỗi loại). Backend chưa có endpoint báo cáo tổng hợp riêng."
-        />
-      </div>
     </>
   );
 }

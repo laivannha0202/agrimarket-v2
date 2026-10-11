@@ -4,11 +4,16 @@
  * Ant Design `Input type="number"` yields strings; the backend DTOs expect
  * numbers for numeric fields. These helpers convert a set of keys to numbers
  * (or undefined when empty) so request bodies match the API contract.
+ *
+ * Vietnamese users type decimals with a comma (`20,9821`); `Number()` alone
+ * would turn that into NaN and the field would be silently dropped, so the
+ * comma is normalised to a dot first.
  */
 
 export function num(value: unknown): number | undefined {
   if (value === null || value === undefined || value === "") return undefined;
-  const n = Number(value);
+  const text = typeof value === "string" ? value.trim().replace(/,/g, ".") : value;
+  const n = Number(text);
   return Number.isFinite(n) ? n : undefined;
 }
 

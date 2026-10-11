@@ -20,6 +20,7 @@ import type {
   Payout,
   Product,
   ProductDiscount,
+  ProductImage,
   ProductLot,
   QcInspection,
   ReturnRequest,
@@ -33,6 +34,8 @@ import type {
   CommissionRule,
   Harvest,
   AuthUser,
+  ReportsSummary,
+  ReportsDaily,
 } from "@/types/api";
 
 function toQuery(params?: ListParams): Record<string, QueryValue> {
@@ -68,6 +71,18 @@ export const resources = {
   createProduct: (body: unknown) => api.post<Product>("/products", body),
   updateProduct: (id: number | string, body: unknown) => api.patch<Product>(`/products/${id}`, body),
   addVariant: (id: number | string, body: unknown) => api.post(`/products/${id}/variants`, body),
+  updateVariant: (variantId: number | string, body: unknown) =>
+    api.patch(`/products/variants/${variantId}`, body),
+  uploadProductImage: (id: number | string, file: File) =>
+    api.upload<ProductImage>(`/products/${id}/images`, file),
+  replaceProductImage: (id: number | string, imageId: number, file: File) =>
+    api.upload<ProductImage>(`/products/${id}/images/${imageId}/replace`, file),
+  setPrimaryImage: (id: number | string, imageId: number) =>
+    api.patch<ProductImage>(`/products/${id}/images/${imageId}/primary`, {}),
+  reorderProductImages: (id: number | string, orderedIds: number[]) =>
+    api.patch<ProductImage[]>(`/products/${id}/images/order`, { orderedIds }),
+  deleteProductImage: (id: number | string, imageId: number) =>
+    api.del<{ deleted: number }>(`/products/${id}/images/${imageId}`),
   categories: (p?: ListParams) => api.get<Paginated<Category>>("/categories", toQuery(p)),
   createCategory: (body: unknown) => api.post<Category>("/categories", body),
   updateCategory: (id: number | string, body: unknown) => api.patch<Category>(`/categories/${id}`, body),
@@ -125,11 +140,17 @@ export const resources = {
   // Promotions
   vouchers: (p?: ListParams) => api.get<Paginated<Voucher>>("/vouchers", toQuery(p)),
   createVoucher: (body: unknown) => api.post<Voucher>("/vouchers", body),
+  updateVoucherStatus: (id: number | string, status: string) =>
+    api.patch<Voucher>(`/vouchers/${id}`, { status }),
   productDiscounts: (p?: ListParams) =>
     api.get<Paginated<ProductDiscount>>("/product-discounts", toQuery(p)),
   createProductDiscount: (body: unknown) => api.post<ProductDiscount>("/product-discounts", body),
+  updateProductDiscountStatus: (id: number | string, status: string) =>
+    api.patch<ProductDiscount>(`/product-discounts/${id}`, { status }),
   flashSales: (p?: ListParams) => api.get<Paginated<FlashSale>>("/flash-sales", toQuery(p)),
   createFlashSale: (body: unknown) => api.post<FlashSale>("/flash-sales", body),
+  updateFlashSaleStatus: (id: number | string, status: string) =>
+    api.patch<FlashSale>(`/flash-sales/${id}`, { status }),
 
   // Customers & reviews
   customers: (p?: ListParams) => api.get<Paginated<Customer>>("/customers", toQuery(p)),
@@ -145,6 +166,8 @@ export const resources = {
   commissionRules: (p?: ListParams) =>
     api.get<Paginated<CommissionRule>>("/commission-rules", toQuery(p)),
   createCommissionRule: (body: unknown) => api.post<CommissionRule>("/commission-rules", body),
+  updateCommissionRuleStatus: (id: number | string, status: string) =>
+    api.patch<CommissionRule>(`/commission-rules/${id}`, { status }),
   settlements: (p?: ListParams) => api.get<Paginated<Settlement>>("/settlements", toQuery(p)),
   settlement: (id: number | string) => api.get<Settlement>(`/settlements/${id}`),
   createSettlement: (body: unknown) => api.post<Settlement>("/settlements", body),
@@ -155,8 +178,30 @@ export const resources = {
 
   // Payments & shipments (order context)
   payments: (p?: ListParams) => api.get<Paginated<Payment>>("/payments", toQuery(p)),
-  shipments: (p?: ListParams) => api.get<Paginated<Shipment>>("/shipments", toQuery(p)),
-  createShipment: (body: unknown) => api.post<Shipment>("/shipments", body),
+  shipments: (p?: ListParams) => api.get<Paginated<Shipment>>("/shipments", toQuery(p)),  createShipment: (body: unknown) => api.post<Shipment>("/shipments", body),
   updateShipmentStatus: (id: number | string, body: unknown) =>
     api.patch<Shipment>(`/shipments/${id}/status`, body),
+
+  // Backend aggregates for Tổng quan & Báo cáo (no 100-row cap)
+  reportsSummary: (params?: { from?: string; to?: string; days?: number }) =>
+    api.get<ReportsSummary>("/reports/summary", {
+      from: params?.from,
+      to: params?.to,
+      days: params?.days,
+    }),
+  reportsDaily: (params?: { from?: string; to?: string; days?: number }) =>
+    api.get<ReportsDaily>("/reports/daily", {
+      from: params?.from,
+      to: params?.to,
+      days: params?.days,
+    }),
+  exportReport: (params: { format: "xlsx" | "pdf"; from?: string; to?: string; days?: number }) =>
+    api.download("/reports/export", {
+      format: params.format,
+      from: params.from,
+      to: params.to,
+      days: params.days,
+    }),
+  exportSettlement: (id: number | string, format: "xlsx" | "pdf") =>
+    api.download(`/settlements/${id}/export`, { format }),
 };

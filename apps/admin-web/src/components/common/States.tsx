@@ -45,7 +45,7 @@ export function ErrorState({
     <Alert
       type="error"
       showIcon
-      message="Không tải được dữ liệu"
+      title="Không tải được dữ liệu"
       description={message ?? "Đã xảy ra lỗi khi tải dữ liệu. Vui lòng thử lại."}
       action={
         onRetry ? (

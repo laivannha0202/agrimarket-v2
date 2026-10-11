@@ -10,8 +10,11 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CertificatesService } from './certificates.service.js';
-import { CreateCertificateDto, VerifyCertificateDto } from './dto/certificate.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import {
+  CertificateQueryDto,
+  CreateCertificateDto,
+  VerifyCertificateDto,
+} from './dto/certificate.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -24,8 +27,8 @@ export class CertificatesController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List certificates' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List certificates (status filters the verification state)' })
+  findAll(@Query() query: CertificateQueryDto) {
     return this.certificatesService.findAll(query);
   }
 

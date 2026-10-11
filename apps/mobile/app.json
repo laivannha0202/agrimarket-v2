@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "AgriMarket",
+    "slug": "agrimarket-mobile",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "agrimarket",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "vn.agrimarket.mobile"
+    },
+    "android": {
+      "package": "vn.agrimarket.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0b7a39"
+      },
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "splash": {
+        "image": "./assets/splash.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0b7a39"
+      }
+    },
+    "plugins": ["expo-router", "expo-secure-store", "expo-camera"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -2,14 +2,15 @@
 
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Button, Table, Typography } from "antd";
+import { Button, Dropdown, Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { CheckCircleOutlined } from "@ant-design/icons";
+import { CheckCircleOutlined, DownloadOutlined } from "@ant-design/icons";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
 import { InfoDescriptions } from "@/components/common/InfoDescriptions";
 import { StatusTag } from "@/components/common/StatusTag";
 import { useDetailQuery } from "@/hooks/useDetailQuery";
 import { useAction } from "@/hooks/useAction";
+import { useExportDownload } from "@/hooks/useExportDownload";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
@@ -29,6 +30,10 @@ export default function SettlementDetailPage() {
     invalidate: [queryKeys.settlement(id), ["settlements"]],
     successMessage: "Đã xác nhận kỳ đối soát.",
   });
+
+  const { downloading, download } = useExportDownload();
+  const exportFile = (format: "xlsx" | "pdf") =>
+    download(format, () => resources.exportSettlement(id, format));
 
   const lineColumns: ColumnsType<SettlementLine> = [
     {
@@ -102,6 +107,27 @@ export default function SettlementDetailPage() {
         settlement ? (
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <StatusTag status={settlementStatus(settlement.status)} />
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "xlsx",
+                    label: "Excel (.xlsx)",
+                    onClick: () => void exportFile("xlsx"),
+                  },
+                  {
+                    key: "pdf",
+                    label: "PDF (.pdf)",
+                    onClick: () => void exportFile("pdf"),
+                  },
+                ],
+              }}
+              placement="bottomRight"
+            >
+              <Button icon={<DownloadOutlined />} loading={downloading !== null}>
+                Xuất bảng đối soát
+              </Button>
+            </Dropdown>
             {canConfirm ? (
               <Button
                 type="primary"
@@ -172,10 +198,6 @@ export default function SettlementDetailPage() {
               locale={{ emptyText: "Chưa có lệnh chi trả" }}
             />
           </DetailCard>
-
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-            Công thức: Doanh thu − Hoàn tiền − Hoa hồng + Điều chỉnh = Số phải trả đối tác.
-          </Typography.Paragraph>
         </>
       ) : null}
     </DetailPage>

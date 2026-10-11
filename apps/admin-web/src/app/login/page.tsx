@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Card, Form, Input, Typography, Alert } from "antd";
+import { Button, Card, Form, Input, Alert } from "antd";
 import { LockOutlined, MailOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/auth-provider";
 import { ApiError } from "@/lib/api/client";
@@ -50,11 +50,8 @@ export default function LoginPage() {
           </span>
           <span>AgriMarket Admin</span>
         </div>
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 24 }}>
-          Đăng nhập để quản lý sàn nông sản.
-        </Typography.Paragraph>
         {error ? (
-          <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+          <Alert type="error" showIcon title={error} style={{ marginBottom: 16 }} />
         ) : null}
         <Form<LoginForm> layout="vertical" onFinish={onFinish} requiredMark={false} disabled={submitting}>
           <Form.Item

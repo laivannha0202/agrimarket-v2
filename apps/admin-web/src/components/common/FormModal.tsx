@@ -19,6 +19,14 @@ interface FormModalProps<TValues extends Record<string, unknown> = Record<string
 /**
  * Consistent create/edit dialog: antd Modal wrapping a vertical Form whose
  * submit button triggers the Form's own validation.
+ *
+ * `forceRender` keeps the inner `<Form>` mounted while the dialog is closed.
+ * Without it the modal body is mounted lazily on the first open, so an
+ * `openEdit` handler that calls `form.setFieldsValue(...)` before flipping
+ * `open` writes into a store that no `<Form>` is connected to yet: antd logs
+ * "Instance created by `useForm` is not connected to any Form element" and the
+ * values are wiped the moment the fields register (they have no
+ * `initialValues` to fall back on), leaving the edit form empty.
  */
 export function FormModal<TValues extends Record<string, unknown> = Record<string, unknown>>({
   open,
@@ -41,8 +49,8 @@ export function FormModal<TValues extends Record<string, unknown> = Record<strin
       okText={okText}
       cancelText="Hủy"
       width={width}
-      destroyOnHidden
-      maskClosable={false}
+      forceRender
+      mask={{ closable: false }}
     >
       <Form
         form={form}

@@ -104,8 +104,7 @@ function fallbackMessage(status: number): string {
   }
 }
 
-export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = "GET", body, params, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {  const { method = "GET", body, params, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -158,4 +157,125 @@ export const api = {
     apiFetch<T>(path, { method: "GET", params, signal }),
   post: <T>(path: string, body?: unknown) => apiFetch<T>(path, { method: "POST", body }),
   patch: <T>(path: string, body?: unknown) => apiFetch<T>(path, { method: "PATCH", body }),
+  del: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
+  /**
+   * Binary download (report exports). Unlike JSON calls this resolves the raw
+   * bytes plus the server's download filename, so the caller can trigger a
+   * real save-as instead of rendering file bytes as text.
+   */
+  download: async (
+    path: string,
+    params?: Record<string, QueryValue>,
+    timeoutMs = 60_000,
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let res: Response;
+    try {
+      res = await fetch(buildUrl(path, params), {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(0, "Tạo file quá thời gian chờ. Vui lòng thử lại.");
+      }
+      throw new ApiError(0, "Không kết nối được máy chủ. Vui lòng thử lại.");
+    }
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const parsed = await parseBody(res);
+      throw new ApiError(
+        res.status,
+        extractMessage(res.status, parsed),
+        parsed && typeof parsed === "object" ? (parsed as ApiErrorBody) : undefined,
+      );
+    }
+
+    const blob = await res.blob();
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return { blob, filename: match?.[1] ?? "bao-cao" };
+  },
+  /**
+   * Multipart upload (product images). Unlike JSON calls this sends FormData
+   * so the browser sets the multipart boundary itself.
+   */
+  upload: async <T>(path: string, file: File, timeoutMs = 60_000): Promise<T> => {
+    const form = new FormData();
+    form.append("file", file);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    const headers: Record<string, string> = { Accept: "application/json" };
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let res: Response;
+    try {
+      res = await fetch(buildUrl(path), {
+        method: "POST",
+        headers,
+        body: form,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new ApiError(0, "Tải ảnh quá thời gian chờ. Vui lòng thử lại.");
+      }
+      throw new ApiError(0, "Không kết nối được máy chủ. Vui lòng thử lại.");
+    }
+    clearTimeout(timeout);
+
+    const parsed = await parseBody(res);
+    if (!res.ok) {
+      const apiError = new ApiError(
+        res.status,
+        extractMessage(res.status, parsed),
+        parsed && typeof parsed === "object" ? (parsed as ApiErrorBody) : undefined,
+      );
+      if (res.status === 401 && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("agri:unauthorized"));
+      }
+      throw apiError;
+    }
+    return parsed as T;
+  },
 };
+
+/**
+ * Fetches one private evidence photo and returns it as an object URL.
+ *
+ * A plain `<img src="...">` cannot be used: `GET /evidence/:id/file` authorises
+ * every read and an image tag sends no `Authorization` header, so the request
+ * would arrive anonymous and be refused. The bytes are fetched with the admin's
+ * session and turned into a blob URL.
+ *
+ * Returns `null` on any failure, so a missing photo degrades to a placeholder
+ * instead of an unhandled rejection. The caller owns the URL and must revoke it.
+ */
+export async function fetchEvidenceBlobUrl(id: number): Promise<string | null> {
+  const token = getToken();
+  try {
+    const res = await fetch(buildUrl(`/evidence/${id}/file`), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  } catch {
+    return null;
+  }
+}

@@ -1,8 +1,12 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ComplaintsService } from './complaints.service.js';
-import { CreateComplaintDto, UpdateComplaintDto } from './dto/complaint.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import {
+  ComplaintQueryDto,
+  CreateComplaintDto,
+  MyComplaintQueryDto,
+  UpdateComplaintDto,
+} from './dto/complaint.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
@@ -20,11 +24,27 @@ export class ComplaintsController {
     return this.complaintsService.create(user.id, dto);
   }
 
+  @Roles('CUSTOMER')
+  @ApiBearerAuth()
+  @Get('me')
+  @ApiOperation({ summary: 'List my complaints (status filter, CUSTOMER)' })
+  myComplaints(@CurrentUser() user: AuthenticatedUser, @Query() query: MyComplaintQueryDto) {
+    return this.complaintsService.findForCustomer(user.id, query);
+  }
+
+  @Roles('CUSTOMER')
+  @ApiBearerAuth()
+  @Get('me/:id')
+  @ApiOperation({ summary: 'Get one of my complaints (CUSTOMER)' })
+  myComplaint(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseIntPipe) id: number) {
+    return this.complaintsService.findOneForCustomer(id, user.id);
+  }
+
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get()
-  @ApiOperation({ summary: 'List complaints (ADMIN)' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List complaints (status filter, ADMIN)' })
+  findAll(@Query() query: ComplaintQueryDto) {
     return this.complaintsService.findAll(query);
   }
 

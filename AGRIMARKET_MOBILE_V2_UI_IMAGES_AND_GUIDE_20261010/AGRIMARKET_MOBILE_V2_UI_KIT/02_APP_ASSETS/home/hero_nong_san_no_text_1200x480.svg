@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480"><rect width="1200" height="480" fill="#E8F7EE"/>
+<path d="M0 385 Q215 308 447 365 T850 361T1200 353V480H0Z" fill="#C9EBD6"/>
+<path d="M0 434 Q268 367 499 420 T1200 406V480H0Z" fill="#A8DDBB"/>
+<path d="M700 70C810 5 995 5 1143 113C1205 167 1207 304 1131 377C1014 488 810 450 726 330C667 246 644 122 700 70Z" fill="#C8EBCF"/>
+<circle cx="920" cy="251" r="158" fill="#DBF4D6"/>
+<!-- Cabbage -->
+<ellipse cx="898" cy="243" rx="135" ry="132" fill="#5DA44D"/>
+<path d="M795 285Q777 146 902 125Q991 122 1011 228Q976 339 892 356Q806 349 795 285Z" fill="#A5D56B"/>
+<path d="M817 282Q795 176 897 157Q979 166 965 264Q932 327 883 327Q838 316 817 282Z" fill="#D5EAA3"/>
+<path d="M856 304Q830 250 872 197Q932 169 949 237Q935 295 888 316" fill="none" stroke="#7AB85A" stroke-width="10" opacity=".75"/>
+<path d="M896 336Q879 262 902 197" fill="none" stroke="#7BAE4A" stroke-width="7" opacity=".8"/>
+<!-- carrot pair -->
+<path d="M1057 261Q1128 236 1147 285Q1150 316 1061 412Q1047 341 1057 261Z" fill="#F3A44E" stroke="#E98927" stroke-width="5"/>
+<path d="M1088 248Q1058 206 1081 170Q1123 190 1108 239Q1151 180 1180 208Q1162 253 1101 258Z" fill="#4C9849"/>
+<path d="M1026 279Q1091 268 1102 299Q1102 333 1012 423Q1009 344 1026 279Z" fill="#F7B55C" stroke="#E68D26" stroke-width="5"/>
+<path d="M1050 267Q1014 230 1035 199Q1070 213 1064 248Q1095 224 1119 242Q1100 264 1066 279Z" fill="#448D4E"/>
+<!-- tomato trio -->
+<circle cx="735" cy="350" r="56" fill="#E65D40"/>
+<circle cx="800" cy="391" r="47" fill="#D94D36"/>
+<path d="M724 284L733 307L758 303L741 318L751 339L731 325L712 339L718 318L700 304L724 307Z" fill="#268344"/>
+<path d="M800 343L805 364L828 366L813 376L816 397L799 382L779 392L784 374L769 363L794 365Z" fill="#2B8041"/>
+<!-- ornamental leaves -->
+<path d="M610 323Q560 262 590 204Q665 229 640 311Z" fill="#83C690"/>
+<path d="M654 358Q649 273 694 242Q728 309 671 365Z" fill="#4C985A"/>
+<path d="M580 220Q617 255 628 306" stroke="#DEF2DE" stroke-width="5" fill="none"/>
+<g fill="#7BB98D" opacity=".55"><circle cx="96" cy="100" r="9"/><circle cx="175" cy="60" r="5"/><circle cx="430" cy="140" r="8"/><circle cx="547" cy="70" r="6"/></g>
+</svg>

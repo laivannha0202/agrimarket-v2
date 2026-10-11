@@ -33,6 +33,26 @@ export function useFarmOptions(enabled = true) {
   });
 }
 
+/**
+ * Farms restricted to one selling partner, used by the product form so a
+ * cross-partner farm cannot be picked (the backend rejects it anyway). With no
+ * partner selected yet the list is empty, since a product must have a seller.
+ */
+export function useFarmsForPartner(partnerId?: number): {
+  data: { label: string; value: number }[];
+  isLoading: boolean;
+} {
+  const query = useQuery({
+    queryKey: queryKeys.farms({ scope: "lookup", partnerId: partnerId ?? "" }),
+    enabled: partnerId !== undefined && partnerId !== null,
+    queryFn: async () => {
+      const res = await resources.farms({ partnerId, limit: 100 });
+      return res.data.map((f) => ({ label: `${f.code} — ${f.name}`, value: f.id }));
+    },
+  });
+  return { data: query.data ?? [], isLoading: query.isLoading };
+}
+
 export function useWarehouseOptions(enabled = true) {
   return useLookup({
     queryKey: queryKeys.warehouses({ scope: "lookup" }),

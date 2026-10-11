@@ -1,11 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
-import { buildDatedCode } from '../common/utils/code.util.js';
+import { buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDatedSequence } from '../common/utils/code.util.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateShipmentDto, UpdateShipmentStatusDto } from './dto/shipment.dto.js';
 import type { Prisma, Shipment } from '../../generated/prisma/client.js';
 import { ShipmentStatus, TraceEventType } from '../../generated/prisma/enums.js';
+
+const CODE_ATTEMPTS = 3;
 
 const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   PENDING: [ShipmentStatus.READY, ShipmentStatus.IN_TRANSIT],
@@ -30,24 +32,49 @@ export class ShipmentsService {
       where: { id: dto.partnerOrderId },
     });
     if (!partnerOrder) throw new NotFoundException('Partner order not found');
-    const count = await this.prisma.shipment.count();
-    const code = buildDatedCode('SHP', count + 1);
-    return this.prisma.shipment.create({
-      data: {
-        code,
-        partnerOrderId: dto.partnerOrderId,
-        carrier: dto.carrier,
-        trackingCode: dto.trackingCode,
-        status: ShipmentStatus.PENDING,
-      },
-    });
+
+    // Code from the highest sequence of the day (never a row count); the unique
+    // index on `code` is the final guard, so retry on a collision.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const now = new Date();
+        const code = await this.nextShipmentCode(now);
+        return await this.prisma.shipment.create({
+          data: {
+            code,
+            partnerOrderId: dto.partnerOrderId,
+            carrier: dto.carrier,
+            trackingCode: dto.trackingCode,
+            status: ShipmentStatus.PENDING,
+          },
+        });
+      } catch (error) {
+        if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
+        throw error;
+      }
+    }
   }
 
-  async findAll(query: { page?: number; limit?: number; status?: string }): Promise<PaginatedResult<Shipment>> {
+  private async nextShipmentCode(now: Date): Promise<string> {
+    const prefix = datedCodePrefix('SHP', now);
+    const existing = await this.prisma.shipment.findMany({
+      where: { code: { startsWith: prefix } },
+      select: { code: true },
+    });
+    return buildDatedCode(
+      'SHP',
+      nextDatedSequence(
+        existing.map((row) => row.code),
+        'SHP',
+        now,
+      ),
+      now,
+    );
+  }
+
+  async findAll(query: { page?: number; limit?: number; status?: ShipmentStatus }): Promise<PaginatedResult<Shipment>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.ShipmentWhereInput = query.status
-      ? { status: query.status as ShipmentStatus }
-      : {};
+    const where: Prisma.ShipmentWhereInput = query.status ? { status: query.status } : {};
     const [data, total] = await Promise.all([
       this.prisma.shipment.findMany({
         where,
@@ -148,15 +175,18 @@ export class ShipmentsService {
         }
       }
 
-      await this.audit.record({
-        actorUserId,
-        action: `SHIPMENT_${dto.status}`,
-        entityType: 'Shipment',
-        entityId: String(id),
-        beforeJson: { status: shipment.status },
-        afterJson: { status: dto.status },
-        reason: dto.failureReason,
-      });
+      await this.audit.record(
+        {
+          actorUserId,
+          action: `SHIPMENT_${dto.status}`,
+          entityType: 'Shipment',
+          entityId: String(id),
+          beforeJson: { status: shipment.status },
+          afterJson: { status: dto.status },
+          reason: dto.failureReason,
+        },
+        tx,
+      );
 
       return updated;
     });

@@ -98,6 +98,7 @@ enum InventoryMovementType {
   RESERVE
   RELEASE
   RETURN
+  QUARANTINE
 }
 
 enum OrderStatus {
@@ -217,6 +218,13 @@ model User {
   phone        String?
   role         UserRole   @default(CUSTOMER)
   status       UserStatus @default(ACTIVE)
+  /// When the password last changed.
+  ///
+  /// Access tokens are stateless JWTs, so a password change cannot delete them
+  /// from a session store. Instead `JwtStrategy` rejects any token issued
+  /// before this instant, which is what actually invalidates sessions that were
+  /// open when the password changed (including an attacker's).
+  passwordChangedAt DateTime? @map("password_changed_at")
   createdAt    DateTime   @default(now()) @map("created_at")
   updatedAt    DateTime   @updatedAt @map("updated_at")
 
@@ -227,12 +235,38 @@ model User {
   complaints         Complaint[]
   returnRequests     ReturnRequest[]
   voucherRedemptions VoucherRedemption[]
+  checkoutKeys       CheckoutIdempotencyKey[]
+  passwordResetTokens PasswordResetToken[]
   qcInspections      QcInspection[]      @relation("QcInspector")
   warehouseDocuments WarehouseDocument[] @relation("WarehouseDocCreator")
   inventoryMovements InventoryMovement[] @relation("MovementCreator")
   auditLogs          AuditLog[]
+  evidenceUploads    EvidenceImage[]     @relation("EvidenceUploader")
 
   @@map("users")
+}
+
+/// Single-use password-reset token.
+///
+/// Only the SHA-256 HASH of the token is stored: the raw token exists exactly
+/// once, inside the recovery e-mail, so a database leak cannot be replayed into
+/// an account takeover. `usedAt` marks consumption — a token is valid only while
+/// `usedAt` is null and `expiresAt` is in the future, so a token is single-use
+/// even if the e-mail is opened twice.
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  /// SHA-256 hex of the raw token. The raw value is never persisted.
+  tokenHash String    @unique @map("token_hash") @db.VarChar(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model CustomerProfile {
@@ -249,6 +283,22 @@ model CustomerProfile {
   @@map("customer_profiles")
 }
 
+/// A customer's saved shipping address.
+///
+/// Two address generations coexist here on purpose:
+///
+///   - `district` / `ward` / `province` are the ORIGINAL free-text columns.
+///     They still hold whatever the customer typed before the 2025
+///     administrative reorganisation, and rows are never rewritten by guesswork
+///     — a historical address keeps the text it was saved with.
+///   - `provinceCode` / `wardCode` / `wardName` are the ADDITIVE, verified
+///     columns for the new two-level model (tỉnh → xã/phường, no huyện). When
+///     `wardCode` is set, `wardName` is the official name resolved from the
+///     `Ward` catalogue on the server — never the client's own text.
+///
+/// `district` is deliberately NOT dropped: dropping it would destroy the
+/// historical text of addresses saved before the reorganisation. It is simply
+/// no longer collected for new addresses.
 model Address {
   id            Int      @id @default(autoincrement())
   customerId    Int      @map("customer_id")
@@ -260,13 +310,74 @@ model Address {
   village       String?
   detail        String
   isDefault     Boolean  @default(false) @map("is_default")
+  /// Official province code, e.g. "33" for Hưng Yên. Null on legacy rows.
+  provinceCode  String?  @map("province_code") @db.VarChar(20)
+  /// Official 5-digit commune code from the verified `Ward` catalogue.
+  wardCode      String?  @map("ward_code") @db.VarChar(5)
+  /// Display name resolved server-side from `wardCode` (e.g. "Phường Phố Hiến").
+  wardName      String?  @map("ward_name") @db.VarChar(120)
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   customer CustomerProfile @relation(fields: [customerId], references: [id])
 
   @@index([customerId])
+  @@index([wardCode])
   @@map("addresses")
+}
+
+// ---------------------------------------------------------------------------
+// A2. Administrative catalogue (tỉnh → xã/phường, two-level model)
+// ---------------------------------------------------------------------------
+
+/// Province of the two-level administrative model. Only Hưng Yên (`33`) is
+/// seeded, because the storefront ships inside Hưng Yên only — a decorative
+/// nationwide list would be a lie about where AgriMarket delivers.
+model Province {
+  code      String   @id @db.VarChar(20)
+  name      String   @db.VarChar(120)
+  fullName  String   @map("full_name") @db.VarChar(160)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  wards Ward[]
+
+  @@map("provinces")
+}
+
+/// One commune-level unit (xã / phường) of the post-reorganisation catalogue.
+///
+/// This table is the SINGLE source of truth for the 104 Hưng Yên units: Admin,
+/// Customer Web and Mobile all read it through `GET /locations/...` and none of
+/// them embeds its own copy of the list.
+///
+/// `code` is a `VarChar(5)` string, never an integer: administrative codes have
+/// significant leading zeros, and storing them numerically would corrupt them.
+/// `searchText` is a pre-computed, accent-stripped haystack (e.g. "phuong pho
+/// hien") so an unaccented query like "pho hien" matches without a per-request
+/// accent-folding pass.
+model Ward {
+  code         String   @id @db.VarChar(5)
+  provinceCode String   @map("province_code") @db.VarChar(20)
+  /// "xa" | "phuong" — the unit class, as published.
+  type         String   @db.VarChar(10)
+  /// Official name WITHOUT the "Xã"/"Phường" prefix (e.g. "Phố Hiến").
+  name         String   @db.VarChar(120)
+  /// Official name WITH the prefix (e.g. "Phường Phố Hiến") — what is displayed.
+  fullName     String   @map("full_name") @db.VarChar(160)
+  /// Accent-stripped, lower-cased search haystack.
+  searchText   String   @map("search_text") @db.VarChar(200)
+  /// Date this unit became effective (ISO date string, e.g. "2025-07-01").
+  effectiveFrom String? @map("effective_from") @db.VarChar(10)
+  status       RecordStatus @default(ACTIVE)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  province Province @relation(fields: [provinceCode], references: [code])
+
+  @@index([provinceCode])
+  @@index([status])
+  @@map("wards")
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +570,10 @@ model ProductImage {
   url       String
   sortOrder Int      @default(0) @map("sort_order")
   isPrimary Boolean  @default(false) @map("is_primary")
+  mimeType  String?  @map("mime_type") @db.VarChar(64)
+  width     Int?
+  height    Int?
+  sizeBytes Int?     @map("size_bytes")
   createdAt DateTime @default(now()) @map("created_at")
 
   product Product @relation(fields: [productId], references: [id])
@@ -726,16 +841,68 @@ model Order {
   createdAt               DateTime    @default(now()) @map("created_at")
   updatedAt               DateTime    @updatedAt @map("updated_at")
 
-  customer           User                @relation(fields: [customerId], references: [id])
+  customer           User                      @relation(fields: [customerId], references: [id])
   partnerOrders      PartnerOrder[]
   payments           Payment[]
   voucherRedemptions VoucherRedemption[]
   complaints         Complaint[]
   returnRequests     ReturnRequest[]
+  checkoutKeys       CheckoutIdempotencyKey[]
 
   @@index([customerId])
   @@index([status])
   @@map("orders")
+}
+
+/// Checkout idempotency keys.
+///
+/// A key is unique per customer and bound to the hash of the checkout payload
+/// it was first used with, so:
+///   - the same key + the same payload returns the original order (retry, or a
+///     retry after the response was lost);
+///   - the same key + a different payload is rejected instead of silently
+///     creating a second order.
+/// The row is written inside the checkout transaction, so a rolled-back
+/// checkout never leaves a key behind and the retry can succeed later.
+model CheckoutIdempotencyKey {
+  id          Int      @id @default(autoincrement())
+  customerId  Int      @map("customer_id")
+  key         String
+  requestHash String   @map("request_hash")
+  orderId     Int?     @map("order_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  customer User   @relation(fields: [customerId], references: [id])
+  order    Order? @relation(fields: [orderId], references: [id])
+
+  @@unique([customerId, key])
+  @@index([orderId])
+  @@map("checkout_idempotency_keys")
+}
+
+/// Daily business-code counters, one row per `<PREFIX>-<YYYYMMDD>-`.
+///
+/// WHY: `nextOrderCode` used to derive the next number from the highest
+/// existing `orders.code` of the day. Two concurrent checkouts read the same
+/// maximum, built the same `ORD-YYYYMMDD-NNNN`, and all but one collided on
+/// the unique index; the retry storm interleaved with the checkout write set
+/// and produced deadlocks (P2034 / MySQL 1213) and transaction timeouts
+/// (P2028) instead of two orders.
+///
+/// HOW: allocation is a single
+/// `INSERT ... ON DUPLICATE KEY UPDATE value = value + 1` followed by a
+/// `SELECT value`. Every writer queues on the same row's exclusive lock and
+/// leaves with a distinct number — no gap locks, no duplicate-key retries.
+/// The counter lives inside the checkout transaction (sequence lock first,
+/// balances second), so the lock order is globally consistent and a rolled
+/// back checkout does not burn a number.
+model CodeSequence {
+  name      String   @id @db.VarChar(64)
+  value     BigInt   @default(0)
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("code_sequences")
 }
 
 model PartnerOrder {
@@ -773,17 +940,26 @@ model OrderItem {
   quantity            Decimal  @db.Decimal(18, 3)
   subtotal            Decimal  @db.Decimal(18, 2)
   discountAmount      Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 2)
+  /// The exact flash-sale item whose price this line was charged at.
+  ///
+  /// Snapshot of the *program*, not the price: quota is consumed from and the
+  /// per-customer limit is counted against this id, so two sales that happen to
+  /// share a price — or a normal purchase that lands on the same price — can
+  /// never be confused with one another. `NULL` for a non-flash line.
+  flashSaleItemId     Int?     @map("flash_sale_item_id")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   partnerOrder   PartnerOrder          @relation(fields: [partnerOrderId], references: [id])
   productVariant ProductVariant        @relation(fields: [productVariantId], references: [id])
+  flashSaleItem  FlashSaleItem?        @relation(fields: [flashSaleItemId], references: [id], onDelete: SetNull)
   allocations    InventoryAllocation[]
   reviews        Review[]
   returnRequests ReturnRequest[]
   complaints     Complaint[]
 
   @@index([partnerOrderId])
+  @@index([flashSaleItemId])
   @@map("order_items")
 }
 
@@ -986,6 +1162,7 @@ model FlashSaleItem {
 
   flashSale      FlashSale      @relation(fields: [flashSaleId], references: [id])
   productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+  orderItems     OrderItem[]
 
   @@unique([flashSaleId, productVariantId])
   @@map("flash_sale_items")
@@ -1009,6 +1186,7 @@ model Review {
   customer  User      @relation(fields: [customerId], references: [id])
   orderItem OrderItem @relation(fields: [orderItemId], references: [id])
   product   Product   @relation(fields: [productId], references: [id])
+  evidence  EvidenceImage[]
 
   @@unique([orderItemId])
   @@index([productId])
@@ -1035,6 +1213,7 @@ model Complaint {
   customer  User       @relation(fields: [customerId], references: [id])
   order     Order      @relation(fields: [orderId], references: [id])
   orderItem OrderItem? @relation(fields: [orderItemId], references: [id])
+  evidence  EvidenceImage[]
 
   @@index([customerId])
   @@index([orderId])
@@ -1057,6 +1236,7 @@ model ReturnRequest {
   orderItem OrderItem @relation(fields: [orderItemId], references: [id])
   customer  User      @relation(fields: [customerId], references: [id])
   refund    Refund?   @relation(fields: [refundId], references: [id])
+  evidence  EvidenceImage[]
 
   @@index([orderId])
   @@map("return_requests")
@@ -1065,6 +1245,59 @@ model ReturnRequest {
 // ---------------------------------------------------------------------------
 // R. Commission / Settlement / Payout
 // ---------------------------------------------------------------------------
+
+/// One evidence photo attached to a review, complaint or return request.
+///
+/// WHY ONE TABLE WITH THREE NULLABLE FKs
+///
+/// The three workflows need the same thing — up to five validated images with
+/// the same size/format rules, the same private-serving policy and the same
+/// thumbnails — and they differ only in what owns them. Three near-identical
+/// tables would triple the validation and the access checks, which is where
+/// security bugs hide. A single table with a database-level CHECK that exactly
+/// one owner is set keeps every image reachable by exactly one policy.
+///
+/// PRIVACY
+///
+/// The file is never served from a public path. `storageKey` is an opaque UUID
+/// file name inside a private directory, and every read goes through
+/// `GET /evidence/:id/file`, which resolves the owner and checks the caller.
+/// Review images become readable by anyone only once the review is APPROVED.
+///
+/// Additive: a new table, no change to `reviews`, `complaints` or
+/// `return_requests`, so every existing row and query keeps working.
+model EvidenceImage {
+  id           Int      @id @default(autoincrement())
+  /// Opaque file name on disk (UUID + extension). Never a user-supplied name.
+  storageKey   String   @map("storage_key") @db.VarChar(128)
+  mimeType     String   @map("mime_type") @db.VarChar(64)
+  sizeBytes    Int      @map("size_bytes")
+  width        Int
+  height       Int
+  /// Original name as reported by the client, kept for support only. Never used
+  /// to build a path.
+  originalName String?  @map("original_name") @db.VarChar(255)
+  createdAt    DateTime @default(now()) @map("created_at")
+  /// Set when the upload is confirmed against an entity. NULL means the file
+  /// was uploaded but never bound; such rows are swept after a short TTL.
+  uploadedById Int      @map("uploaded_by_id")
+
+  reviewId      Int? @map("review_id")
+  complaintId   Int? @map("complaint_id")
+  returnId      Int? @map("return_id")
+  sortOrder     Int  @default(0) @map("sort_order")
+
+  uploadedBy User           @relation("EvidenceUploader", fields: [uploadedById], references: [id])
+  review     Review?        @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  complaint  Complaint?     @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+  returnReq  ReturnRequest? @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+  @@index([complaintId])
+  @@index([returnId])
+  @@index([uploadedById, createdAt])
+  @@map("evidence_images")
+}
 
 model CommissionRule {
   id            Int          @id @default(autoincrement())

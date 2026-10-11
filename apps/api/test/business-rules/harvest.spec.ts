@@ -32,7 +32,8 @@ describe('Harvest invariants', () => {
   it('allows a lot that fits exactly within the harvest quantity', async () => {
     prisma.harvest.findUnique.mockResolvedValue({ id: 1, quantity: 1000, harvestDate: new Date() });
     prisma.productLot.aggregate.mockResolvedValue({ _sum: { quantity: 900 } });
-    prisma.productLot.count.mockResolvedValue(0);
+    // The next LOT code comes from the highest existing code of the day.
+    prisma.productLot.findMany.mockResolvedValue([]);
     prisma.productLot.create.mockImplementation(async ({ data }: { data: unknown }) => data);
     prisma.traceEvent.create.mockResolvedValue({});
 

@@ -9,7 +9,7 @@ import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { useListState } from "@/hooks/useListState";
-import { useClientList } from "@/hooks/useClientList";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { useHarvestOptions, useProductOptions } from "@/hooks/useOptions";
 import { resources } from "@/lib/api/resources";
@@ -19,17 +19,6 @@ import { toNumeric } from "@/lib/format/form";
 import { LOT_STATUS, lotStatus, statusOptions } from "@/lib/status";
 import type { ProductLot } from "@/types/api";
 
-// /lots only whitelists page/limit/search/status, so the product filter is
-// applied in the browser.
-const lotSearchText = (l: ProductLot) =>
-  [l.code, l.traceCode, l.product?.name ?? ""].join(" ");
-
-const lotFilter = (l: ProductLot, filters: Record<string, string | undefined>) => {
-  if (filters.productId && String(l.productId) !== filters.productId) return false;
-  if (filters.status && l.status !== filters.status) return false;
-  return true;
-};
-
 export default function LotsPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
@@ -37,13 +26,11 @@ export default function LotsPage() {
   const products = useProductOptions();
   const harvests = useHarvestOptions();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<ProductLot>({
-    queryKey: queryKeys.lots({ scope: "admin-list" }),
-    fetcher: resources.lots,
-    state: list,
-    searchText: lotSearchText,
-    filter: lotFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<ProductLot>(
+    queryKeys.lots(list.params),
+    resources.lots,
+    list.params,
+  );
 
   const create = useAction(
     (values: Record<string, unknown>) =>
@@ -104,7 +91,6 @@ export default function LotsPage() {
     <>
       <ListPage<ProductLot>
         title="Lô & QR"
-        subtitle="Lô hàng truy xuất nguồn gốc"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         searchPlaceholder="Tìm theo mã lô, mã truy xuất, sản phẩm..."
@@ -131,12 +117,12 @@ export default function LotsPage() {
           </Button>
         }
         columns={columns}
-        data={data}
+        data={data?.data ?? []}
         loading={isLoading}
         error={isError ? new Error("Không tải được danh sách lô hàng.") : undefined}
         onRetry={() => void refetch()}
         emptyText="Không có lô hàng phù hợp"
-        total={total}
+        total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}
         onPageChange={list.setPage}

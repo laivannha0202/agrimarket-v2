@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, DatePicker, Form, InputNumber, Select } from "antd";
+import { App, Button, DatePicker, Form, InputNumber, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -34,12 +34,33 @@ export default function CommissionPage() {
   const [form] = Form.useForm<RuleForm>();
   const partners = usePartnerOptions();
   const categories = useCategoryOptions();
+  const { modal } = App.useApp();
 
   const { data, isLoading, isError, refetch } = useListQuery<CommissionRule>(
     queryKeys.commissionRules(list.params),
     resources.commissionRules,
     list.params,
   );
+
+  const setStatus = useAction(
+    (vars: { id: number; status: "ACTIVE" | "INACTIVE" }) =>
+      resources.updateCommissionRuleStatus(vars.id, vars.status),
+    {
+      invalidate: [["commission-rules"]],
+      successMessage: "Đã cập nhật trạng thái quy tắc hoa hồng.",
+    },
+  );
+
+  const confirmDeactivate = (row: CommissionRule) => {
+    modal.confirm({
+      title: "Ngừng quy tắc hoa hồng này?",
+      content: "Quy tắc sẽ không áp dụng cho đơn mới. Hoa hồng đã ghi nhận được giữ nguyên.",
+      okText: "Ngừng",
+      okType: "danger",
+      cancelText: "Hủy",
+      onOk: () => setStatus.mutate({ id: row.id, status: "INACTIVE" }),
+    });
+  };
 
   const create = useAction(
     (values: RuleForm) =>
@@ -88,13 +109,39 @@ export default function CommissionPage() {
       dataIndex: "status",
       render: (s: string) => <StatusTag status={recordStatus(s)} />,
     },
+    {
+      title: "Thao tác",
+      width: 120,
+      fixed: "right",
+      render: (_, row) =>
+        row.status === "ACTIVE" ? (
+          <Button
+            type="link"
+            size="small"
+            danger
+            style={{ paddingInline: 0 }}
+            onClick={() => confirmDeactivate(row)}
+          >
+            Ngừng
+          </Button>
+        ) : (
+          <Button
+            type="link"
+            size="small"
+            style={{ paddingInline: 0 }}
+            loading={setStatus.isPending}
+            onClick={() => setStatus.mutate({ id: row.id, status: "ACTIVE" })}
+          >
+            Kích hoạt
+          </Button>
+        ),
+    },
   ];
 
   return (
     <>
       <ListPage<CommissionRule>
         title="Hoa hồng"
-        subtitle="Quy tắc hoa hồng theo đối tác và danh mục"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -124,7 +171,7 @@ export default function CommissionPage() {
         limit={list.limit}
         onPageChange={list.setPage}
         onLimitChange={list.setLimit}
-        scrollX={960}
+        scrollX={1080}
         itemLabel="quy tắc"
       />
 

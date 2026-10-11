@@ -1,0 +1,170 @@
+[
+  {
+    "filename": "01_tai_khoan_dang_nhap.png",
+    "label": "Tài khoản (đã đăng nhập)",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": true,
+    "width": 395,
+    "height": 870
+  },
+  {
+    "filename": "02_dia_chi_chon_tinh_sheet.png",
+    "label": "Tỉnh 1 lựa chọn; sheet",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": true,
+    "width": 444,
+    "height": 924
+  },
+  {
+    "filename": "03_dia_chi_chon_xa_sheet.png",
+    "label": "Xã/phường bottom sheet",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 448,
+    "height": 908
+  },
+  {
+    "filename": "04_dia_chi_danh_sach_form_qua_dai.png",
+    "label": "Form địa chỉ quá dài",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": true,
+    "width": 407,
+    "height": 879
+  },
+  {
+    "filename": "05_khieu_nai_nhap_orderid.png",
+    "label": "Khiếu nại nhập ID",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 406,
+    "height": 882
+  },
+  {
+    "filename": "06_tra_hang_nhap_orderitemid.png",
+    "label": "Trả hàng nhập ID",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 429,
+    "height": 895
+  },
+  {
+    "filename": "07_danh_gia_nhap_orderitemid.png",
+    "label": "Đánh giá nhập ID",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 411,
+    "height": 879
+  },
+  {
+    "filename": "08_danh_sach_trang_trai_anh_minh_hoa.png",
+    "label": "Trang trại ảnh minh họa",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 435,
+    "height": 912
+  },
+  {
+    "filename": "09_tai_khoan_sua_ho_so_dang_bung_form.png",
+    "label": "Form sửa hồ sơ dài",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": true,
+    "width": 403,
+    "height": 880
+  },
+  {
+    "filename": "10_dang_nhap_cu.png",
+    "label": "Đăng nhập cũ",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 411,
+    "height": 885
+  },
+  {
+    "filename": "11_dang_ky_ban_dau.png",
+    "label": "Đăng ký trước sửa",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 419,
+    "height": 882
+  },
+  {
+    "filename": "12_tai_khoan_chua_dang_nhap.png",
+    "label": "Guest account",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 410,
+    "height": 880
+  },
+  {
+    "filename": "13_trang_chu.png",
+    "label": "Trang chủ",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 402,
+    "height": 869
+  },
+  {
+    "filename": "14_san_pham_noi_bat.png",
+    "label": "Sản phẩm nổi bật",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 406,
+    "height": 870
+  },
+  {
+    "filename": "15_trang_chu_phan_cuoi.png",
+    "label": "Trang chủ phần cuối",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 408,
+    "height": 872
+  },
+  {
+    "filename": "16_chi_tiet_san_pham_phan_dau.png",
+    "label": "Chi tiết sản phẩm (đầu)",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 403,
+    "height": 856
+  },
+  {
+    "filename": "17_chi_tiet_san_pham_phan_duoi.png",
+    "label": "Chi tiết sản phẩm (dưới)",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 414,
+    "height": 859
+  },
+  {
+    "filename": "18_chi_tiet_trang_trai.png",
+    "label": "Chi tiết trang trại",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 410,
+    "height": 868
+  },
+  {
+    "filename": "19_danh_sach_san_pham.png",
+    "label": "Danh sách sản phẩm",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 402,
+    "height": 866
+  },
+  {
+    "filename": "20_tim_kiem_rau.png",
+    "label": "Tìm kiếm rau",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 413,
+    "height": 875
+  },
+  {
+    "filename": "21_flash_sale.png",
+    "label": "Flash Sale",
+    "source": "ảnh người dùng cung cấp",
+    "redacted": false,
+    "width": 398,
+    "height": 303
+  }
+]

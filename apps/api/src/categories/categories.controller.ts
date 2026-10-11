@@ -10,8 +10,11 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CategoriesService } from './categories.service.js';
-import { CreateCategoryDto, UpdateCategoryDto } from './dto/category.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import {
+  CategoryQueryDto,
+  CreateCategoryDto,
+  UpdateCategoryDto,
+} from './dto/category.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 
@@ -22,8 +25,8 @@ export class CategoriesController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List categories' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List categories (search/status filters)' })
+  findAll(@Query() query: CategoryQueryDto) {
     return this.categoriesService.findAll(query);
   }
 

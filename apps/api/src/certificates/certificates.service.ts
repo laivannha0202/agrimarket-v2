@@ -31,12 +31,14 @@ export class CertificatesService {
   async findAll(query: {
     page?: number;
     limit?: number;
-    status?: string;
+    status?: CertificateVerificationStatus;
+    farmId?: number;
   }): Promise<PaginatedResult<Certificate>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.CertificateWhereInput = query.status
-      ? { verificationStatus: query.status as CertificateVerificationStatus }
-      : {};
+    const where: Prisma.CertificateWhereInput = {
+      ...(query.status ? { verificationStatus: query.status } : {}),
+      ...(query.farmId ? { farmId: query.farmId } : {}),
+    };
     const [data, total] = await Promise.all([
       this.prisma.certificate.findMany({
         where,

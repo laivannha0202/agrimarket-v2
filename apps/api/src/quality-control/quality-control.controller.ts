@@ -1,8 +1,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { QualityControlService } from './quality-control.service.js';
-import { CreateQcInspectionDto } from './dto/qc.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { CreateQcInspectionDto, QcQueryDto } from './dto/qc.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -15,12 +14,9 @@ export class QualityControlController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List QC inspections' })
-  findAll(@Query() query: PaginationQueryDto, @Query('productLotId') productLotId?: string) {
-    return this.qcService.findAll({
-      ...query,
-      productLotId: productLotId ? parseInt(productLotId, 10) : undefined,
-    });
+  @ApiOperation({ summary: 'List QC inspections (productLotId filter)' })
+  findAll(@Query() query: QcQueryDto) {
+    return this.qcService.findAll(query);
   }
 
   @Public()

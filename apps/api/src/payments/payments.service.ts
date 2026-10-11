@@ -37,12 +37,10 @@ export class PaymentsService {
   async findAll(query: {
     page?: number;
     limit?: number;
-    status?: string;
+    status?: PaymentStatus;
   }): Promise<PaginatedResult<Payment>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.PaymentWhereInput = query.status
-      ? { status: query.status as PaymentStatus }
-      : {};
+    const where: Prisma.PaymentWhereInput = query.status ? { status: query.status } : {};
     const [data, total] = await Promise.all([
       this.prisma.payment.findMany({
         where,
@@ -126,14 +124,17 @@ export class PaymentsService {
             totalRefunded >= paid ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
         },
       });
-      await this.audit.record({
-        actorUserId,
-        action: 'REFUND',
-        entityType: 'Payment',
-        entityId: String(payment.id),
-        afterJson: refund,
-        reason: dto.reason,
-      });
+      await this.audit.record(
+        {
+          actorUserId,
+          action: 'REFUND',
+          entityType: 'Payment',
+          entityId: String(payment.id),
+          afterJson: refund,
+          reason: dto.reason,
+        },
+        tx,
+      );
       return refund;
     });
   }

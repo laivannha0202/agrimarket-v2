@@ -1,117 +1,48 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
-import { currentTimeMs } from "@/lib/format/time";
-
-/** Snapshot of the current time, isolated so it is not called during render. */
-const nowMs = currentTimeMs;
 
 /**
  * Dashboard data.
  *
- * The V2 backend has no dedicated aggregate/report endpoint, and the demo
- * dataset is small (well under the 100-row list cap), so the dashboard derives
- * its KPIs from the real list endpoints. No fabricated numbers, no SQL in the
- * frontend — just aggregation over API responses.
+ * KPIs come from the backend aggregate `GET /reports/summary` (counts and
+ * sums over the full filtered set — never a capped list). The revenue chart
+ * uses `GET /reports/daily`. Both are asked for the **same** window (`days`,
+ * 7 or 30, ending today) so the KPI total reconciles with the chart sum.
+ * Only the "recent orders" table still uses a list query, capped at 8 rows.
  */
 export function useDashboardData() {
-  const orders = useQuery({
-    queryKey: queryKeys.orders({ scope: "dashboard" }),
-    queryFn: () => resources.orders({ limit: 100 }),
+  const [days, setDays] = useState<7 | 30>(7);
+
+  const summary = useQuery({
+    queryKey: queryKeys.reportsSummary({ scope: "dashboard", days }),
+    queryFn: () => resources.reportsSummary({ days }),
   });
 
-  const lots = useQuery({
-    queryKey: queryKeys.lots({ scope: "dashboard" }),
-    queryFn: () => resources.lots({ limit: 100 }),
+  const daily = useQuery({
+    queryKey: queryKeys.reportsDaily({ scope: "dashboard", days }),
+    queryFn: () => resources.reportsDaily({ days }),
   });
 
-  const certificates = useQuery({
-    queryKey: queryKeys.certificates({ scope: "dashboard" }),
-    queryFn: () => resources.certificates({ limit: 100 }),
+  const recent = useQuery({
+    queryKey: queryKeys.orders({ scope: "dashboard-recent" }),
+    queryFn: () => resources.orders({ limit: 8 }),
   });
 
-  const returns = useQuery({
-    queryKey: queryKeys.returns({ scope: "dashboard" }),
-    queryFn: () => resources.returns({ limit: 100 }),
-  });
-
-  const complaints = useQuery({
-    queryKey: queryKeys.complaints({ scope: "dashboard" }),
-    queryFn: () => resources.complaints({ limit: 100 }),
-  });
-
-  const inventory = useQuery({
-    queryKey: queryKeys.inventory({ scope: "dashboard" }),
-    queryFn: () => resources.inventory({ limit: 100 }),
-  });
-
-  const isLoading =
-    orders.isLoading ||
-    lots.isLoading ||
-    certificates.isLoading ||
-    returns.isLoading ||
-    complaints.isLoading ||
-    inventory.isLoading;
-
-  const isError =
-    orders.isError ||
-    lots.isError ||
-    certificates.isError ||
-    returns.isError ||
-    complaints.isError ||
-    inventory.isError;
+  const isLoading = summary.isLoading || daily.isLoading || recent.isLoading;
+  const isError = summary.isError || daily.isError || recent.isError;
 
   const refetchAll = () => {
-    void orders.refetch();
-    void lots.refetch();
-    void certificates.refetch();
-    void returns.refetch();
-    void complaints.refetch();
-    void inventory.refetch();
+    void summary.refetch();
+    void daily.refetch();
+    void recent.refetch();
   };
 
-  const orderList = orders.data?.data ?? [];
-  const lotList = lots.data?.data ?? [];
-  const certList = certificates.data?.data ?? [];
-  const returnList = returns.data?.data ?? [];
-  const complaintList = complaints.data?.data ?? [];
-  const inventoryList = inventory.data?.data ?? [];
-
-  const activeOrders = orderList.filter((o) => o.status !== "CANCELLED");
-  const gmv = activeOrders.reduce((sum, o) => sum + Number(o.grandTotal), 0);
-  const commission = orderList
-    .flatMap((o) => o.partnerOrders ?? [])
-    .reduce((sum, po) => sum + Number(po.commissionAmount), 0);
-
-  const now = nowMs();
-  const thirtyDays = 30 * 86_400_000;
-  const sevenDays = 7 * 86_400_000;
-
-  const pendingOrders = orderList.filter((o) => o.status === "PENDING_CONFIRMATION");
-  const shippingOrders = orderList.filter((o) => o.status === "SHIPPING");
-  const pendingQcLots = lotList.filter((l) => l.status === "PENDING_QC");
-  const pendingCerts = certList.filter((c) => c.verificationStatus === "PENDING");
-  const openComplaints = complaintList.filter(
-    (c) => c.status === "OPEN" || c.status === "PROCESSING",
-  );
-  const activeReturns = returnList.filter(
-    (r) => r.status !== "REFUNDED" && r.status !== "REJECTED",
-  );
-  const lowStock = inventoryList.filter((b) => Number(b.available) <= 20);
-  const nearExpiry = lotList.filter((l) => {
-    if (l.status !== "SELLABLE") return false;
-    const t = new Date(l.expiresAt).getTime();
-    return t - now <= sevenDays && t >= now;
-  });
-  const expiredSellable = lotList.filter(
-    (l) => l.status === "SELLABLE" && new Date(l.expiresAt).getTime() < now,
-  );
-
-  const recentOrders = [...orderList]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 8);
+  const s = summary.data;
+  const orderList = recent.data?.data ?? [];
 
   const statusBreakdown = [
     "PENDING_CONFIRMATION",
@@ -123,34 +54,44 @@ export function useDashboardData() {
     "CANCELLED",
   ].map((status) => ({
     status,
-    count: orderList.filter((o) => o.status === status).length,
+    count: s?.orders.byStatus[status] ?? 0,
   }));
 
   return {
     isLoading,
     isError,
     refetchAll,
+    days,
+    setDays,
+    /** Actual window the KPIs were computed over (ISO), straight from the API. */
+    windowFrom: s?.from,
+    windowTo: s?.to,
+    dailyPoints: daily.data?.points ?? [],
     kpi: {
-      gmv,
-      orderCount: orderList.length,
-      pendingOrderCount: pendingOrders.length,
-      shippingOrderCount: shippingOrders.length,
-      commission,
-      refundReturnCount: activeReturns.length,
-      aov: activeOrders.length > 0 ? gmv / activeOrders.length : 0,
+      totalOrderValue: s?.orders.totalOrderValue ?? 0,
+      grossCollected: s?.revenue.grossCollected ?? 0,
+      netCollected: s?.revenue.netCollected ?? 0,
+      refundTotal: s?.revenue.refundTotal ?? 0,
+      orderCount: s?.orders.count ?? 0,
+      activeOrderCount: s?.orders.activeCount ?? 0,
+      pendingOrderCount: s?.orders.pendingConfirmation ?? 0,
+      shippingOrderCount: s?.orders.shipping ?? 0,
+      commission: s?.commissionRecorded ?? 0,
+      aov: s?.orders.averageOrderValue ?? 0,
     },
     actionQueue: {
-      pendingOrders,
-      pendingQcLots,
-      pendingCerts,
-      openComplaints,
-      activeReturns,
-      lowStock,
-      nearExpiry,
-      expiredSellable,
+      pendingQcCount: s?.lots.pendingQc ?? 0,
+      pendingCertCount: s?.certificates.pending ?? 0,
+      openComplaintCount: s?.complaints.open ?? 0,
+      openReturnCount: s?.returns.open ?? 0,
+      lowStockLineCount: s?.inventory.lowStockLines ?? 0,
+      lowStockThreshold: s?.inventory.lowStockThreshold ?? 0,
+      expiringCount: s?.lots.sellableExpiring7d ?? 0,
+      expiredCount: s?.lots.sellableExpired ?? 0,
     },
-    recentOrders,
+    recentOrders: [...orderList].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    ),
     statusBreakdown,
-    windowDays: { thirtyDays, sevenDays },
   };
 }

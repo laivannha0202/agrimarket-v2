@@ -4,9 +4,10 @@ import { InventoryService } from './inventory.service.js';
 import {
   AdjustInventoryDto,
   InboundInventoryDto,
+  InventoryMovementQueryDto,
+  InventoryQueryDto,
   ReserveInventoryDto,
 } from './dto/inventory.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
@@ -19,28 +20,17 @@ export class InventoryController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get()
-  @ApiOperation({ summary: 'List inventory balances with computed available (ADMIN)' })
-  findAll(
-    @Query() query: PaginationQueryDto,
-    @Query('warehouseId') warehouseId?: string,
-    @Query('productVariantId') productVariantId?: string,
-  ) {
-    return this.inventoryService.findAll({
-      ...query,
-      warehouseId: warehouseId ? parseInt(warehouseId, 10) : undefined,
-      productVariantId: productVariantId ? parseInt(productVariantId, 10) : undefined,
-    });
+  @ApiOperation({ summary: 'List inventory balances (warehouseId/productVariantId filters)' })
+  findAll(@Query() query: InventoryQueryDto) {
+    return this.inventoryService.findAll(query);
   }
 
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('movements')
-  @ApiOperation({ summary: 'List inventory movements (ADMIN)' })
-  movements(@Query() query: PaginationQueryDto, @Query('productLotId') productLotId?: string) {
-    return this.inventoryService.movements({
-      ...query,
-      productLotId: productLotId ? parseInt(productLotId, 10) : undefined,
-    });
+  @ApiOperation({ summary: 'List inventory movements (productLotId filter)' })
+  movements(@Query() query: InventoryMovementQueryDto) {
+    return this.inventoryService.movements(query);
   }
 
   @Roles('ADMIN')

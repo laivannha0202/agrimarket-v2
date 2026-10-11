@@ -1,13 +1,19 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CommissionService } from './commission.service.js';
 import { PayoutsService, SettlementsService } from './settlements.service.js';
+import { SettlementExportService } from './settlement-export.service.js';
 import {
+  CommissionRuleQueryDto,
   CreateCommissionRuleDto,
   CreatePayoutDto,
   CreateSettlementDto,
+  PayoutQueryDto,
+  SettlementExportQueryDto,
+  SettlementQueryDto,
+  UpdateCommissionRuleStatusDto,
 } from './dto/finance.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
@@ -19,14 +25,15 @@ export class FinanceController {
     private readonly commissionService: CommissionService,
     private readonly settlementsService: SettlementsService,
     private readonly payoutsService: PayoutsService,
+    private readonly settlementExportService: SettlementExportService,
   ) {}
 
   // Commission rules
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('commission-rules')
-  @ApiOperation({ summary: 'List commission rules (ADMIN)' })
-  listRules(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List commission rules (status filter, ADMIN)' })
+  listRules(@Query() query: CommissionRuleQueryDto) {
     return this.commissionService.listRules(query);
   }
 
@@ -38,12 +45,23 @@ export class FinanceController {
     return this.commissionService.createRule(dto);
   }
 
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Patch('commission-rules/:id')
+  @ApiOperation({ summary: 'Activate / deactivate a commission rule (ADMIN)' })
+  updateRule(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateCommissionRuleStatusDto,
+  ) {
+    return this.commissionService.updateRuleStatus(id, dto.status);
+  }
+
   // Settlements
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('settlements')
-  @ApiOperation({ summary: 'List settlements (ADMIN)' })
-  listSettlements(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List settlements (status filter, ADMIN)' })
+  listSettlements(@Query() query: SettlementQueryDto) {
     return this.settlementsService.findAll(query);
   }
 
@@ -53,6 +71,31 @@ export class FinanceController {
   @ApiOperation({ summary: 'Get a settlement (ADMIN)' })
   getSettlement(@Param('id', ParseIntPipe) id: number) {
     return this.settlementsService.findOne(id);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('settlements/:id/export')
+  @ApiProduces(
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/pdf',
+  )
+  @ApiOperation({
+    summary: 'Export a settlement statement as a real .xlsx or .pdf (ADMIN)',
+    description:
+      'Streams the stored reconciliation statement (header + lines + payouts) ' +
+      'as a genuine Excel workbook or PDF. `format` is required.',
+  })
+  async exportSettlement(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: SettlementExportQueryDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const file = await this.settlementExportService.export(id, query.format);
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('Content-Length', String(file.buffer.length));
+    res.end(file.buffer);
   }
 
   @Roles('ADMIN')
@@ -75,8 +118,8 @@ export class FinanceController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('payouts')
-  @ApiOperation({ summary: 'List payouts (ADMIN)' })
-  listPayouts(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List payouts (status filter, ADMIN)' })
+  listPayouts(@Query() query: PayoutQueryDto) {
     return this.payoutsService.findAll(query);
   }
 

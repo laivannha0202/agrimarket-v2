@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button, Form, Input, Modal, Select, Tabs, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
+import { EvidenceGallery } from "@/components/common/EvidenceGallery";
 import { StatusTag } from "@/components/common/StatusTag";
 import { useListState } from "@/hooks/useListState";
 import { useListQuery } from "@/hooks/useListQuery";
@@ -118,7 +119,6 @@ function ReturnsTab() {
     <>
       <ListPage<ReturnRequest>
         title="Trả hàng"
-        subtitle="Yêu cầu trả hàng của khách"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -166,6 +166,19 @@ function ReturnsTab() {
             update.mutate({ id: editing.id, status: values.status, refundId: values.refundId });
           }}
         >
+          {editing ? (
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ marginTop: 0 }}>
+                <strong>Lý do:</strong> {editing.reason}
+              </p>
+              {/**
+               * The customer's photos are the evidence for this decision, so
+               * they are shown inside the dialog the decision is made in. An
+               * ADMIN may read them for any request.
+               */}
+              <EvidenceGallery images={editing.evidence} label="Ảnh khách gửi" />
+            </div>
+          ) : null}
           <Form.Item label="Trạng thái mới" name="status" rules={[{ required: true, message: "Chọn trạng thái." }]}>
             <Select options={transitions} placeholder="Chọn trạng thái" />
           </Form.Item>
@@ -269,7 +282,6 @@ function ComplaintsTab() {
     <>
       <ListPage<Complaint>
         title="Khiếu nại"
-        subtitle="Khiếu nại của khách hàng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -318,6 +330,18 @@ function ComplaintsTab() {
             update.mutate({ id: editing.id, status: values.status, resolution: values.resolution });
           }}
         >
+          {editing ? (
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ marginTop: 0 }}>
+                <strong>Nội dung:</strong> {editing.content}
+              </p>
+              {/**
+               * The photos the customer attached. They are the evidence for the
+               * resolution, so they belong in the dialog where it is decided.
+               */}
+              <EvidenceGallery images={editing.evidence} label="Ảnh khách gửi" />
+            </div>
+          ) : null}
           <Form.Item label="Trạng thái mới" name="status" rules={[{ required: true, message: "Chọn trạng thái." }]}>
             <Select options={transitions} placeholder="Chọn trạng thái" />
           </Form.Item>

@@ -80,6 +80,51 @@ export class InventoryService {
     };
   }
 
+  /**
+   * Sellable quantity per variant: stock a checkout could actually reserve.
+   *
+   * Mirrors `allocateFefo`'s eligibility (SELLABLE lot, not expired, latest QC
+   * PASS) so a preview never promises stock the checkout would refuse.
+   */
+  async sellableQuantities(productVariantIds: number[]): Promise<Map<number, number>> {
+    const result = new Map<number, number>();
+    for (const id of productVariantIds) result.set(id, 0);
+    if (productVariantIds.length === 0) return result;
+
+    const now = new Date();
+    const balances = await this.prisma.inventoryBalance.findMany({
+      where: {
+        productVariantId: { in: productVariantIds },
+        productLot: {
+          status: ProductLotStatus.SELLABLE,
+          expiresAt: { gte: now },
+        },
+      },
+      include: {
+        productLot: {
+          include: {
+            qcInspections: { orderBy: { inspectedAt: 'desc' }, take: 1 },
+          },
+        },
+      },
+    });
+
+    for (const balance of balances) {
+      if (balance.productLot.status !== ProductLotStatus.SELLABLE) continue;
+      if (balance.productLot.expiresAt < now) continue;
+      const latest = balance.productLot.qcInspections[0];
+      if (!latest || latest.result !== QcResult.PASS) continue;
+      const available = InventoryService.available(
+        Number(balance.onHand),
+        Number(balance.reserved),
+        Number(balance.blocked),
+      );
+      if (available <= 0) continue;
+      result.set(balance.productVariantId, (result.get(balance.productVariantId) ?? 0) + available);
+    }
+    return result;
+  }
+
   /** Inbound stock (e.g. from a completed warehouse-in document). */
   async inbound(dto: InboundInventoryDto, actorUserId?: number) {
     return this.prisma.$transaction(async (tx) => {
@@ -147,17 +192,153 @@ export class InventoryService {
         note: dto.note,
         actorUserId,
       });
-      await this.audit.record({
-        actorUserId,
-        action: 'INVENTORY_ADJUSTMENT',
-        entityType: 'InventoryBalance',
-        entityId: String(balance.id),
-        beforeJson: { onHand: before },
-        afterJson: { onHand: after },
-        reason: dto.note,
-      });
+      await this.audit.record(
+        {
+          actorUserId,
+          action: 'INVENTORY_ADJUSTMENT',
+          entityType: 'InventoryBalance',
+          entityId: String(balance.id),
+          beforeJson: { onHand: before },
+          afterJson: { onHand: after },
+          reason: dto.note,
+        },
+        tx,
+      );
       return this.withAvailable(updated);
     });
+  }
+
+  /**
+   * Reserve `quantity` on one balance, atomically.
+   *
+   * The whole check-and-write is a single conditional UPDATE:
+   * `reserved = reserved + ? WHERE id = ? AND on_hand - reserved - blocked >= ?`.
+   * The database re-evaluates the predicate while holding the row's exclusive
+   * lock, so two concurrent callers can never both pass the check, and the row
+   * is locked exactly once — never upgraded from shared to exclusive.
+   *
+   * The lock upgrade is what made concurrent checkouts deadlock (MySQL 1213 /
+   * Prisma P2034): inserting the `inventory_allocations` row first takes a
+   * shared FK lock on the balance, and the follow-up `UPDATE` then has to
+   * upgrade it to an exclusive lock while another transaction waits on the
+   * same pair in the opposite order. Callers must therefore reserve *before*
+   * writing the allocation row.
+   *
+   * Returns `null` when the balance can no longer cover `quantity` (a
+   * concurrent writer took the stock); the caller turns that into its own
+   * shortfall error. `before`/`after` are the reserved quantities around the
+   * update, for the movement ledger.
+   */
+  async reserveStock(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number } | null> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET reserved = reserved + ${quantity}, updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+         AND on_hand - reserved - blocked >= ${quantity}
+    `;
+    if (affected === 0) return null;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.reserved);
+    return { balance, before: after - quantity, after };
+  }
+
+  /**
+   * Release `quantity` from a balance's reservation, atomically.
+   *
+   * A single `reserved = GREATEST(reserved - ?, 0)` so the arithmetic happens
+   * on the current column value: `reserved` is also written by concurrent
+   * checkouts, and a read-then-write here would silently drop their
+   * reservation. The clamp mirrors the previous defensive `Math.max(0, …)`.
+   */
+  async releaseStock(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number }> {
+    await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET reserved = GREATEST(reserved - ${quantity}, 0), updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+    `;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.reserved);
+    return { balance, before: after + quantity, after };
+  }
+
+  /**
+   * Move `quantity` from a balance's reservation into `blocked` (quarantine).
+   *
+   * Used when an order is cancelled *after* its goods have already left the
+   * warehouse (order status `SHIPPING`): those goods must not become sellable
+   * again, so the reservation is converted into a blocked quantity instead of
+   * being released. The single statement keeps `available = on_hand - reserved -
+   * blocked` unchanged, so nothing is freed for resale, and the arithmetic runs
+   * on the current column values, so a concurrent checkout's reservation is
+   * never clobbered. The blocked units wait for the return/inspection flow
+   * (see the delivery-failure and return rules), never for a silent re-sale.
+   *
+   * The move is guarded by `reserved >= quantity`: the reservation is only
+   * converted when the balance actually holds that many reserved units. Without
+   * the guard the statement would happily manufacture `blocked` stock out of a
+   * reservation the balance never had (`GREATEST(reserved - ?, 0)` clamped the
+   * subtraction but still added the full quantity to `blocked`), inflating
+   * blocked and corrupting the balance. Returns `null` when the guard rejects
+   * the move; the caller must turn that into an error so its transaction rolls
+   * back rather than leaving the order half-processed.
+   */
+  async quarantineStock(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{
+    balance: InventoryBalance;
+    before: number;
+    after: number;
+    blocked: number;
+  } | null> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET reserved = reserved - ${quantity},
+             blocked  = blocked + ${quantity},
+             updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+         AND reserved >= ${quantity}
+    `;
+    if (affected === 0) return null;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.reserved);
+    return { balance, before: after + quantity, after, blocked: Number(balance.blocked) };
+  }
+
+  /**
+   * Change a balance's on-hand quantity, atomically, without going negative.
+   *
+   * One conditional UPDATE: `on_hand = on_hand + ? WHERE id = ? AND
+   * on_hand + ? >= 0`. The predicate is re-evaluated under the row's exclusive
+   * lock, so concurrent stock changes cannot lose each other's arithmetic, and
+   * an outbound document can never drive `on_hand` below zero. Returns `null`
+   * when the guard rejected the change, with `before`/`after` read back for the
+   * movement ledger.
+   */
+  async changeOnHand(
+    tx: Tx,
+    balanceId: number,
+    delta: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number } | null> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET on_hand = on_hand + ${delta}, updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+         AND on_hand + ${delta} >= 0
+    `;
+    if (affected === 0) return null;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.onHand);
+    return { balance, before: after - delta, after };
   }
 
   /** Reserve stock for an order. Reserve never exceeds available. */
@@ -179,22 +360,26 @@ export class InventoryService {
           `Cannot reserve ${dto.quantity}: only ${available} available`,
         );
       }
-      const updated = await tx.inventoryBalance.update({
-        where: { id: balance.id },
-        data: { reserved: Number(balance.reserved) + dto.quantity },
-      });
+      // The read above is only a friendly pre-check; `reserveStock` is the
+      // guard, so a concurrent reservation can never oversell the balance.
+      const reserved = await this.reserveStock(tx, balance.id, dto.quantity);
+      if (!reserved) {
+        throw new BadRequestException(
+          `Cannot reserve ${dto.quantity}: not enough stock is available`,
+        );
+      }
       await this.recordMovement(tx, {
         warehouseId: dto.warehouseId,
         productLotId: dto.productLotId,
         productVariantId: dto.productVariantId,
         type: InventoryMovementType.RESERVE,
         quantityDelta: 0,
-        beforeQuantity: Number(balance.reserved),
-        afterQuantity: Number(updated.reserved),
+        beforeQuantity: reserved.before,
+        afterQuantity: reserved.after,
         note: 'Reserve for order',
         actorUserId,
       });
-      return this.withAvailable(updated);
+      return this.withAvailable(reserved.balance);
     });
   }
 
@@ -210,22 +395,19 @@ export class InventoryService {
       if (dto.quantity > Number(balance.reserved)) {
         throw new BadRequestException('Cannot release more than currently reserved');
       }
-      const updated = await tx.inventoryBalance.update({
-        where: { id: balance.id },
-        data: { reserved: Number(balance.reserved) - dto.quantity },
-      });
+      const released = await this.releaseStock(tx, balance.id, dto.quantity);
       await this.recordMovement(tx, {
         warehouseId: dto.warehouseId,
         productLotId: dto.productLotId,
         productVariantId: dto.productVariantId,
         type: InventoryMovementType.RELEASE,
         quantityDelta: 0,
-        beforeQuantity: Number(balance.reserved),
-        afterQuantity: Number(updated.reserved),
+        beforeQuantity: released.before,
+        afterQuantity: released.after,
         note: 'Release reservation',
         actorUserId,
       });
-      return this.withAvailable(updated);
+      return this.withAvailable(released.balance);
     });
   }
 

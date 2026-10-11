@@ -11,7 +11,11 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { WarehouseDocumentType } from '../../../generated/prisma/enums.js';
+import {
+  WarehouseDocumentStatus,
+  WarehouseDocumentType,
+} from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class WarehouseDocumentLineDto {
   @ApiProperty({ example: 1 })
@@ -67,4 +71,17 @@ export class CreateWarehouseDocumentDto {
   @ValidateNested({ each: true })
   @Type(() => WarehouseDocumentLineDto)
   lines!: WarehouseDocumentLineDto[];
+}
+
+/** Query DTO for `GET /warehouse-documents`: strict status/type enums. */
+export class WarehouseDocumentQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: WarehouseDocumentStatus })
+  @IsOptional()
+  @IsEnum(WarehouseDocumentStatus)
+  declare status?: WarehouseDocumentStatus;
+
+  @ApiPropertyOptional({ enum: WarehouseDocumentType })
+  @IsOptional()
+  @IsEnum(WarehouseDocumentType)
+  type?: WarehouseDocumentType;
 }

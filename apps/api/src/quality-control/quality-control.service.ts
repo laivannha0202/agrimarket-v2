@@ -38,6 +38,11 @@ export class QualityControlService {
     if (dto.result === QcResult.PASS && !allCriteriaPassed) {
       throw new BadRequestException('QC result PASS requires all inspection criteria to pass');
     }
+    // A FAIL without a documented reason has no traceability value: the
+    // record must state its basis.
+    if (dto.result === QcResult.FAIL && !dto.note?.trim()) {
+      throw new BadRequestException('QC result FAIL requires a reason in note');
+    }
 
     let nextStatus: ProductLotStatus;
     if (dto.result === QcResult.PASS) {
@@ -80,15 +85,18 @@ export class QualityControlService {
         },
       });
 
-      await this.audit.record({
-        actorUserId: inspectorUserId,
-        action: `QC_${dto.result}`,
-        entityType: 'ProductLot',
-        entityId: String(dto.productLotId),
-        beforeJson: { status: lot.status },
-        afterJson: { status: nextStatus, inspectionId: inspection.id },
-        reason: dto.note,
-      });
+      await this.audit.record(
+        {
+          actorUserId: inspectorUserId,
+          action: `QC_${dto.result}`,
+          entityType: 'ProductLot',
+          entityId: String(dto.productLotId),
+          beforeJson: { status: lot.status },
+          afterJson: { status: nextStatus, inspectionId: inspection.id },
+          reason: dto.note,
+        },
+        tx,
+      );
 
       return inspection;
     });

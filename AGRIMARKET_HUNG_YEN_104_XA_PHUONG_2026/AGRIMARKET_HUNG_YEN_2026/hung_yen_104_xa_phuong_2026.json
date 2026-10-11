@@ -1,0 +1,1077 @@
+{
+  "metadata": {
+    "dataset": "Danh mục đơn vị hành chính cấp xã tỉnh Hưng Yên (sau sáp nhập)",
+    "province": {
+      "name": "Hưng Yên",
+      "fullName": "Tỉnh Hưng Yên",
+      "code": "33"
+    },
+    "asOf": "2026-10-10",
+    "legalEffectiveFrom": "2025-07-01",
+    "legalBasis": [
+      "1666/NQ-UBTVQH15 (16/06/2025)",
+      "19/2025/QĐ-TTg (30/06/2025)"
+    ],
+    "counts": {
+      "total": 104,
+      "xa": 93,
+      "phuong": 11
+    },
+    "sources": {
+      "government_decision_pdf": "https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/7/19ttg.signed.pdf",
+      "government_decision_page": "https://chinhphu.vn/?classid=0&docid=214409&pageid=27160",
+      "government_resolution_page": "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-quyet-so-1666-nq-ubtvqh15-sap-xep-cac-dvhc-cap-xa-cua-tinh-hung-yen-nam-2025-119250616195158879.htm",
+      "government_104_list": "https://xaydungchinhsach.chinhphu.vn/sap-xep-dvhc-danh-sach-104-xa-phuong-cua-tinh-hung-yen-moi-119250622210849858.htm",
+      "transcribed_public_table": "https://thuvienphapluat.vn/hoi-dap-phap-luat/danh-sach-ma-dvhc-cap-xa-cua-tinh-hung-yen-sau-sap-nhap-nhu-the-nao-138057463.html",
+      "cross_check_2026": "https://www.tinhthanhpho.com/hung-yen?type=phuong"
+    },
+    "notes": [
+      "Dữ liệu xã/phường; KHÔNG bao gồm thôn/tổ dân phố.",
+      "Mã xã/phường (code) là chuỗi 5 ký tự, không phải mã bưu chính.",
+      "Không chứa cấp quận/huyện trong mô hình địa chỉ mới.",
+      "Đối chiếu nguồn chính thức và bảng mã công khai; cần kiểm tra văn bản thay thế nếu triển khai sau ngày 10/10/2026."
+    ]
+  },
+  "wards": [
+    {
+      "code": "11953",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Phố Hiến",
+      "fullName": "Phường Phố Hiến",
+      "searchText": "phuong pho hien",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "11980",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Hồng Châu",
+      "fullName": "Phường Hồng Châu",
+      "searchText": "phuong hong chau",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "11983",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Sơn Nam",
+      "fullName": "Phường Sơn Nam",
+      "searchText": "phuong son nam",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12103",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Mỹ Hào",
+      "fullName": "Phường Mỹ Hào",
+      "searchText": "phuong my hao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12127",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Thượng Hồng",
+      "fullName": "Phường Thượng Hồng",
+      "searchText": "phuong thuong hong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12133",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Đường Hào",
+      "fullName": "Phường Đường Hào",
+      "searchText": "phuong duong hao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12452",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Trần Hưng Đạo",
+      "fullName": "Phường Trần Hưng Đạo",
+      "searchText": "phuong tran hung dao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12454",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Trần Lãm",
+      "fullName": "Phường Trần Lãm",
+      "searchText": "phuong tran lam",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12466",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Vũ Phúc",
+      "fullName": "Phường Vũ Phúc",
+      "searchText": "phuong vu phuc",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12817",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Trà Lý",
+      "fullName": "Phường Trà Lý",
+      "searchText": "phuong tra ly",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13225",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "phuong",
+      "name": "Thái Bình",
+      "fullName": "Phường Thái Bình",
+      "searchText": "phuong thai binh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "11977",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tân Hưng",
+      "fullName": "Xã Tân Hưng",
+      "searchText": "xa tan hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "11992",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Lạc Đạo",
+      "fullName": "Xã Lạc Đạo",
+      "searchText": "xa lac dao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "11995",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đại Đồng",
+      "fullName": "Xã Đại Đồng",
+      "searchText": "xa dai dong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12004",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Như Quỳnh",
+      "fullName": "Xã Như Quỳnh",
+      "searchText": "xa nhu quynh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12019",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Văn Giang",
+      "fullName": "Xã Văn Giang",
+      "searchText": "xa van giang",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12025",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Phụng Công",
+      "fullName": "Xã Phụng Công",
+      "searchText": "xa phung cong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12031",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nghĩa Trụ",
+      "fullName": "Xã Nghĩa Trụ",
+      "searchText": "xa nghia tru",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12049",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Mễ Sở",
+      "fullName": "Xã Mễ Sở",
+      "searchText": "xa me so",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12064",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nguyễn Văn Linh",
+      "fullName": "Xã Nguyễn Văn Linh",
+      "searchText": "xa nguyen van linh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12070",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hoàn Long",
+      "fullName": "Xã Hoàn Long",
+      "searchText": "xa hoan long",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12073",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Yên Mỹ",
+      "fullName": "Xã Yên Mỹ",
+      "searchText": "xa yen my",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12091",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Việt Yên",
+      "fullName": "Xã Việt Yên",
+      "searchText": "xa viet yen",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12142",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Ân Thi",
+      "fullName": "Xã Ân Thi",
+      "searchText": "xa an thi",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12148",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Phạm Ngũ Lão",
+      "fullName": "Xã Phạm Ngũ Lão",
+      "searchText": "xa pham ngu lao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12166",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Xuân Trúc",
+      "fullName": "Xã Xuân Trúc",
+      "searchText": "xa xuan truc",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12184",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nguyễn Trãi",
+      "fullName": "Xã Nguyễn Trãi",
+      "searchText": "xa nguyen trai",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12196",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hồng Quang",
+      "fullName": "Xã Hồng Quang",
+      "searchText": "xa hong quang",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12205",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Khoái Châu",
+      "fullName": "Xã Khoái Châu",
+      "searchText": "xa khoai chau",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12223",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Triệu Việt Vương",
+      "fullName": "Xã Triệu Việt Vương",
+      "searchText": "xa trieu viet vuong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12238",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Việt Tiến",
+      "fullName": "Xã Việt Tiến",
+      "searchText": "xa viet tien",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12247",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Châu Ninh",
+      "fullName": "Xã Châu Ninh",
+      "searchText": "xa chau ninh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12271",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Chí Minh",
+      "fullName": "Xã Chí Minh",
+      "searchText": "xa chi minh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12280",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Lương Bằng",
+      "fullName": "Xã Lương Bằng",
+      "searchText": "xa luong bang",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12286",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nghĩa Dân",
+      "fullName": "Xã Nghĩa Dân",
+      "searchText": "xa nghia dan",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12313",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đức Hợp",
+      "fullName": "Xã Đức Hợp",
+      "searchText": "xa duc hop",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12322",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hiệp Cường",
+      "fullName": "Xã Hiệp Cường",
+      "searchText": "xa hiep cuong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12337",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hoàng Hoa Thám",
+      "fullName": "Xã Hoàng Hoa Thám",
+      "searchText": "xa hoang hoa tham",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12361",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tiên Hoa",
+      "fullName": "Xã Tiên Hoa",
+      "searchText": "xa tien hoa",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12364",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tiên Lữ",
+      "fullName": "Xã Tiên Lữ",
+      "searchText": "xa tien lu",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12391",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Quang Hưng",
+      "fullName": "Xã Quang Hưng",
+      "searchText": "xa quang hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12406",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đoàn Đào",
+      "fullName": "Xã Đoàn Đào",
+      "searchText": "xa doan dao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12424",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tiên Tiến",
+      "fullName": "Xã Tiên Tiến",
+      "searchText": "xa tien tien",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12427",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tống Trân",
+      "fullName": "Xã Tống Trân",
+      "searchText": "xa tong tran",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12472",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Quỳnh Phụ",
+      "fullName": "Xã Quỳnh Phụ",
+      "searchText": "xa quynh phu",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12499",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "A Sào",
+      "fullName": "Xã A Sào",
+      "searchText": "xa a sao",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12511",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Minh Thọ",
+      "fullName": "Xã Minh Thọ",
+      "searchText": "xa minh tho",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12517",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Ngọc Lâm",
+      "fullName": "Xã Ngọc Lâm",
+      "searchText": "xa ngoc lam",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12523",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Phụ Dực",
+      "fullName": "Xã Phụ Dực",
+      "searchText": "xa phu duc",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12526",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đồng Bằng",
+      "fullName": "Xã Đồng Bằng",
+      "searchText": "xa dong bang",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12532",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nguyễn Du",
+      "fullName": "Xã Nguyễn Du",
+      "searchText": "xa nguyen du",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12577",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Quỳnh An",
+      "fullName": "Xã Quỳnh An",
+      "searchText": "xa quynh an",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12583",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tân Tiến",
+      "fullName": "Xã Tân Tiến",
+      "searchText": "xa tan tien",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12586",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hưng Hà",
+      "fullName": "Xã Hưng Hà",
+      "searchText": "xa hung ha",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12595",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Ngự Thiên",
+      "fullName": "Xã Ngự Thiên",
+      "searchText": "xa ngu thien",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12613",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Long Hưng",
+      "fullName": "Xã Long Hưng",
+      "searchText": "xa long hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12619",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Diên Hà",
+      "fullName": "Xã Diên Hà",
+      "searchText": "xa dien ha",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12631",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Thần Khê",
+      "fullName": "Xã Thần Khê",
+      "searchText": "xa than khe",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12634",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tiên La",
+      "fullName": "Xã Tiên La",
+      "searchText": "xa tien la",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12676",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Lê Quý Đôn",
+      "fullName": "Xã Lê Quý Đôn",
+      "searchText": "xa le quy don",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12685",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hồng Minh",
+      "fullName": "Xã Hồng Minh",
+      "searchText": "xa hong minh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12688",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đông Hưng",
+      "fullName": "Xã Đông Hưng",
+      "searchText": "xa dong hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12694",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bắc Đông Hưng",
+      "fullName": "Xã Bắc Đông Hưng",
+      "searchText": "xa bac dong hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12700",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bắc Tiên Hưng",
+      "fullName": "Xã Bắc Tiên Hưng",
+      "searchText": "xa bac tien hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12736",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đông Tiên Hưng",
+      "fullName": "Xã Đông Tiên Hưng",
+      "searchText": "xa dong tien hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12745",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bắc Đông Quan",
+      "fullName": "Xã Bắc Đông Quan",
+      "searchText": "xa bac dong quan",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12754",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tiên Hưng",
+      "fullName": "Xã Tiên Hưng",
+      "searchText": "xa tien hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12763",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nam Tiên Hưng",
+      "fullName": "Xã Nam Tiên Hưng",
+      "searchText": "xa nam tien hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12775",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nam Đông Hưng",
+      "fullName": "Xã Nam Đông Hưng",
+      "searchText": "xa nam dong hung",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12793",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đông Quan",
+      "fullName": "Xã Đông Quan",
+      "searchText": "xa dong quan",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12826",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Thái Thụy",
+      "fullName": "Xã Thái Thụy",
+      "searchText": "xa thai thuy",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12850",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tây Thụy Anh",
+      "fullName": "Xã Tây Thụy Anh",
+      "searchText": "xa tay thuy anh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12859",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bắc Thụy Anh",
+      "fullName": "Xã Bắc Thụy Anh",
+      "searchText": "xa bac thuy anh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12862",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đông Thụy Anh",
+      "fullName": "Xã Đông Thụy Anh",
+      "searchText": "xa dong thuy anh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12865",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Thụy Anh",
+      "fullName": "Xã Thụy Anh",
+      "searchText": "xa thuy anh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12904",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nam Thụy Anh",
+      "fullName": "Xã Nam Thụy Anh",
+      "searchText": "xa nam thuy anh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12916",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bắc Thái Ninh",
+      "fullName": "Xã Bắc Thái Ninh",
+      "searchText": "xa bac thai ninh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12919",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tây Thái Ninh",
+      "fullName": "Xã Tây Thái Ninh",
+      "searchText": "xa tay thai ninh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12922",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Thái Ninh",
+      "fullName": "Xã Thái Ninh",
+      "searchText": "xa thai ninh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12943",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đông Thái Ninh",
+      "fullName": "Xã Đông Thái Ninh",
+      "searchText": "xa dong thai ninh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12961",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nam Thái Ninh",
+      "fullName": "Xã Nam Thái Ninh",
+      "searchText": "xa nam thai ninh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12970",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tiền Hải",
+      "fullName": "Xã Tiền Hải",
+      "searchText": "xa tien hai",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "12988",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đông Tiền Hải",
+      "fullName": "Xã Đông Tiền Hải",
+      "searchText": "xa dong tien hai",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13003",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Đồng Châu",
+      "fullName": "Xã Đồng Châu",
+      "searchText": "xa dong chau",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13021",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Ái Quốc",
+      "fullName": "Xã Ái Quốc",
+      "searchText": "xa ai quoc",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13039",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tây Tiền Hải",
+      "fullName": "Xã Tây Tiền Hải",
+      "searchText": "xa tay tien hai",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13057",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nam Cường",
+      "fullName": "Xã Nam Cường",
+      "searchText": "xa nam cuong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13063",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Nam Tiền Hải",
+      "fullName": "Xã Nam Tiền Hải",
+      "searchText": "xa nam tien hai",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13066",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hưng Phú",
+      "fullName": "Xã Hưng Phú",
+      "searchText": "xa hung phu",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13075",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Kiến Xương",
+      "fullName": "Xã Kiến Xương",
+      "searchText": "xa kien xuong",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13093",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Trà Giang",
+      "fullName": "Xã Trà Giang",
+      "searchText": "xa tra giang",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13096",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bình Nguyên",
+      "fullName": "Xã Bình Nguyên",
+      "searchText": "xa binh nguyen",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13120",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Lê Lợi",
+      "fullName": "Xã Lê Lợi",
+      "searchText": "xa le loi",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13132",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Quang Lịch",
+      "fullName": "Xã Quang Lịch",
+      "searchText": "xa quang lich",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13141",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Vũ Quý",
+      "fullName": "Xã Vũ Quý",
+      "searchText": "xa vu quy",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13159",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Hồng Vũ",
+      "fullName": "Xã Hồng Vũ",
+      "searchText": "xa hong vu",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13183",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bình Thanh",
+      "fullName": "Xã Bình Thanh",
+      "searchText": "xa binh thanh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13186",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Bình Định",
+      "fullName": "Xã Bình Định",
+      "searchText": "xa binh dinh",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13192",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Vũ Thư",
+      "fullName": "Xã Vũ Thư",
+      "searchText": "xa vu thu",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13219",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Vạn Xuân",
+      "fullName": "Xã Vạn Xuân",
+      "searchText": "xa van xuan",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13222",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Thư Trì",
+      "fullName": "Xã Thư Trì",
+      "searchText": "xa thu tri",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13246",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Tân Thuận",
+      "fullName": "Xã Tân Thuận",
+      "searchText": "xa tan thuan",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13264",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Thư Vũ",
+      "fullName": "Xã Thư Vũ",
+      "searchText": "xa thu vu",
+      "effectiveFrom": "2025-07-01"
+    },
+    {
+      "code": "13279",
+      "provinceCode": "33",
+      "provinceName": "Hưng Yên",
+      "type": "xa",
+      "name": "Vũ Tiên",
+      "fullName": "Xã Vũ Tiên",
+      "searchText": "xa vu tien",
+      "effectiveFrom": "2025-07-01"
+    }
+  ]
+}

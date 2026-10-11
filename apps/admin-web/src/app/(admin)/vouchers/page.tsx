@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, DatePicker, Form, Input, InputNumber, Select } from "antd";
+import { App, Button, DatePicker, Divider, Form, Input, InputNumber, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -15,7 +15,7 @@ import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
 import { num } from "@/lib/format/form";
-import { DISCOUNT_TYPE, RECORD_STATUS, recordStatus, statusOptions } from "@/lib/status";
+import { RECORD_STATUS, recordStatus, statusOptions } from "@/lib/status";
 import type { Voucher } from "@/types/api";
 
 type VoucherForm = {
@@ -35,6 +35,9 @@ export default function VouchersPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<VoucherForm>();
+  const { modal } = App.useApp();
+  const discountType = Form.useWatch("discountType", form);
+  const isPercent = discountType === "PERCENT";
 
   const { data, isLoading, isError, refetch } = useListQuery<Voucher>(
     queryKeys.vouchers(list.params),
@@ -42,16 +45,39 @@ export default function VouchersPage() {
     list.params,
   );
 
+  const setStatus = useAction(
+    (vars: { id: number; status: "ACTIVE" | "INACTIVE" }) =>
+      resources.updateVoucherStatus(vars.id, vars.status),
+    {
+      invalidate: [["vouchers"]],
+      successMessage: "Đã cập nhật trạng thái voucher.",
+    },
+  );
+
+  const confirmDeactivate = (row: Voucher) => {
+    modal.confirm({
+      title: "Ngừng voucher này?",
+      content: "Voucher sẽ không còn áp dụng cho đơn mới. Lịch sử sử dụng được giữ nguyên.",
+      okText: "Ngừng",
+      okType: "danger",
+      cancelText: "Hủy",
+      onOk: () => setStatus.mutate({ id: row.id, status: "INACTIVE" }),
+    });
+  };
+
   const create = useAction(
     (values: VoucherForm) => {
       const [startsAt, endsAt] = values.period;
+      const isPercentVoucher = values.discountType === "PERCENT";
       return resources.createVoucher({
         code: values.code,
         name: values.name,
         discountType: values.discountType,
         discountValue: num(values.discountValue),
         minOrderAmount: num(values.minOrderAmount),
-        maxDiscount: num(values.maxDiscount),
+        // "Giảm tối đa" only applies to percent vouchers; never send it for a
+        // fixed-amount voucher where a leftover value could cap the discount.
+        maxDiscount: isPercentVoucher ? num(values.maxDiscount) : undefined,
         usageLimit: num(values.usageLimit),
         perCustomerLimit: num(values.perCustomerLimit),
         startsAt: startsAt.toISOString(),
@@ -119,13 +145,39 @@ export default function VouchersPage() {
       dataIndex: "status",
       render: (s: string) => <StatusTag status={recordStatus(s)} />,
     },
+    {
+      title: "Thao tác",
+      width: 120,
+      fixed: "right",
+      render: (_, row) =>
+        row.status === "ACTIVE" ? (
+          <Button
+            type="link"
+            size="small"
+            danger
+            style={{ paddingInline: 0 }}
+            onClick={() => confirmDeactivate(row)}
+          >
+            Ngừng
+          </Button>
+        ) : (
+          <Button
+            type="link"
+            size="small"
+            style={{ paddingInline: 0 }}
+            loading={setStatus.isPending}
+            onClick={() => setStatus.mutate({ id: row.id, status: "ACTIVE" })}
+          >
+            Kích hoạt
+          </Button>
+        ),
+    },
   ];
 
   return (
     <>
       <ListPage<Voucher>
         title="Voucher"
-        subtitle="Mã giảm giá theo đơn hàng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -155,7 +207,7 @@ export default function VouchersPage() {
         limit={list.limit}
         onPageChange={list.setPage}
         onLimitChange={list.setLimit}
-        scrollX={1080}
+        scrollX={1200}
         itemLabel="voucher"
       />
 
@@ -168,30 +220,79 @@ export default function VouchersPage() {
         submitting={create.isPending}
         width={560}
       >
+        <Divider titlePlacement="start" plain style={{ marginTop: 0 }}>
+          Thông tin voucher
+        </Divider>
         <Form.Item label="Mã voucher" name="code" rules={[{ required: true, message: "Nhập mã voucher." }]}>
           <Input placeholder="VD: HUNGYEN50K" />
         </Form.Item>
         <Form.Item label="Tên voucher" name="name" rules={[{ required: true, message: "Nhập tên voucher." }]}>
           <Input placeholder="VD: Giảm 50.000đ cho đơn từ 300.000đ" />
         </Form.Item>
+
+        <Divider titlePlacement="start" plain>
+          Giá trị giảm
+        </Divider>
         <Form.Item label="Loại giảm giá" name="discountType" rules={[{ required: true, message: "Chọn loại." }]}>
-          <Select options={statusOptions(DISCOUNT_TYPE)} placeholder="Chọn loại giảm giá" />
+          <Select
+            options={[
+              { value: "PERCENT", label: "Phần trăm (%)" },
+              { value: "FIXED", label: "Số tiền (đ)" },
+            ]}
+            placeholder="Chọn loại giảm giá"
+          />
         </Form.Item>
-        <Form.Item label="Giá trị giảm" name="discountValue" rules={[{ required: true, message: "Nhập giá trị." }]}>
-          <InputNumber min={0} style={{ width: "100%" }} placeholder="VD: 50000 hoặc 10" />
+        <Form.Item
+          label={isPercent ? "Giá trị giảm (%)" : "Giá trị giảm (đ)"}
+          name="discountValue"
+          rules={[
+            { required: true, message: "Nhập giá trị." },
+            {
+              validator: async (_, value) => {
+                if (value === undefined || value === null || value === "") return;
+                const n = Number(value);
+                if (!Number.isFinite(n) || n < 0) {
+                  throw new Error("Giá trị giảm phải là số không âm.");
+                }
+                if (isPercent && n > 100) {
+                  throw new Error("Giảm theo phần trăm tối đa là 100%.");
+                }
+              },
+            },
+          ]}
+        >
+          <InputNumber
+            min={0}
+            max={isPercent ? 100 : undefined}
+            style={{ width: "100%" }}
+            placeholder={isPercent ? "VD: 10" : "VD: 50000"}
+          />
         </Form.Item>
-        <Form.Item label="Đơn tối thiểu" name="minOrderAmount">
+        {isPercent ? (
+          <Form.Item
+            label="Giảm tối đa (đ)"
+            name="maxDiscount"
+          >
+            <InputNumber min={0} style={{ width: "100%" }} placeholder="VD: 100000" />
+          </Form.Item>
+        ) : null}
+        <Form.Item label="Đơn tối thiểu (đ)" name="minOrderAmount">
           <InputNumber min={0} style={{ width: "100%" }} placeholder="VD: 300000" />
         </Form.Item>
-        <Form.Item label="Giảm tối đa" name="maxDiscount">
-          <InputNumber min={0} style={{ width: "100%" }} placeholder="VD: 100000" />
-        </Form.Item>
+
+        <Divider titlePlacement="start" plain>
+          Giới hạn sử dụng
+        </Divider>
         <Form.Item label="Giới hạn lượt dùng" name="usageLimit">
-          <InputNumber min={1} style={{ width: "100%" }} placeholder="VD: 500" />
+          <InputNumber min={1} style={{ width: "100%" }} placeholder="Để trống nếu không giới hạn" />
         </Form.Item>
         <Form.Item label="Giới hạn mỗi khách" name="perCustomerLimit">
           <InputNumber min={1} style={{ width: "100%" }} placeholder="VD: 1" />
         </Form.Item>
+
+        <Divider titlePlacement="start" plain>
+          Thời gian & trạng thái
+        </Divider>
         <Form.Item label="Thời gian hiệu lực" name="period" rules={[{ required: true, message: "Chọn thời gian." }]}>
           <DatePicker.RangePicker showTime style={{ width: "100%" }} />
         </Form.Item>

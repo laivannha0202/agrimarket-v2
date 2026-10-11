@@ -96,7 +96,19 @@ export default function CertificatesPage() {
     {
       title: "Xác minh",
       dataIndex: "verificationStatus",
-      render: (s: string) => <StatusTag status={certificateStatus(s)} />,
+      render: (s: string, row: Certificate) => {
+        // "Đã xác minh" records that the paperwork was checked — it must not
+        // read as "still valid" once the expiry date has passed.
+        const expired = new Date(row.expiresAt).getTime() < Date.now();
+        return (
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <StatusTag status={certificateStatus(s)} />
+            {s === "VERIFIED" && expired ? (
+              <StatusTag status={{ label: "Hết hiệu lực", color: "error" }} />
+            ) : null}
+          </span>
+        );
+      },
     },
     {
       title: "Thao tác",
@@ -127,7 +139,6 @@ export default function CertificatesPage() {
     <>
       <ListPage<Certificate>
         title="Chứng nhận"
-        subtitle="Chứng nhận chất lượng theo trang trại"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -212,7 +223,8 @@ export default function CertificatesPage() {
         confirmLoading={verify.isPending}
         okText="Xác nhận"
         cancelText="Hủy"
-        destroyOnHidden
+        forceRender
+        mask={{ closable: false }}
       >
         {verifyTarget ? (
           <p className="agri-muted" style={{ marginTop: 0 }}>

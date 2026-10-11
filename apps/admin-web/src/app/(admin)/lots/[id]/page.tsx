@@ -11,6 +11,7 @@ import { InfoDescriptions } from "@/components/common/InfoDescriptions";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { useDetailQuery } from "@/hooks/useDetailQuery";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
@@ -82,7 +83,7 @@ export default function LotDetailPage() {
 
   const balanceColumns: ColumnsType<InventoryBalance> = [
     { title: "Kho", render: (_, row) => row.warehouse?.name ?? "—" },
-    { title: "Biến thể", render: (_, row) => row.productVariant?.name ?? "—" },
+    { title: "Quy cách bán", render: (_, row) => row.productVariant?.name ?? "—" },
     {
       title: "Tồn thực tế",
       dataIndex: "onHand",
@@ -103,14 +104,11 @@ export default function LotDetailPage() {
     },
   ];
 
-  // /inventory/movements does not support a productLotId filter (rejected by
-  // the API), so we fetch the recent movements and select this lot's rows.
-  const movements = useDetailQuery<{ data: InventoryMovement[] }>(
-    ["movements", "lot", String(id)],
-    async () => {
-      const res = await resources.movements({ limit: 100 });
-      return { data: res.data.filter((m) => String(m.productLotId) === String(id)) };
-    },
+  // Server-side filtered to this lot's movements.
+  const movements = useListQuery<InventoryMovement>(
+    queryKeys.movements({ productLotId: id }),
+    resources.movements,
+    { productLotId: id, limit: 100 },
     !!lot,
   );
 
@@ -224,7 +222,7 @@ export default function LotDetailPage() {
               <Timeline
                 items={lot.traceEvents.map((e: TraceEvent) => ({
                   color: "green",
-                  children: (
+                  content: (
                     <div>
                       <div style={{ fontWeight: 500 }}>
                         {traceEventType(e.type).label}{" "}

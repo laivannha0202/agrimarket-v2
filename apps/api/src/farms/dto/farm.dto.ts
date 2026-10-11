@@ -1,7 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { RecordStatus } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateFarmDto {
   @ApiProperty({ example: 1 })
@@ -45,6 +46,24 @@ export class CreateFarmDto {
   @IsOptional()
   @IsEnum(RecordStatus)
   status?: RecordStatus;
+}
+
+/**
+ * Query DTO for `GET /farms`: partner filter plus a strict status enum so an
+ * unknown status is rejected with a 400 instead of reaching Prisma.
+ */
+export class FarmQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: RecordStatus })
+  @IsOptional()
+  @IsEnum(RecordStatus)
+  declare status?: RecordStatus;
+
+  @ApiPropertyOptional({ example: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  partnerId?: number;
 }
 
 export class UpdateFarmDto {

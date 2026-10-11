@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button, Form } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { EditOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -20,6 +20,7 @@ import type { Partner } from "@/types/api";
 export default function PartnersPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<Partner | null>(null);
   const [form] = Form.useForm();
 
   const { data, isLoading, isError, refetch } = useListQuery<Partner>(
@@ -28,14 +29,32 @@ export default function PartnersPage() {
     list.params,
   );
 
-  const create = useAction((values: Record<string, unknown>) => resources.createPartner(values), {
-    invalidate: [["partners"]],
-    successMessage: "Đã tạo đối tác.",
-    onSuccess: () => {
-      setOpen(false);
-      form.resetFields();
+  const save = useAction(
+    (values: Record<string, unknown>) =>
+      editing ? resources.updatePartner(editing.id, values) : resources.createPartner(values),
+    {
+      invalidate: [["partners"]],
+      successMessage: "Đã lưu đối tác.",
+      onSuccess: () => {
+        setOpen(false);
+        setEditing(null);
+        form.resetFields();
+      },
     },
-  });
+  );
+
+  const openCreate = () => {
+    setEditing(null);
+    form.resetFields();
+    setOpen(true);
+  };
+
+  const openEdit = (row: Partner) => {
+    setEditing(row);
+    form.resetFields();
+    form.setFieldsValue(row);
+    setOpen(true);
+  };
 
   const columns: ColumnsType<Partner> = [
     {
@@ -59,19 +78,34 @@ export default function PartnersPage() {
       dataIndex: "status",
       render: (s: string) => <StatusTag status={recordStatus(s)} />,
     },
+    {
+      title: "Thao tác",
+      width: 90,
+      fixed: "right",
+      render: (_, row) => (
+        <Button
+          type="link"
+          size="small"
+          icon={<EditOutlined />}
+          style={{ paddingInline: 0 }}
+          onClick={() => openEdit(row)}
+        >
+          Sửa
+        </Button>
+      ),
+    },
   ];
 
   return (
     <>
       <ListPage<Partner>
         title="Đối tác bán hàng"
-        subtitle="Hợp tác xã / doanh nghiệp cung ứng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         searchPlaceholder="Tìm theo tên, mã, người đại diện..."
         onReset={list.reset}
         toolbarExtra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setOpen(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             Thêm đối tác
           </Button>
         }
@@ -86,17 +120,20 @@ export default function PartnersPage() {
         limit={list.limit}
         onPageChange={list.setPage}
         onLimitChange={list.setLimit}
-        scrollX={960}
+        scrollX={1040}
         itemLabel="đối tác"
       />
 
       <FormModal
         open={open}
-        title="Thêm đối tác"
+        title={editing ? "Chỉnh sửa đối tác" : "Thêm đối tác"}
         form={form}
-        onCancel={() => setOpen(false)}
-        onSubmit={(values) => create.mutate(values)}
-        submitting={create.isPending}
+        onCancel={() => {
+          setOpen(false);
+          setEditing(null);
+        }}
+        onSubmit={(values) => save.mutate(values as Record<string, unknown>)}
+        submitting={save.isPending}
         width={640}
       >
         <PartnerFormFields />

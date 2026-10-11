@@ -3,6 +3,7 @@ import { PrismaService } from '../database/prisma.service.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateSeasonDto, UpdateSeasonDto } from './dto/season.dto.js';
 import type { Season, Prisma } from '../../generated/prisma/client.js';
+import type { SeasonStatus } from '../../generated/prisma/enums.js';
 
 @Injectable()
 export class SeasonsService {
@@ -26,12 +27,14 @@ export class SeasonsService {
   async findAll(query: {
     page?: number;
     limit?: number;
-    status?: string;
+    status?: SeasonStatus;
+    farmId?: number;
   }): Promise<PaginatedResult<Season>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.SeasonWhereInput = query.status
-      ? { status: query.status as Prisma.SeasonWhereInput['status'] }
-      : {};
+    const where: Prisma.SeasonWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.farmId ? { farmId: query.farmId } : {}),
+    };
     const [data, total] = await Promise.all([
       this.prisma.season.findMany({
         where,

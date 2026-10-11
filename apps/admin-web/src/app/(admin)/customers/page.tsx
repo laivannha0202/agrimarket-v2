@@ -8,7 +8,7 @@ import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { useListState } from "@/hooks/useListState";
-import { useClientList } from "@/hooks/useClientList";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
@@ -21,28 +21,16 @@ const ROLE_OPTIONS = [
   { value: "ADMIN", label: "Quản trị viên" },
 ];
 
-// /customers only whitelists page/limit/search/status, so the role filter is
-// applied in the browser.
-const customerSearchText = (c: Customer) => [c.fullName, c.email, c.phone ?? ""].join(" ");
-
-const customerFilter = (c: Customer, filters: Record<string, string | undefined>) => {
-  if (filters.role && c.role !== filters.role) return false;
-  if (filters.status && c.status !== filters.status) return false;
-  return true;
-};
-
 export default function CustomersPage() {
   const list = useListState();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<Customer>({
-    queryKey: queryKeys.customers({ scope: "admin-list" }),
-    fetcher: resources.customers,
-    state: list,
-    searchText: customerSearchText,
-    filter: customerFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<Customer>(
+    queryKeys.customers(list.params),
+    resources.customers,
+    list.params,
+  );
 
   const create = useAction((values: Record<string, unknown>) => resources.createCustomer(values), {
     invalidate: [["customers"]],
@@ -116,7 +104,6 @@ export default function CustomersPage() {
     <>
       <ListPage<Customer>
         title="Khách hàng"
-        subtitle="Người dùng và quản trị viên"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         searchPlaceholder="Tìm theo tên, email, số điện thoại..."
@@ -142,12 +129,12 @@ export default function CustomersPage() {
           </Button>
         }
         columns={columns}
-        data={data}
+        data={data?.data ?? []}
         loading={isLoading}
         error={isError ? new Error("Không tải được danh sách khách hàng.") : undefined}
         onRetry={() => void refetch()}
         emptyText="Không có khách hàng phù hợp"
-        total={total}
+        total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}
         onPageChange={list.setPage}
@@ -165,7 +152,7 @@ export default function CustomersPage() {
         okText="Tạo"
         cancelText="Hủy"
         destroyOnHidden
-        maskClosable={false}
+        mask={{ closable: false }}
       >
         <Form
           form={form}

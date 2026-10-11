@@ -3,6 +3,7 @@ import { OrdersService } from '../../src/orders/orders.service.js';
 import { InventoryService } from '../../src/inventory/inventory.service.js';
 import { PromotionsService } from '../../src/promotions/promotions.service.js';
 import { CommissionService } from '../../src/finance/commission.service.js';
+import { LocationsService } from '../../src/locations/locations.service.js';
 import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
 import { PaymentStatus, ProductLotStatus } from '../../generated/prisma/enums.js';
 
@@ -26,6 +27,7 @@ describe('Order checkout rules', () => {
       promotions,
       commission,
       audit as never,
+      new LocationsService(prisma as never),
     );
   });
 
@@ -37,21 +39,23 @@ describe('Order checkout rules', () => {
           id: 1,
           sku: 'A-1',
           basePrice: 10000,
-          product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A' },
+          status: 'ACTIVE',
+          product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'ACTIVE' },
         };
       }
       return {
         id: 2,
         sku: 'B-1',
         basePrice: 20000,
-        product: { id: 2, partnerId: 2, categoryId: 1, name: 'Sản phẩm B' },
+        status: 'ACTIVE',
+        product: { id: 2, partnerId: 2, categoryId: 1, name: 'Sản phẩm B', status: 'ACTIVE' },
       };
     });
   }
 
   function stubNoPromotions() {
     // No active product discount, no flash sale.
-    prisma.flashSaleItem.findFirst.mockResolvedValue(null);
+    prisma.flashSaleItem.findMany.mockResolvedValue([]);
     prisma.productDiscount.findFirst.mockResolvedValue(null);
   }
 
@@ -79,7 +83,7 @@ describe('Order checkout rules', () => {
   it('snapshots prices and splits the order by partner', async () => {
     stubVariants();
     stubNoPromotions();
-    prisma.order.count.mockResolvedValue(0);
+    prisma.order.findMany.mockResolvedValue([]);
     prisma.order.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 100,
       ...data,
@@ -145,11 +149,13 @@ describe('Order checkout rules', () => {
         { productVariantId: 1, quantity: 2 },
         { productVariantId: 2, quantity: 1 },
       ],
-      shippingFee: 20000,
     });
 
-    // subtotal = 2*10000 + 1*20000 = 40000; grandTotal = 60000
+    // subtotal = 2*10000 + 1*20000 = 40000
     expect(order.subtotal).toBe(40000);
+    // The shipping fee is decided by the backend (flat 20000), never sent by
+    // the client: grandTotal = 40000 + 20000.
+    expect(order.shippingFee).toBe(20000);
     expect(order.grandTotal).toBe(60000);
 
     // Two partner orders created (one per partner).
@@ -163,11 +169,56 @@ describe('Order checkout rules', () => {
     expect(itemCalls.find((i) => i.skuSnapshot === 'B-1')?.unitPriceSnapshot).toBe(20000);
   });
 
+  it('rejects a deactivated variant or product before pricing anything', async () => {
+    stubNoPromotions();
+    // Variant stopped.
+    prisma.productVariant.findUnique.mockResolvedValue({
+      id: 1,
+      sku: 'A-1',
+      basePrice: 10000,
+      status: 'INACTIVE',
+      product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'ACTIVE' },
+    });
+    await expect(
+      service.checkout(7, {
+        shippingAddress: {
+          recipientName: 'Test',
+          phone: '0900000000',
+          province: 'Hưng Yên',
+          detail: 'abc',
+        },
+        items: [{ productVariantId: 1, quantity: 1 }],
+      }),
+    ).rejects.toThrow(/no longer for sale/);
+    expect(prisma.order.create).not.toHaveBeenCalled();
+
+    // Product stopped (variant itself active).
+    prisma.productVariant.findUnique.mockResolvedValue({
+      id: 1,
+      sku: 'A-1',
+      basePrice: 10000,
+      status: 'ACTIVE',
+      product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'INACTIVE' },
+    });
+    await expect(
+      service.checkout(7, {
+        shippingAddress: {
+          recipientName: 'Test',
+          phone: '0900000000',
+          province: 'Hưng Yên',
+          detail: 'abc',
+        },
+        items: [{ productVariantId: 1, quantity: 1 }],
+      }),
+    ).rejects.toThrow(/no longer for sale/);
+    expect(prisma.order.create).not.toHaveBeenCalled();
+  });
+
   it('keeps COD payments PENDING at checkout', async () => {
     stubVariants();
     stubNoPromotions();
     stubFefoStock();
-    prisma.order.count.mockResolvedValue(0);
+    prisma.order.findMany.mockResolvedValue([]);
     prisma.order.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 1,
       ...data,

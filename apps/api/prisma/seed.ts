@@ -11,6 +11,7 @@ import 'dotenv/config';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import * as bcrypt from 'bcryptjs';
 import { PrismaClient } from '../generated/prisma/client.js';
+import { inboundCompletedAt } from '../src/inventory/warehouse-chronology.js';
 import {
   CertificateVerificationStatus,
   ComplaintStatus,
@@ -1009,22 +1010,38 @@ async function main() {
   }
 
   // ---- Warehouse documents + inventory ------------------------------------
-  const inboundDoc = await prisma.warehouseDocument.create({
-    data: {
-      code: `WHD-${stamp(addDays(-17))}-0001`,
-      warehouseId: warehouse.id,
-      type: WarehouseDocumentType.INBOUND,
-      status: WarehouseDocumentStatus.COMPLETED,
-      note: 'Nhập kho lô rau củ đợt đầu.',
-      createdByUserId: admin.id,
-      completedAt: addDays(-17),
-    },
-  });
+  // One inbound document per harvest day, completed the day AFTER harvest
+  // (packing is +8h, QC +9h). A single fixed date for every lot used to put
+  // the warehouse-in event BEFORE the harvest for late-harvested lots —
+  // an impossible timeline on the traceability page.
+  const sellableSeeds = lotSeeds.filter((l) => l.status === ProductLotStatus.SELLABLE);
+  const harvestDays = [...new Set(sellableSeeds.map((l) => stamp(l.harvestDate)))].sort();
+  const docByDay: Record<string, { id: number; code: string; completedAt: Date }> = {};
+  let docSeq = 0;
+  for (const day of harvestDays) {
+    docSeq += 1;
+    // Inbound is the day after harvest (packing +8h, QC +9h) — see
+    // warehouse-chronology.ts. Never a single fixed date for all lots.
+    const harvestDate = sellableSeeds.find((l) => stamp(l.harvestDate) === day)!.harvestDate;
+    const completedAt = inboundCompletedAt(harvestDate);
+    const doc = await prisma.warehouseDocument.create({
+      data: {
+        code: `WHD-${day}-${String(docSeq).padStart(4, '0')}`,
+        warehouseId: warehouse.id,
+        type: WarehouseDocumentType.INBOUND,
+        status: WarehouseDocumentStatus.COMPLETED,
+        note: 'Nhập kho lô rau củ đợt đầu.',
+        createdByUserId: admin.id,
+        completedAt,
+      },
+    });
+    docByDay[day] = { id: doc.id, code: doc.code, completedAt };
+  }
 
-  for (const l of lotSeeds) {
-    if (l.status !== ProductLotStatus.SELLABLE) continue;
+  for (const l of sellableSeeds) {
     const lot = lotByCode[`LOT-${stamp(l.harvestDate)}-${String(l.seq).padStart(4, '0')}`];
     const variantId = variantBySku[l.variantSku].id;
+    const inboundDoc = docByDay[stamp(l.harvestDate)];
 
     await prisma.warehouseDocumentLine.create({
       data: {
@@ -1068,7 +1085,7 @@ async function main() {
       data: {
         productLotId: lot.id,
         type: TraceEventType.WAREHOUSE_IN,
-        occurredAt: addDays(-17),
+        occurredAt: inboundDoc.completedAt,
         location: 'Kho trung tâm Hưng Yên',
         description: `Nhập kho theo phiếu ${inboundDoc.code}.`,
         isPublic: true,

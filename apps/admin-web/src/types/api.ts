@@ -59,6 +59,10 @@ export interface ProductImage {
   url: string;
   sortOrder: number;
   isPrimary: boolean;
+  mimeType?: string | null;
+  width?: number | null;
+  height?: number | null;
+  sizeBytes?: number | null;
   createdAt: string;
 }
 
@@ -343,6 +347,8 @@ export interface WarehouseDocumentLine {
   productVariantId: number;
   quantity: string;
   unit: string;
+  productLot?: { id: number; code: string };
+  productVariant?: { id: number; sku: string; name: string };
 }
 
 export interface WarehouseDocument {
@@ -485,10 +491,21 @@ export interface PartnerOrder {
   fulfillments?: Fulfillment[];
 }
 
+/**
+ * Shape stored in `Order.shippingAddressSnapshot`.
+ *
+ * `provinceCode` / `wardCode` / `wardName` are present for an order placed
+ * against the official 2025 catalogue; `district` / `ward` are the legacy
+ * free-text fields and are only set for an order that used a pre-reorganisation
+ * address. An order never carries both.
+ */
 export interface ShippingAddressSnapshot {
   recipientName: string;
   phone: string;
   province: string;
+  provinceCode?: string;
+  wardCode?: string;
+  wardName?: string;
   district?: string;
   ward?: string;
   village?: string;
@@ -538,6 +555,8 @@ export interface ReturnRequest {
   updatedAt: string;
   order?: { id: number; code: string };
   refund?: Refund | null;
+  /** Evidence photos attached to the request (ADMIN can always read them). */
+  evidence?: EvidenceImage[];
 }
 
 export type ComplaintType = "PRODUCT_QUALITY" | "DELIVERY" | "WRONG_ITEM" | "OTHER";
@@ -557,6 +576,24 @@ export interface Complaint {
   resolvedAt: string | null;
   order?: { id: number; code: string };
   customer?: { id: number; fullName: string; email: string };
+  /** Evidence photos attached to the complaint. */
+  evidence?: EvidenceImage[];
+}
+
+/**
+ * One evidence photo as the API describes it.
+ *
+ * There is no `url`: the file is private and served by `GET /evidence/:id/file`,
+ * so the client fetches the bytes with its session. A URL in the payload would
+ * imply the image is reachable without one.
+ */
+export interface EvidenceImage {
+  id: number;
+  width: number;
+  height: number;
+  mimeType: string;
+  sizeBytes?: number;
+  createdAt?: string;
 }
 
 // Promotions ----------------------------------------------------------------
@@ -637,12 +674,23 @@ export interface Customer {
   } | null;
 }
 
+/**
+ * A saved delivery address.
+ *
+ * New addresses carry the official 2025 code pair (`provinceCode` + `wardCode`)
+ * and the catalogue name the backend resolved into `wardName`. Legacy free-text
+ * `district` / `ward` remain for addresses saved before the reorganisation and
+ * are never backfilled.
+ */
 export interface Address {
   id: number;
   customerId: number;
   recipientName: string;
   phone: string;
   province: string;
+  provinceCode: string | null;
+  wardCode: string | null;
+  wardName: string | null;
   district: string | null;
   ward: string | null;
   village: string | null;
@@ -666,9 +714,60 @@ export interface Review {
   updatedAt: string;
   product?: { id: number; name: string };
   customer?: { id: number; fullName: string };
+  /** Evidence photos. An ADMIN may read them for any status. */
+  evidence?: EvidenceImage[];
 }
 
 // Finance -------------------------------------------------------------------
+
+export interface ReportsSummary {
+  from: string;
+  to: string;
+  orders: {
+    count: number;
+    activeCount: number;
+    byStatus: Record<string, number>;
+    totalOrderValue: number;
+    averageOrderValue: number;
+    pendingConfirmation: number;
+    shipping: number;
+  };
+  revenue: {
+    grossCollected: number;
+    refundTotal: number;
+    netCollected: number;
+  };
+  commissionRecorded: number;
+  returns: { byStatus: Record<string, number>; open: number };
+  complaints: { byStatus: Record<string, number>; open: number };
+  lots: { pendingQc: number; sellableExpiring7d: number; sellableExpired: number };
+  inventory: { lowStockLines: number; lowStockThreshold: number };
+  certificates: { pending: number };
+  topProducts: {
+    productId: number;
+    productName: string;
+    sku: string;
+    quantity: number;
+    revenue: number;
+  }[];
+}
+
+/** One Vietnam day of the dashboard revenue/orders series (money in VND). */
+export interface ReportsDailyPoint {
+  date: string;
+  orderCount: number;
+  orderValue: number;
+  grossCollected: number;
+  refundTotal: number;
+  netCollected: number;
+}
+
+export interface ReportsDaily {
+  from: string;
+  to: string;
+  days: number;
+  points: ReportsDailyPoint[];
+}
 
 export interface CommissionRule {
   id: number;

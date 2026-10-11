@@ -1,0 +1,114 @@
+{
+  "project": "AgriMarket Mobile V2",
+  "pack_version": "1.0",
+  "pack_date": "2026-10-10",
+  "live_assets": [
+    {
+      "file": "02_APP_ASSETS/brand/agrimarket_leaf_mark_512.png",
+      "section": "Nhận diện",
+      "description": "Logo lá minh họa; dùng khi thương hiệu chưa có logo chính thức. Không tự thay logo thật.",
+      "priority": "Optional",
+      "dimensions": "512x512",
+      "sha256": "5bb19e55447200b762c98f53a523152f46fe065a208c6af073e81a2d97beed8f"
+    },
+    {
+      "file": "02_APP_ASSETS/home/hero_nong_san_no_text_1200x480.png",
+      "section": "Trang chủ",
+      "description": "Banner thương hiệu không chữ; overlay text trên giao diện, chỉ dùng khi cần hình ảnh giới thiệu chung. Không tạo chương trình khuyến mãi giả.",
+      "priority": "Optional",
+      "dimensions": "1200x480",
+      "sha256": "e0f4ee23f321ca52f407aad2f7850513d541377f837706d16f963ba787594044"
+    },
+    {
+      "file": "02_APP_ASSETS/categories/category_rau_la_256.png",
+      "section": "Danh mục",
+      "description": "Icon minh họa Rau ăn lá, chỉ nếu danh mục từ API tương ứng.",
+      "priority": "Optional",
+      "dimensions": "256x256",
+      "sha256": "04477a9a93c60d0cad8f98078f8bbf6f62321c6179e7629489d155e7ac8aa0bf"
+    },
+    {
+      "file": "02_APP_ASSETS/categories/category_trai_cay_256.png",
+      "section": "Danh mục",
+      "description": "Icon minh họa Trái cây, chỉ nếu danh mục từ API tương ứng.",
+      "priority": "Optional",
+      "dimensions": "256x256",
+      "sha256": "473717a84c5730fe6672679c4c7bb8adbbc24b407cf27e4dce275155142c8a06"
+    },
+    {
+      "file": "02_APP_ASSETS/categories/category_cu_qua_256.png",
+      "section": "Danh mục",
+      "description": "Icon minh họa Củ quả, chỉ nếu danh mục từ API tương ứng.",
+      "priority": "Optional",
+      "dimensions": "256x256",
+      "sha256": "cdb575cfc5cf3097fea1cb0ea02b826c21710506aaa5bed1772c591afe0ec3c8"
+    },
+    {
+      "file": "02_APP_ASSETS/categories/category_nau_san_256.png",
+      "section": "Danh mục",
+      "description": "Icon minh họa nông sản khác; không tự tạo danh mục mới.",
+      "priority": "Optional",
+      "dimensions": "256x256",
+      "sha256": "2df8eb9fbd5916ed608b3c5ca46c6b0fd69fa055864a1570e32ebebbcada0499"
+    },
+    {
+      "file": "02_APP_ASSETS/farm/farm_fallback_1000x600.png",
+      "section": "Trang trại",
+      "description": "Minh họa mặc định rõ ràng khi API thực sự không có ảnh trang trại. Không coi là ảnh thật.",
+      "priority": "Optional",
+      "dimensions": "1000x600",
+      "sha256": "bd79a98a359261a5103675f38fbcf282df973f4cd5e19b3e3919628d85af0bbb"
+    },
+    {
+      "file": "02_APP_ASSETS/trace/trace_scan_illustration_640x440.png",
+      "section": "Truy xuất",
+      "description": "Minh họa quét QR; KHÔNG chứa QR thật, không để người dùng nhầm là QR quét được.",
+      "priority": "Optional",
+      "dimensions": "640x440",
+      "sha256": "526afb96df12f4432a68f26cb6745582acbed3a685184ccea1d60de4bfd88d99"
+    },
+    {
+      "file": "02_APP_ASSETS/empty_states/empty_cart_360.png",
+      "section": "Giỏ hàng",
+      "description": "Hình minh họa giỏ rỗng; không dùng khi API lỗi.",
+      "priority": "Recommended",
+      "dimensions": "360x360",
+      "sha256": "dd10d3dc92209c3c50442dd7c6dce9f029a8c0280e59992b52c3d143e84d5046"
+    },
+    {
+      "file": "02_APP_ASSETS/empty_states/empty_orders_360.png",
+      "section": "Đơn hàng",
+      "description": "Hình minh họa chưa có đơn hàng; không dùng khi API lỗi.",
+      "priority": "Recommended",
+      "dimensions": "360x360",
+      "sha256": "65a89587b7f1cbc642fbe9d8a07dda443f1054c2e963a2c0cbad82d2f1cab807"
+    },
+    {
+      "file": "02_APP_ASSETS/empty_states/empty_search_360.png",
+      "section": "Tìm kiếm",
+      "description": "Hình minh họa không có kết quả; không dùng khi API lỗi.",
+      "priority": "Recommended",
+      "dimensions": "360x360",
+      "sha256": "b9c291e84a28df5c8f9dead48332881191918bde1d9538611832e352d0c585cb"
+    },
+    {
+      "file": "02_APP_ASSETS/empty_states/empty_network_360.png",
+      "section": "Lỗi mạng",
+      "description": "Hình minh họa thất bại kết nối; kèm nút thử lại.",
+      "priority": "Recommended",
+      "dimensions": "360x360",
+      "sha256": "1b14ac46a9ed1e5a01c62c93a604a5c39ed95855d3a95fee53d95ad6880c22f8"
+    }
+  ],
+  "reference_images": [
+    "01_home_REFERENCE_ONLY.png",
+    "02_catalog_REFERENCE_ONLY.png",
+    "03_product_detail_REFERENCE_ONLY.png",
+    "04_cart_REFERENCE_ONLY.png",
+    "05_trace_REFERENCE_ONLY.png",
+    "06_account_REFERENCE_ONLY.png",
+    "DESIGN_BOARD_6_SCREENS_AND_TOKENS_REFERENCE_ONLY.png",
+    "DESIGN_BOARD_9_SCREENS_REFERENCE_ONLY.png"
+  ],
+  "caution": "Reference images are AI-generated UI compositions and may depict nonexistent features, sample names, numbers, prices, farmers and imagery. Do not use as live business data."
+}

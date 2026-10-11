@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
-import { buildDatedCode, formatSequence } from '../common/utils/code.util.js';
+import { buildDatedCode, datedCodePrefix, formatSequence, isUniqueViolationOn, nextDatedSequence } from '../common/utils/code.util.js';
 import {
   buildPagination,
   normalizeSearch,
@@ -11,6 +11,8 @@ import {
 import { CreateLotDto, RecallLotDto } from './dto/lot.dto.js';
 import type { Prisma, ProductLot } from '../../generated/prisma/client.js';
 import { ProductLotStatus, TraceEventType } from '../../generated/prisma/enums.js';
+
+const CODE_ATTEMPTS = 3;
 
 @Injectable()
 export class LotsService {
@@ -40,11 +42,41 @@ export class LotsService {
     }
 
     const date = new Date();
-    const sameDayCount = await this.prisma.productLot.count({
-      where: { createdAt: { gte: startOfDay(date) } },
+    // Sequence from the highest code of the day (never a row count); the unique
+    // indexes on `code` / `trace_code` are the final guard, so retry on a clash.
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        const sequence = await this.nextLotSequence(date);
+        return await this.createLotWithSequence(dto, harvest, sequence, date, actorUserId);
+      } catch (error) {
+        if (isUniqueViolationOn(error, 'code', 'trace_code') && attempt < CODE_ATTEMPTS) continue;
+        throw error;
+      }
+    }
+  }
+
+  private async nextLotSequence(date: Date): Promise<number> {
+    const prefix = datedCodePrefix('LOT', date);
+    const existing = await this.prisma.productLot.findMany({
+      where: { code: { startsWith: prefix } },
+      select: { code: true },
     });
-    const code = buildDatedCode('LOT', sameDayCount + 1, date);
-    const traceCode = `TRC-${formatSequence(sameDayCount + 1, 6)}-${date.getTime().toString(36).toUpperCase()}`;
+    return nextDatedSequence(
+      existing.map((row) => row.code),
+      'LOT',
+      date,
+    );
+  }
+
+  private async createLotWithSequence(
+    dto: CreateLotDto,
+    harvest: { harvestDate: Date; quantity: unknown },
+    sequence: number,
+    date: Date,
+    actorUserId?: number,
+  ): Promise<ProductLot> {
+    const code = buildDatedCode('LOT', sequence, date);
+    const traceCode = `TRC-${formatSequence(sequence, 6)}-${date.getTime().toString(36).toUpperCase()}`;
 
     const lot = await this.prisma.productLot.create({
       data: {
@@ -87,13 +119,13 @@ export class LotsService {
     page?: number;
     limit?: number;
     search?: string;
-    status?: string;
+    status?: ProductLotStatus;
     productId?: number;
   }): Promise<PaginatedResult<ProductLot>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const search = normalizeSearch(query.search);
     const where: Prisma.ProductLotWhereInput = {
-      ...(query.status ? { status: query.status as ProductLotStatus } : {}),
+      ...(query.status ? { status: query.status } : {}),
       ...(query.productId ? { productId: query.productId } : {}),
       ...(search
         ? {
@@ -127,13 +159,39 @@ export class LotsService {
       include: {
         product: { include: { partner: true, category: true } },
         harvest: { include: { season: { include: { farm: true } } } },
-        qcInspections: { orderBy: { inspectedAt: 'desc' } },
+        // The inspector is shown next to each QC row; without this the detail
+        // page renders "—" for a value the QC list already displays.
+        qcInspections: {
+          orderBy: { inspectedAt: 'desc' },
+          include: { inspectorUser: { select: { id: true, fullName: true } } },
+        },
         traceEvents: { orderBy: { occurredAt: 'asc' } },
-        inventoryBalances: true,
+        // The stock table needs the warehouse and sale-variant names, not just
+        // their ids. `available` is derived (on_hand − reserved − blocked) the
+        // same way `InventoryService.withAvailable` computes it for the list.
+        inventoryBalances: {
+          include: {
+            warehouse: { select: { id: true, code: true, name: true } },
+            productVariant: { select: { id: true, sku: true, name: true } },
+          },
+        },
       },
     });
     if (!lot) throw new NotFoundException('Product lot not found');
-    return lot;
+    return {
+      ...lot,
+      inventoryBalances: lot.inventoryBalances.map((b) => ({
+        ...b,
+        onHand: b.onHand.toString(),
+        reserved: b.reserved.toString(),
+        blocked: b.blocked.toString(),
+        available: (
+          Number(b.onHand) -
+          Number(b.reserved) -
+          Number(b.blocked)
+        ).toFixed(3),
+      })),
+    };
   }
 
   /** Latest QC inspection of a lot (the one that decides sellability). */
@@ -170,10 +228,4 @@ export class LotsService {
     });
     return lot;
   }
-}
-
-function startOfDay(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
 }

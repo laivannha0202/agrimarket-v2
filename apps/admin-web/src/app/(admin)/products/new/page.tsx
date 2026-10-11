@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Form } from "antd";
+import { App, Button, Form } from "antd";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
 import { ProductFormFields } from "@/components/product/ProductFormFields";
+import { ProductImageStaging } from "@/components/product/ProductImagesManager";
 import { useAction } from "@/hooks/useAction";
 import { resources } from "@/lib/api/resources";
 import type { Product } from "@/types/api";
@@ -12,12 +14,13 @@ interface VariantForm {
   sku: string;
   name: string;
   saleUnit: string;
+  weight?: number;
+  weightUnit?: string;
   basePrice: number;
 }
 
 interface ProductForm {
   name: string;
-  slug: string;
   partnerId: number;
   categoryId: number;
   farmId?: number;
@@ -28,20 +31,46 @@ interface ProductForm {
 
 export default function NewProductPage() {
   const router = useRouter();
+  const { message } = App.useApp();
   const [form] = Form.useForm<ProductForm>();
+  const [staged, setStaged] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const create = useAction(
-    (values: ProductForm) =>
-      resources.createProduct({
+    async (values: ProductForm) => {
+      const created: Product = await resources.createProduct({
         ...values,
-        variants: values.variants?.map((v) => ({
-          ...v,
-          basePrice: Number(v.basePrice),
-        })),
-      }),
+        variants: values.variants
+          ?.filter((v) => v.sku || v.name)
+          .map((v) => ({
+            ...v,
+            basePrice: Number(v.basePrice),
+            weight: v.weight ? Number(v.weight) : undefined,
+            weightUnit: v.weightUnit || undefined,
+          })),
+      });
+      if (staged.length > 0) {
+        setUploading(true);
+        try {
+          for (const file of staged) {
+            await resources.uploadProductImage(created.id, file);
+          }
+        } catch (err) {
+          message.warning(
+            err instanceof Error
+              ? `Đã tạo sản phẩm, nhưng tải ảnh chưa xong: ${err.message} Mở chi tiết sản phẩm để tải lại ảnh lỗi.`
+              : "Đã tạo sản phẩm, nhưng tải ảnh chưa xong. Mở chi tiết sản phẩm để tải lại ảnh lỗi.",
+          );
+          return created;
+        } finally {
+          setUploading(false);
+        }
+      }
+      return created;
+    },
     {
       invalidate: [["products"]],
-      successMessage: "Đã tạo sản phẩm.",
+      successMessage: "Đã lưu sản phẩm.",
       onSuccess: (created: Product) => router.replace(`/products/${created.id}`),
     },
   );
@@ -49,7 +78,6 @@ export default function NewProductPage() {
   return (
     <DetailPage
       title="Thêm sản phẩm"
-      subtitle="Tạo sản phẩm mới kèm biến thể"
       backHref="/products"
       backLabel="Danh sách sản phẩm"
     >
@@ -58,13 +86,17 @@ export default function NewProductPage() {
           form={form}
           layout="vertical"
           requiredMark={false}
+          preserve
           onFinish={(values) => create.mutate(values)}
           initialValues={{ status: "ACTIVE", variants: [{}] }}
         >
-          <ProductFormFields mode="create" />
+          <ProductFormFields
+            mode="create"
+            imageSection={<ProductImageStaging value={staged} onChange={setStaged} />}
+          />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <Button type="primary" htmlType="submit" loading={create.isPending}>
-              Tạo sản phẩm
+            <Button type="primary" htmlType="submit" loading={create.isPending || uploading}>
+              Lưu
             </Button>
             <Button onClick={() => router.push("/products")}>Hủy</Button>
           </div>

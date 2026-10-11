@@ -10,8 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SeasonsService } from './seasons.service.js';
-import { CreateSeasonDto, UpdateSeasonDto } from './dto/season.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { CreateSeasonDto, SeasonQueryDto, UpdateSeasonDto } from './dto/season.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 
@@ -22,8 +21,8 @@ export class SeasonsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List seasons' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List seasons (status filter)' })
+  findAll(@Query() query: SeasonQueryDto) {
     return this.seasonsService.findAll(query);
   }
 

@@ -1,0 +1,52 @@
+:root {
+  --agri-border: #e6e8eb;
+  --agri-surface: #ffffff;
+  --agri-page: #f7f8f7;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  background: var(--agri-page);
+}
+
+body {
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Keep long product names from breaking the card grid. */
+.agri-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.agri-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Images must never stretch or blur. */
+.agri-media {
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+  display: block;
+}

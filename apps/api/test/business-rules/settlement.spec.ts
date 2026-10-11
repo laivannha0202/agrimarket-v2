@@ -34,7 +34,7 @@ describe('Settlement formula', () => {
         status: PartnerOrderStatus.DELIVERED,
       },
     ]);
-    prisma.settlement.count.mockResolvedValue(0);
+    prisma.settlement.findMany.mockResolvedValue([]);
     prisma.settlement.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 1,
       ...data,

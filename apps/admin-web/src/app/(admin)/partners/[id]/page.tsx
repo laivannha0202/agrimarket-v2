@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Button, Form, Table, Typography } from "antd";
+import { Button, Form, Table } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
@@ -32,13 +32,11 @@ export default function PartnerDetailPage() {
   );
 
   const farms = useListQuery<Farm>(
-    queryKeys.farms({ scope: "partner-detail" }),
+    queryKeys.farms({ partnerId: id }),
     resources.farms,
-    { limit: 100 },
+    { partnerId: id, limit: 100 },
   );
-  // /farms does not support a partnerId filter (rejected by the API), so the
-  // partner's farms are selected from the fetched page in the browser.
-  const partnerFarms = (farms.data?.data ?? []).filter((f) => String(f.partnerId) === String(id));
+  const partnerFarms = farms.data?.data ?? [];
 
   const update = useAction((values: Record<string, unknown>) => resources.updatePartner(id, values), {
     invalidate: [queryKeys.partner(id), ["partners"]],
@@ -157,10 +155,6 @@ export default function PartnerDetailPage() {
           >
             <PartnerFormFields />
           </FormModal>
-
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-            Mã đối tác do hệ thống sinh tự động, không thể chỉnh sửa.
-          </Typography.Paragraph>
         </>
       ) : null}
     </DetailPage>

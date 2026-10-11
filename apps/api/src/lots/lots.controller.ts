@@ -9,8 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { LotsService } from './lots.service.js';
-import { CreateLotDto, RecallLotDto } from './dto/lot.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { CreateLotDto, LotQueryDto, RecallLotDto } from './dto/lot.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -23,12 +22,9 @@ export class LotsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List product lots' })
-  findAll(@Query() query: PaginationQueryDto, @Query('productId') productId?: string) {
-    return this.lotsService.findAll({
-      ...query,
-      productId: productId ? parseInt(productId, 10) : undefined,
-    });
+  @ApiOperation({ summary: 'List product lots (search/status/productId filters)' })
+  findAll(@Query() query: LotQueryDto) {
+    return this.lotsService.findAll(query);
   }
 
   @Public()

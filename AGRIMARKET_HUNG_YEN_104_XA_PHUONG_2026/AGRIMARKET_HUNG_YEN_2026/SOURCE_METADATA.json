@@ -1,0 +1,33 @@
+{
+  "dataset": "Danh mục đơn vị hành chính cấp xã tỉnh Hưng Yên (sau sáp nhập)",
+  "province": {
+    "name": "Hưng Yên",
+    "fullName": "Tỉnh Hưng Yên",
+    "code": "33"
+  },
+  "asOf": "2026-10-10",
+  "legalEffectiveFrom": "2025-07-01",
+  "legalBasis": [
+    "1666/NQ-UBTVQH15 (16/06/2025)",
+    "19/2025/QĐ-TTg (30/06/2025)"
+  ],
+  "counts": {
+    "total": 104,
+    "xa": 93,
+    "phuong": 11
+  },
+  "sources": {
+    "government_decision_pdf": "https://datafiles.chinhphu.vn/cpp/files/vbpq/2025/7/19ttg.signed.pdf",
+    "government_decision_page": "https://chinhphu.vn/?classid=0&docid=214409&pageid=27160",
+    "government_resolution_page": "https://xaydungchinhsach.chinhphu.vn/toan-van-nghi-quyet-so-1666-nq-ubtvqh15-sap-xep-cac-dvhc-cap-xa-cua-tinh-hung-yen-nam-2025-119250616195158879.htm",
+    "government_104_list": "https://xaydungchinhsach.chinhphu.vn/sap-xep-dvhc-danh-sach-104-xa-phuong-cua-tinh-hung-yen-moi-119250622210849858.htm",
+    "transcribed_public_table": "https://thuvienphapluat.vn/hoi-dap-phap-luat/danh-sach-ma-dvhc-cap-xa-cua-tinh-hung-yen-sau-sap-nhap-nhu-the-nao-138057463.html",
+    "cross_check_2026": "https://www.tinhthanhpho.com/hung-yen?type=phuong"
+  },
+  "notes": [
+    "Dữ liệu xã/phường; KHÔNG bao gồm thôn/tổ dân phố.",
+    "Mã xã/phường (code) là chuỗi 5 ký tự, không phải mã bưu chính.",
+    "Không chứa cấp quận/huyện trong mô hình địa chỉ mới.",
+    "Đối chiếu nguồn chính thức và bảng mã công khai; cần kiểm tra văn bản thay thế nếu triển khai sau ngày 10/10/2026."
+  ]
+}

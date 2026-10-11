@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
-import { buildCode, buildDatedCode } from '../common/utils/code.util.js';
+import { buildCode, buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDatedSequence, nextSequence } from '../common/utils/code.util.js';
 import { buildPagination, paginate } from '../common/dto/pagination-query.dto.js';
 import { CreatePayoutDto, CreateSettlementDto } from './dto/finance.dto.js';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -10,6 +10,8 @@ import {
   PayoutStatus,
   SettlementStatus,
 } from '../../generated/prisma/enums.js';
+
+const CODE_ATTEMPTS = 3;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -26,6 +28,21 @@ export class SettlementsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Runs a code-generating insert, retrying when a concurrent insert claimed
+   * the same code first (unique index on `code` is the final guard).
+   */
+  private async createWithRetry<T>(create: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await create();
+      } catch (error) {
+        if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
+        throw error;
+      }
+    }
+  }
 
   async create(dto: CreateSettlementDto, actorUserId: number) {
     const periodStart = new Date(dto.periodStart);
@@ -63,24 +80,30 @@ export class SettlementsService {
     const adjustment = dto.adjustmentAmount ?? 0;
     const payable = round2(gross - refundTotal - commissionTotal + adjustment);
 
-    const count = await this.prisma.settlement.count();
-    const code = buildCode('SET', count + 1);
-
-    const settlement = await this.prisma.settlement.create({
-      data: {
-        code,
-        partnerId: dto.partnerId,
-        periodStart,
-        periodEnd,
-        grossAmount: round2(gross),
-        refundAmount: round2(refundTotal),
-        commissionAmount: round2(commissionTotal),
-        adjustmentAmount: adjustment,
-        payableAmount: payable,
-        status: SettlementStatus.DRAFT,
-        lines: { create: lines },
-      },
-      include: { lines: true },
+    // Sequence from the highest existing code (never a row count), with a retry
+    // when a concurrent insert wins the race for the same number.
+    const settlement = await this.createWithRetry(async () => {
+      const existing = await this.prisma.settlement.findMany({
+        where: { code: { startsWith: 'SET-' } },
+        select: { code: true },
+      });
+      const code = buildCode('SET', nextSequence(existing.map((row) => row.code), 'SET'));
+      return this.prisma.settlement.create({
+        data: {
+          code,
+          partnerId: dto.partnerId,
+          periodStart,
+          periodEnd,
+          grossAmount: round2(gross),
+          refundAmount: round2(refundTotal),
+          commissionAmount: round2(commissionTotal),
+          adjustmentAmount: adjustment,
+          payableAmount: payable,
+          status: SettlementStatus.DRAFT,
+          lines: { create: lines },
+        },
+        include: { lines: true },
+      });
     });
 
     await this.audit.record({
@@ -93,11 +116,9 @@ export class SettlementsService {
     return settlement;
   }
 
-  async findAll(query: { page?: number; limit?: number; status?: string }) {
+  async findAll(query: { page?: number; limit?: number; status?: SettlementStatus }) {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.SettlementWhereInput = query.status
-      ? { status: query.status as SettlementStatus }
-      : {};
+    const where: Prisma.SettlementWhereInput = query.status ? { status: query.status } : {};
     const [data, total] = await Promise.all([
       this.prisma.settlement.findMany({
         where,
@@ -152,6 +173,21 @@ export class PayoutsService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Runs a code-generating insert, retrying when a concurrent insert claimed
+   * the same code first (unique index on `code` is the final guard).
+   */
+  private async createWithRetry<T>(create: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await create();
+      } catch (error) {
+        if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
+        throw error;
+      }
+    }
+  }
+
   async create(dto: CreatePayoutDto, actorUserId: number) {
     const settlement = await this.prisma.settlement.findUnique({
       where: { id: dto.settlementId },
@@ -177,18 +213,33 @@ export class PayoutsService {
       );
     }
 
-    const count = await this.prisma.payout.count();
-    const code = buildDatedCode('PAY', count + 1);
-    const payout = await this.prisma.payout.create({
-      data: {
-        code,
-        settlementId: settlement.id,
-        partnerId: settlement.partnerId,
-        amount,
-        status: PayoutStatus.PENDING,
-        reference: dto.reference,
-        requestedAt: new Date(),
-      },
+    const payout = await this.createWithRetry(async () => {
+      const now = new Date();
+      const prefix = datedCodePrefix('PAY', now);
+      const existing = await this.prisma.payout.findMany({
+        where: { code: { startsWith: prefix } },
+        select: { code: true },
+      });
+      const code = buildDatedCode(
+        'PAY',
+        nextDatedSequence(
+          existing.map((row) => row.code),
+          'PAY',
+          now,
+        ),
+        now,
+      );
+      return this.prisma.payout.create({
+        data: {
+          code,
+          settlementId: settlement.id,
+          partnerId: settlement.partnerId,
+          amount,
+          status: PayoutStatus.PENDING,
+          reference: dto.reference,
+          requestedAt: new Date(),
+        },
+      });
     });
     await this.audit.record({
       actorUserId,
@@ -239,11 +290,9 @@ export class PayoutsService {
     return updated;
   }
 
-  async findAll(query: { page?: number; limit?: number; status?: string }) {
+  async findAll(query: { page?: number; limit?: number; status?: PayoutStatus }) {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.PayoutWhereInput = query.status
-      ? { status: query.status as PayoutStatus }
-      : {};
+    const where: Prisma.PayoutWhereInput = query.status ? { status: query.status } : {};
     const [data, total] = await Promise.all([
       this.prisma.payout.findMany({
         where,

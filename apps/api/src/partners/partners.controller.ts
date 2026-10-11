@@ -10,8 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PartnersService } from './partners.service.js';
-import { CreatePartnerDto, UpdatePartnerDto } from './dto/partner.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { CreatePartnerDto, PartnerQueryDto, UpdatePartnerDto } from './dto/partner.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
@@ -24,8 +23,8 @@ export class PartnersController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'List partners (public catalog data)' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List partners (search/status filters)' })
+  findAll(@Query() query: PartnerQueryDto) {
     return this.partnersService.findAll(query);
   }
 

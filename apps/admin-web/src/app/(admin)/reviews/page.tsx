@@ -4,6 +4,7 @@ import { Button, Form, Modal, Rate, Select } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useState } from "react";
 import { ListPage } from "@/components/common/ListPage";
+import { EvidenceGallery } from "@/components/common/EvidenceGallery";
 import { StatusTag } from "@/components/common/StatusTag";
 import { useListState } from "@/hooks/useListState";
 import { useListQuery } from "@/hooks/useListQuery";
@@ -82,7 +83,7 @@ export default function ReviewsPage() {
             form.setFieldsValue({ status: (REVIEW_TRANSITIONS[row.status] ?? [])[0]?.value });
           }}
         >
-          Duyệt
+          {row.status === "PENDING" ? "Duyệt" : "Cập nhật"}
         </Button>
       ),
     },
@@ -94,7 +95,6 @@ export default function ReviewsPage() {
     <>
       <ListPage<Review>
         title="Đánh giá"
-        subtitle="Đánh giá sản phẩm của khách hàng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -125,18 +125,28 @@ export default function ReviewsPage() {
 
       <Modal
         open={!!editing}
-        title="Duyệt đánh giá"
+        title={editing?.status === "PENDING" ? "Duyệt đánh giá" : "Cập nhật đánh giá"}
         onCancel={() => setEditing(null)}
         onOk={() => form.submit()}
         confirmLoading={update.isPending}
         okText="Xác nhận"
         cancelText="Hủy"
-        destroyOnHidden
+        forceRender
+        mask={{ closable: false }}
       >
         {editing ? (
-          <p className="agri-muted" style={{ marginTop: 0 }}>
-            {editing.product?.name ?? `#${editing.productId}`} — {editing.rating}★
-          </p>
+          <div style={{ marginBottom: 12 }}>
+            <p className="agri-muted" style={{ marginTop: 0 }}>
+              {editing.product?.name ?? `#${editing.productId}`} — {editing.rating}★
+            </p>
+            {editing.content ? <p style={{ marginTop: 0 }}>{editing.content}</p> : null}
+            {/**
+             * The photos are part of what is being moderated, so they are shown
+             * here rather than behind a second click. An ADMIN may read them
+             * regardless of status — that is what makes the decision informed.
+             */}
+            <EvidenceGallery images={editing.evidence} label="Ảnh người mua gửi" />
+          </div>
         ) : null}
         <Form
           form={form}

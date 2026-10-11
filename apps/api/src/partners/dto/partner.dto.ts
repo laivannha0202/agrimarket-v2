@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { RecordStatus } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreatePartnerDto {
   @ApiProperty({ example: 'HTX Rau quả Minh Châu' })
@@ -102,4 +103,12 @@ export class UpdatePartnerDto {
   @IsOptional()
   @IsEnum(RecordStatus)
   status?: RecordStatus;
+}
+
+/** Query DTO for `GET /partners`: strict status enum (400 on unknown values). */
+export class PartnerQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: RecordStatus })
+  @IsOptional()
+  @IsEnum(RecordStatus)
+  declare status?: RecordStatus;
 }

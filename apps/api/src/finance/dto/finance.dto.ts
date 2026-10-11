@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { PayoutStatus, RecordStatus, SettlementStatus } from '../../../generated/prisma/enums.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateCommissionRuleDto {
   @ApiPropertyOptional({ example: 1, description: 'Null = applies to all partners' })
@@ -68,4 +70,54 @@ export class CreatePayoutDto {
   @IsOptional()
   @IsString()
   reference?: string;
+}
+
+/**
+ * Query DTO for `GET /settlements`. The strict enum is the point: previously
+ * an unknown status reached Prisma and surfaced as a 500.
+ */
+export class SettlementQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: SettlementStatus })
+  @IsOptional()
+  @IsEnum(SettlementStatus)
+  declare status?: SettlementStatus;
+}
+
+/** Query DTO for `GET /payouts` — strict enum, unknown status → 400. */
+export class PayoutQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: PayoutStatus })
+  @IsOptional()
+  @IsEnum(PayoutStatus)
+  declare status?: PayoutStatus;
+}
+
+/** Query DTO for `GET /commission-rules` — strict record-status enum. */
+export class CommissionRuleQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: RecordStatus })
+  @IsOptional()
+  @IsEnum(RecordStatus)
+  declare status?: RecordStatus;
+}
+
+/**
+ * `PATCH /commission-rules/:id`. Only the record status is editable: the rate
+ * and effective window are the inputs to commission already recorded on past
+ * orders, so changing them would silently re-price settled history.
+ */
+export class UpdateCommissionRuleStatusDto {
+  @ApiProperty({ enum: RecordStatus })
+  @IsEnum(RecordStatus)
+  status!: RecordStatus;
+}
+
+/**
+ * Query for `GET /settlements/:id/export`.
+ *
+ * `format` is required and strictly `xlsx` or `pdf`, matching
+ * `/reports/export`, so a wrong link cannot silently produce the wrong file.
+ */
+export class SettlementExportQueryDto {
+  @ApiProperty({ enum: ['xlsx', 'pdf'], description: 'Real file format to produce' })
+  @IsIn(['xlsx', 'pdf'])
+  format!: 'xlsx' | 'pdf';
 }

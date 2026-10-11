@@ -6,6 +6,7 @@
   "scripts": {
     "dev:api": "pnpm --filter @agrimarket/api dev",
     "dev:admin": "pnpm --filter @agrimarket/admin-web dev",
+    "dev:mobile": "pnpm --filter @agrimarket/mobile dev",
     "start:api": "pnpm --filter @agrimarket/api start",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",

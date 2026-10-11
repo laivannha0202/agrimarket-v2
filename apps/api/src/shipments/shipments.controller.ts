@@ -1,8 +1,11 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ShipmentsService } from './shipments.service.js';
-import { CreateShipmentDto, UpdateShipmentStatusDto } from './dto/shipment.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import {
+  CreateShipmentDto,
+  ShipmentQueryDto,
+  UpdateShipmentStatusDto,
+} from './dto/shipment.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
@@ -15,8 +18,8 @@ export class ShipmentsController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get()
-  @ApiOperation({ summary: 'List shipments (ADMIN)' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List shipments (status filter, ADMIN)' })
+  findAll(@Query() query: ShipmentQueryDto) {
     return this.shipmentsService.findAll(query);
   }
 

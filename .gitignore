@@ -15,6 +15,13 @@ generated/
 .env.*
 !.env.example
 
+# local database backups (SQL dumps — never commit)
+/backups/
+
+# uploaded product images (local files — never commit)
+/apps/api/uploads/
+/uploads/
+
 # logs
 *.log
 pnpm-debug.log*

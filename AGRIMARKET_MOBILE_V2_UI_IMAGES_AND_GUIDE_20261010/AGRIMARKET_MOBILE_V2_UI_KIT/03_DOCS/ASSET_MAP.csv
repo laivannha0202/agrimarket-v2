@@ -1,0 +1,13 @@
+﻿file,section,description,priority,dimensions,sha256
+02_APP_ASSETS/brand/agrimarket_leaf_mark_512.png,Nhận diện,Logo lá minh họa; dùng khi thương hiệu chưa có logo chính thức. Không tự thay logo thật.,Optional,512x512,5bb19e55447200b762c98f53a523152f46fe065a208c6af073e81a2d97beed8f
+02_APP_ASSETS/home/hero_nong_san_no_text_1200x480.png,Trang chủ,"Banner thương hiệu không chữ; overlay text trên giao diện, chỉ dùng khi cần hình ảnh giới thiệu chung. Không tạo chương trình khuyến mãi giả.",Optional,1200x480,e0f4ee23f321ca52f407aad2f7850513d541377f837706d16f963ba787594044
+02_APP_ASSETS/categories/category_rau_la_256.png,Danh mục,"Icon minh họa Rau ăn lá, chỉ nếu danh mục từ API tương ứng.",Optional,256x256,04477a9a93c60d0cad8f98078f8bbf6f62321c6179e7629489d155e7ac8aa0bf
+02_APP_ASSETS/categories/category_trai_cay_256.png,Danh mục,"Icon minh họa Trái cây, chỉ nếu danh mục từ API tương ứng.",Optional,256x256,473717a84c5730fe6672679c4c7bb8adbbc24b407cf27e4dce275155142c8a06
+02_APP_ASSETS/categories/category_cu_qua_256.png,Danh mục,"Icon minh họa Củ quả, chỉ nếu danh mục từ API tương ứng.",Optional,256x256,cdb575cfc5cf3097fea1cb0ea02b826c21710506aaa5bed1772c591afe0ec3c8
+02_APP_ASSETS/categories/category_nau_san_256.png,Danh mục,Icon minh họa nông sản khác; không tự tạo danh mục mới.,Optional,256x256,2df8eb9fbd5916ed608b3c5ca46c6b0fd69fa055864a1570e32ebebbcada0499
+02_APP_ASSETS/farm/farm_fallback_1000x600.png,Trang trại,Minh họa mặc định rõ ràng khi API thực sự không có ảnh trang trại. Không coi là ảnh thật.,Optional,1000x600,bd79a98a359261a5103675f38fbcf282df973f4cd5e19b3e3919628d85af0bbb
+02_APP_ASSETS/trace/trace_scan_illustration_640x440.png,Truy xuất,"Minh họa quét QR; KHÔNG chứa QR thật, không để người dùng nhầm là QR quét được.",Optional,640x440,526afb96df12f4432a68f26cb6745582acbed3a685184ccea1d60de4bfd88d99
+02_APP_ASSETS/empty_states/empty_cart_360.png,Giỏ hàng,Hình minh họa giỏ rỗng; không dùng khi API lỗi.,Recommended,360x360,dd10d3dc92209c3c50442dd7c6dce9f029a8c0280e59992b52c3d143e84d5046
+02_APP_ASSETS/empty_states/empty_orders_360.png,Đơn hàng,Hình minh họa chưa có đơn hàng; không dùng khi API lỗi.,Recommended,360x360,65a89587b7f1cbc642fbe9d8a07dda443f1054c2e963a2c0cbad82d2f1cab807
+02_APP_ASSETS/empty_states/empty_search_360.png,Tìm kiếm,Hình minh họa không có kết quả; không dùng khi API lỗi.,Recommended,360x360,b9c291e84a28df5c8f9dead48332881191918bde1d9538611832e352d0c585cb
+02_APP_ASSETS/empty_states/empty_network_360.png,Lỗi mạng,Hình minh họa thất bại kết nối; kèm nút thử lại.,Recommended,360x360,1b14ac46a9ed1e5a01c62c93a604a5c39ed95855d3a95fee53d95ad6880c22f8

@@ -20,7 +20,8 @@ describe('Lot & QC rules', () => {
     it('starts as PENDING_QC, never SELLABLE', async () => {
       prisma.harvest.findUnique.mockResolvedValue({ id: 1, quantity: 1000, harvestDate: new Date() });
       prisma.productLot.aggregate.mockResolvedValue({ _sum: { quantity: 0 } });
-      prisma.productLot.count.mockResolvedValue(0);
+      // The next LOT code comes from the highest existing code of the day.
+      prisma.productLot.findMany.mockResolvedValue([]);
       prisma.productLot.create.mockImplementation(async ({ data }: { data: unknown }) => data);
       prisma.traceEvent.create.mockResolvedValue({});
 
@@ -108,6 +109,7 @@ describe('Lot & QC rules', () => {
           appearancePassed: false,
           freshnessPassed: true,
           damagePassed: true,
+          note: 'Ngoại hình không đạt.',
         },
         99,
       );
@@ -131,6 +133,7 @@ describe('Lot & QC rules', () => {
           freshnessPassed: true,
           packagingPassed: false,
           damagePassed: true,
+          note: 'Bao bì rách.',
         },
         99,
       );
@@ -138,6 +141,25 @@ describe('Lot & QC rules', () => {
       expect(prisma.productLot.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: ProductLotStatus.QUARANTINED } }),
       );
+    });
+
+    it('rejects FAIL without a documented reason', async () => {
+      prisma.productLot.findUnique.mockResolvedValue({ id: 1, status: ProductLotStatus.PENDING_QC });
+
+      await expect(
+        qc.inspect(
+          {
+            productLotId: 1,
+            result: QcResult.FAIL,
+            appearancePassed: false,
+            freshnessPassed: true,
+            damagePassed: true,
+          },
+          99,
+        ),
+      ).rejects.toThrow(/reason/);
+      expect(prisma.qcInspection.create).not.toHaveBeenCalled();
+      expect(prisma.productLot.update).not.toHaveBeenCalled();
     });
   });
 });

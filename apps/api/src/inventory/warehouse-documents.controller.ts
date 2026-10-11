@@ -1,8 +1,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { WarehouseDocumentsService } from './warehouse-documents.service.js';
-import { CreateWarehouseDocumentDto } from './dto/warehouse-document.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
+import { CreateWarehouseDocumentDto, WarehouseDocumentQueryDto } from './dto/warehouse-document.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
@@ -15,8 +14,8 @@ export class WarehouseDocumentsController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get()
-  @ApiOperation({ summary: 'List warehouse documents (ADMIN)' })
-  findAll(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List warehouse documents (status/type filters, ADMIN)' })
+  findAll(@Query() query: WarehouseDocumentQueryDto) {
     return this.service.findAll(query);
   }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, DatePicker, Form, Input, InputNumber, Select, Space } from "antd";
+import { App, Button, DatePicker, Form, Input, InputNumber, Select } from "antd";
 import { MinusCircleOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -38,12 +38,33 @@ export default function FlashSalesPage() {
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm<FlashForm>();
   const variants = useVariantOptions();
+  const { modal } = App.useApp();
 
   const { data, isLoading, isError, refetch } = useListQuery<FlashSale>(
     queryKeys.flashSales(list.params),
     resources.flashSales,
     list.params,
   );
+
+  const setStatus = useAction(
+    (vars: { id: number; status: "ACTIVE" | "INACTIVE" }) =>
+      resources.updateFlashSaleStatus(vars.id, vars.status),
+    {
+      invalidate: [["flash-sales"]],
+      successMessage: "Đã cập nhật trạng thái flash sale.",
+    },
+  );
+
+  const confirmDeactivate = (row: FlashSale) => {
+    modal.confirm({
+      title: "Ngừng flash sale này?",
+      content: "Các sản phẩm trong chương trình sẽ trở về giá thường.",
+      okText: "Ngừng",
+      okType: "danger",
+      cancelText: "Hủy",
+      onOk: () => setStatus.mutate({ id: row.id, status: "INACTIVE" }),
+    });
+  };
 
   const create = useAction(
     (values: FlashForm) => {
@@ -102,13 +123,39 @@ export default function FlashSalesPage() {
         </span>
       ),
     },
+    {
+      title: "Thao tác",
+      width: 120,
+      fixed: "right",
+      render: (_, row) =>
+        row.status === "ACTIVE" ? (
+          <Button
+            type="link"
+            size="small"
+            danger
+            style={{ paddingInline: 0 }}
+            onClick={() => confirmDeactivate(row)}
+          >
+            Ngừng
+          </Button>
+        ) : (
+          <Button
+            type="link"
+            size="small"
+            style={{ paddingInline: 0 }}
+            loading={setStatus.isPending}
+            onClick={() => setStatus.mutate({ id: row.id, status: "ACTIVE" })}
+          >
+            Kích hoạt
+          </Button>
+        ),
+    },
   ];
 
   return (
     <>
       <ListPage<FlashSale>
         title="Flash Sale"
-        subtitle="Chương trình giảm giá nhanh theo khung giờ"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -138,7 +185,7 @@ export default function FlashSalesPage() {
         limit={list.limit}
         onPageChange={list.setPage}
         onLimitChange={list.setLimit}
-        scrollX={1080}
+        scrollX={1200}
         itemLabel="chương trình"
       />
 
@@ -176,40 +223,119 @@ export default function FlashSalesPage() {
         >
           {(fields, { add, remove }, { errors }) => (
             <div style={{ marginBottom: 8 }}>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>Sản phẩm</div>
-              {fields.map(({ key, name, ...rest }) => (
-                <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 8 }} wrap>
+              <div style={{ marginBottom: 8, fontWeight: 500 }}>Sản phẩm áp dụng</div>
+              {fields.map(({ key, name, ...rest }, index) => (
+                <div
+                  key={key}
+                  style={{
+                    border: "1px solid #f0f0f0",
+                    borderRadius: 8,
+                    padding: "12px 12px 0",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span style={{ fontWeight: 500 }}>Sản phẩm {index + 1}</span>
+                    {fields.length > 1 ? (
+                      <Button
+                        type="text"
+                        danger
+                        size="small"
+                        icon={<MinusCircleOutlined />}
+                        aria-label={`Xóa sản phẩm ${index + 1}`}
+                        onClick={() => remove(name)}
+                      />
+                    ) : null}
+                  </div>
                   <Form.Item
                     {...rest}
+                    label="Quy cách bán"
                     name={[name, "productVariantId"]}
-                    rules={[{ required: true, message: "Biến thể" }]}
+                    rules={[{ required: true, message: "Chọn quy cách bán." }]}
                   >
                     <Select
                       showSearch
                       optionFilterProp="label"
                       loading={variants.isLoading}
                       options={variants.data}
-                      placeholder="Biến thể"
-                      style={{ width: 220 }}
+                      placeholder="Chọn sản phẩm — quy cách"
                     />
                   </Form.Item>
-                  <Form.Item {...rest} name={[name, "flashPrice"]} rules={[{ required: true, message: "Giá" }]}>
-                    <InputNumber min={0} placeholder="Giá flash" style={{ width: 130 }} />
-                  </Form.Item>
-                  <Form.Item {...rest} name={[name, "quota"]} rules={[{ required: true, message: "SL" }]}>
-                    <InputNumber min={1} placeholder="Hạn mức" style={{ width: 110 }} />
-                  </Form.Item>
-                  <Form.Item
-                    {...rest}
-                    name={[name, "perCustomerLimit"]}
-                    rules={[{ required: true, message: "Mỗi khách" }]}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                      columnGap: 12,
+                    }}
                   >
-                    <InputNumber min={1} placeholder="Mỗi khách" style={{ width: 110 }} />
-                  </Form.Item>
-                  {fields.length > 1 ? (
-                    <Button type="text" danger icon={<MinusCircleOutlined />} onClick={() => remove(name)} />
-                  ) : null}
-                </Space>
+                    <Form.Item
+                      {...rest}
+                      label="Giá flash (đ)"
+                      name={[name, "flashPrice"]}
+                      rules={[
+                        { required: true, message: "Nhập giá flash." },
+                        {
+                          validator: async (_, value) => {
+                            if (value === undefined || value === null || value === "") return;
+                            if (!Number.isFinite(Number(value)) || Number(value) < 0) {
+                              throw new Error("Giá flash phải là số không âm.");
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      <InputNumber min={0} style={{ width: "100%" }} placeholder="VD: 25000" />
+                    </Form.Item>
+                    <Form.Item
+                      {...rest}
+                      label="Số lượng ưu đãi"
+                      name={[name, "quota"]}
+                      rules={[
+                        { required: true, message: "Nhập số lượng ưu đãi." },
+                        {
+                          validator: async (_, value) => {
+                            if (value === undefined || value === null || value === "") return;
+                            if (!Number.isInteger(Number(value)) || Number(value) < 1) {
+                              throw new Error("Số lượng ưu đãi là số nguyên ≥ 1.");
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      <InputNumber min={1} step={1} precision={0} style={{ width: "100%" }} placeholder="VD: 100" />
+                    </Form.Item>
+                    <Form.Item
+                      {...rest}
+                      label="Giới hạn mỗi khách"
+                      name={[name, "perCustomerLimit"]}
+                      dependencies={[["items", name, "quota"]]}
+                      rules={[
+                        { required: true, message: "Nhập giới hạn mỗi khách." },
+                        {
+                          validator: async (_, value) => {
+                            if (value === undefined || value === null || value === "") return;
+                            if (!Number.isInteger(Number(value)) || Number(value) < 1) {
+                              throw new Error("Giới hạn mỗi khách là số nguyên ≥ 1.");
+                            }
+                            const quota = form.getFieldValue(["items", name, "quota"]);
+                            if (quota !== undefined && quota !== null && Number(value) > Number(quota)) {
+                              throw new Error("Giới hạn mỗi khách không vượt quá số lượng ưu đãi.");
+                            }
+                          },
+                        },
+                      ]}
+                    >
+                      <InputNumber min={1} step={1} precision={0} style={{ width: "100%" }} placeholder="VD: 1" />
+                    </Form.Item>
+                  </div>
+                </div>
               ))}
               <Button type="dashed" onClick={() => add()} icon={<PlusOutlined />} block>
                 Thêm sản phẩm

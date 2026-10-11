@@ -9,7 +9,7 @@ import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { useListState } from "@/hooks/useListState";
-import { useClientList } from "@/hooks/useClientList";
+import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { useLotOptions, useVariantOptions, useWarehouseOptions } from "@/hooks/useOptions";
 import { resources } from "@/lib/api/resources";
@@ -18,19 +18,6 @@ import { formatDateTime, formatQuantity } from "@/lib/format";
 import { toNumeric } from "@/lib/format/form";
 import { lotStatus, inventoryMovementType } from "@/lib/status";
 import type { InventoryBalance, InventoryMovement } from "@/types/api";
-
-// /inventory and /inventory/movements only whitelist page/limit/search/status,
-// so their filters are applied in the browser.
-const balanceFilter = (b: InventoryBalance, filters: Record<string, string | undefined>) => {
-  if (filters.warehouseId && String(b.warehouseId) !== filters.warehouseId) return false;
-  if (filters.productVariantId && String(b.productVariantId) !== filters.productVariantId) return false;
-  return true;
-};
-
-const movementFilter = (m: InventoryMovement, filters: Record<string, string | undefined>) => {
-  if (filters.productLotId && String(m.productLotId) !== filters.productLotId) return false;
-  return true;
-};
 
 function BalancesTab() {
   const list = useListState();
@@ -41,12 +28,11 @@ function BalancesTab() {
   const lots = useLotOptions();
   const variants = useVariantOptions();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<InventoryBalance>({
-    queryKey: queryKeys.inventory({ scope: "admin-list" }),
-    fetcher: resources.inventory,
-    state: list,
-    filter: balanceFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<InventoryBalance>(
+    queryKeys.inventory(list.params),
+    resources.inventory,
+    list.params,
+  );
 
   const submit = useAction(
     (vars: { mode: "inbound" | "adjust"; values: Record<string, unknown> }) => {
@@ -95,7 +81,7 @@ function BalancesTab() {
       ),
     },
     {
-      title: "Biến thể",
+      title: "Quy cách bán",
       render: (_, row) => (
         <div>
           <div>{row.productVariant?.name ?? "—"}</div>
@@ -137,7 +123,6 @@ function BalancesTab() {
     <>
       <ListPage<InventoryBalance>
         title="Tồn kho"
-        subtitle="Số lượng tồn theo kho, lô và biến thể"
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -151,7 +136,7 @@ function BalancesTab() {
           },
           {
             key: "productVariantId",
-            placeholder: "Biến thể",
+            placeholder: "Quy cách bán",
             value: list.filters.productVariantId,
             options: (variants.data ?? []).map((o) => ({ label: o.label, value: String(o.value) })),
             width: 260,
@@ -170,12 +155,12 @@ function BalancesTab() {
           </>
         }
         columns={columns}
-        data={data}
+        data={data?.data ?? []}
         loading={isLoading}
         error={isError ? new Error("Không tải được tồn kho.") : undefined}
         onRetry={() => void refetch()}
         emptyText="Không có dòng tồn kho phù hợp"
-        total={total}
+        total={data?.meta.total ?? 0}
         page={list.page}
         limit={list.limit}
         onPageChange={list.setPage}
@@ -212,13 +197,13 @@ function BalancesTab() {
             placeholder="Chọn lô hàng"
           />
         </Form.Item>
-        <Form.Item label="Biến thể" name="productVariantId" rules={[{ required: true, message: "Chọn biến thể." }]}>
+        <Form.Item label="Quy cách bán" name="productVariantId" rules={[{ required: true, message: "Chọn quy cách bán." }]}>
           <Select
             showSearch
             optionFilterProp="label"
             loading={variants.isLoading}
             options={variants.data}
-            placeholder="Chọn biến thể"
+            placeholder="Chọn quy cách bán"
           />
         </Form.Item>
         {mode === "inbound" ? (
@@ -251,12 +236,11 @@ function MovementsTab() {
   const list = useListState();
   const lots = useLotOptions();
 
-  const { data, total, isLoading, isError, refetch } = useClientList<InventoryMovement>({
-    queryKey: queryKeys.movements({ scope: "admin-list" }),
-    fetcher: resources.movements,
-    state: list,
-    filter: movementFilter,
-  });
+  const { data, isLoading, isError, refetch } = useListQuery<InventoryMovement>(
+    queryKeys.movements(list.params),
+    resources.movements,
+    list.params,
+  );
 
   const columns: ColumnsType<InventoryMovement> = [
     {
@@ -301,7 +285,6 @@ function MovementsTab() {
   return (
     <ListPage<InventoryMovement>
       title="Biến động kho"
-      subtitle="Lịch sử nhập, xuất và điều chỉnh tồn kho"
       searchValue={list.search}
       onSearchChange={list.setSearch}
       hideSearch
@@ -317,12 +300,12 @@ function MovementsTab() {
       onFilterChange={list.setFilter}
       onReset={list.reset}
       columns={columns}
-      data={data}
+      data={data?.data ?? []}
       loading={isLoading}
       error={isError ? new Error("Không tải được biến động kho.") : undefined}
       onRetry={() => void refetch()}
       emptyText="Không có biến động kho"
-      total={total}
+      total={data?.meta.total ?? 0}
       page={list.page}
       limit={list.limit}
       onPageChange={list.setPage}

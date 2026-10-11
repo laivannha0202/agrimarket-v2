@@ -124,9 +124,11 @@ export default function CustomerDetailPage() {
             />
           </DetailCard>
 
-          <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
-            Không thể khóa tài khoản quản trị viên cuối cùng của hệ thống.
-          </Typography.Paragraph>
+          {customer.role === "ADMIN" ? (
+            <Typography.Paragraph type="secondary" style={{ marginTop: 16, fontSize: 12 }}>
+              Không thể khóa tài khoản quản trị viên cuối cùng của hệ thống.
+            </Typography.Paragraph>
+          ) : null}
         </>
       ) : null}
     </DetailPage>
