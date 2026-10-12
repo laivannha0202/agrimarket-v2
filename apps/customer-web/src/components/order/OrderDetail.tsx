@@ -626,12 +626,14 @@ export function OrderDetail({ orderId }: { orderId: number }) {
                     </Text>
                     <Text size="sm">{formatMoney(order.subtotal)}</Text>
                   </Group>
-                  <Group justify="space-between" wrap="wrap">
-                    <Text size="sm" c="dimmed">
-                      Giảm giá
-                    </Text>
-                    <Text size="sm">-{formatMoney(order.discountTotal)}</Text>
-                  </Group>
+                  {Number(order.discountTotal) > 0 ? (
+                    <Group justify="space-between" wrap="wrap">
+                      <Text size="sm" c="dimmed">
+                        Giảm giá
+                      </Text>
+                      <Text size="sm">-{formatMoney(order.discountTotal)}</Text>
+                    </Group>
+                  ) : null}
                   <Group justify="space-between" wrap="wrap">
                     <Text size="sm" c="dimmed">
                       Phí giao hàng

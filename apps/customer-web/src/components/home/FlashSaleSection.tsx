@@ -10,6 +10,8 @@
  *
  * "Now" comes from the shared clock store (`useNow`), never from `Date.now()`
  * during render, so a render is a pure function of its inputs.
+ * `useActiveFlashSales` is exported so the homepage can learn which products the
+ * flash-sale block displays and keep the sections below it free of duplicates.
  */
 
 import {
@@ -29,8 +31,11 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { formatDate, formatMoney, formatRemaining } from "@/lib/format";
+import { formatDate, formatMoney, formatRemaining, variantSpecLabel } from "@/lib/format";
 import { useNow } from "@/lib/hooks/useNow";
+import { ProductImage } from "@/components/common/ProductImage";
+import { primaryImageUrl, useCartProducts } from "@/lib/hooks/useCartProducts";
+import type { FlashSale } from "@/lib/api/types";
 
 function Countdown({ endsAt, now }: { endsAt: string; now: number }) {
   if (now === 0) {
@@ -52,27 +57,45 @@ function Countdown({ endsAt, now }: { endsAt: string; now: number }) {
   );
 }
 
-export function FlashSaleSection() {
+/**
+ * The flash sales that are running right now, with real items.
+ *
+ * Shared by the homepage section and by the page that needs to know which
+ * products are already on display above the fold.
+ */
+export function useActiveFlashSales(): { sales: FlashSale[]; now: number } {
   const now = useNow();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data } = useQuery({
     queryKey: queryKeys.flashSales.list(10),
     queryFn: () => resources.listFlashSales(10),
     staleTime: 30_000,
   });
 
-  if (isLoading || isError) return null;
-
   // Only sales that are actually running right now. Until the clock is known
   // (server render) the window check is skipped and the ACTIVE status decides.
-  const active = (data?.data ?? []).filter((sale) => {
+  const sales = (data?.data ?? []).filter((sale) => {
     if (sale.status !== "ACTIVE") return false;
     if ((sale.items?.length ?? 0) === 0) return false;
     if (now === 0) return true;
-    return (
-      new Date(sale.startsAt).getTime() <= now && new Date(sale.endsAt).getTime() >= now
-    );
+    return new Date(sale.startsAt).getTime() <= now && new Date(sale.endsAt).getTime() >= now;
   });
+
+  return { sales, now };
+}
+
+export function FlashSaleSection() {
+  const { sales: active, now } = useActiveFlashSales();
+
+  /**
+   * Flash-sale items embed only `productVariant` ("Túi 1 kg"), so the product
+   * name and photo are joined from the real product resource — the same trick
+   * the Mobile home strip and the cart use. Without this the card would list an
+   * anonymous bag size instead of the product the customer is buying.
+   */
+  const productsById = useCartProducts(
+    active.flatMap((sale) => sale.items.map((item) => item.productVariant.productId)),
+  );
 
   if (active.length === 0) return null;
 
@@ -103,6 +126,7 @@ export function FlashSaleSection() {
                   item.quota > 0 ? Math.min(100, (item.soldQuantity / item.quota) * 100) : 0;
                 const basePrice = Number(item.productVariant.basePrice);
                 const flashPrice = Number(item.flashPrice);
+                const product = productsById.get(item.productVariant.productId);
 
                 return (
                   <Card
@@ -113,40 +137,51 @@ export function FlashSaleSection() {
                     radius="md"
                     withBorder
                   >
-                    <Stack gap={6}>
-                      <Text size="sm" fw={600} className="agri-clamp-2">
-                        {item.productVariant.name}
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        {item.productVariant.sku}
-                      </Text>
-                      <Group gap={8} align="baseline">
-                        <Text fw={700} c="red.7">
-                          {formatMoney(flashPrice)}
-                        </Text>
-                        {flashPrice < basePrice ? (
-                          <Text size="xs" c="dimmed" td="line-through">
-                            {formatMoney(basePrice)}
-                          </Text>
-                        ) : null}
-                      </Group>
-
-                      <Box>
-                        <Progress value={soldPercent} size="sm" radius="xl" color="red" />
-                        <Group justify="space-between" mt={4}>
-                          <Text size="xs" c="dimmed">
-                            Đã bán {item.soldQuantity}
-                          </Text>
-                          <Text size="xs" fw={600} c={remaining > 0 ? "red.7" : "dimmed"}>
-                            {remaining > 0 ? `Còn ${remaining}` : "Hết suất"}
-                          </Text>
-                        </Group>
+                    <Group gap="sm" wrap="nowrap" align="flex-start">
+                      <Box w={64} style={{ flexShrink: 0 }}>
+                        <ProductImage
+                          src={primaryImageUrl(product)}
+                          alt={product?.name ?? item.productVariant.name}
+                          ratio={1}
+                          fallbackLabel={product?.name ?? item.productVariant.name}
+                          sizes="64px"
+                        />
                       </Box>
+                      <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                        <Text size="sm" fw={600} className="agri-clamp-2">
+                          {product?.name ?? item.productVariant.name}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                          {variantSpecLabel(item.productVariant)}
+                        </Text>
+                        <Group gap={8} align="baseline">
+                          <Text fw={700} c="red.7">
+                            {formatMoney(flashPrice)}
+                          </Text>
+                          {flashPrice < basePrice ? (
+                            <Text size="xs" c="dimmed" td="line-through">
+                              {formatMoney(basePrice)}
+                            </Text>
+                          ) : null}
+                        </Group>
 
-                      <Text size="xs" c="dimmed">
-                        Tối đa {item.perCustomerLimit} sản phẩm mỗi khách
-                      </Text>
-                    </Stack>
+                        <Box>
+                          <Progress value={soldPercent} size="sm" radius="xl" color="red" />
+                          <Group justify="space-between" mt={4}>
+                            <Text size="xs" c="dimmed">
+                              Đã bán {item.soldQuantity}
+                            </Text>
+                            <Text size="xs" fw={600} c={remaining > 0 ? "red.7" : "dimmed"}>
+                              {remaining > 0 ? `Còn ${remaining}` : "Hết suất"}
+                            </Text>
+                          </Group>
+                        </Box>
+
+                        <Text size="xs" c="dimmed">
+                          Tối đa {item.perCustomerLimit} sản phẩm mỗi khách
+                        </Text>
+                      </Stack>
+                    </Group>
                   </Card>
                 );
               })}

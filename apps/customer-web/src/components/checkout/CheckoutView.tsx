@@ -359,14 +359,17 @@ export function CheckoutView() {
 
   if (items.length === 0) {
     return (
-      <Container size={layout.containerSize} py="xl">
-        <EmptyCartState
-          action={
-            <Button component={Link} href="/san-pham">
-              Mua nông sản
-            </Button>
-          }
-        />
+      <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
+        <Stack gap="lg">
+          <Title order={2}>Thanh toán</Title>
+          <EmptyCartState
+            action={
+              <Button component={Link} href="/san-pham">
+                Mua nông sản
+              </Button>
+            }
+          />
+        </Stack>
       </Container>
     );
   }

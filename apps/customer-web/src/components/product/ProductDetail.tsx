@@ -49,7 +49,7 @@ import { notifications } from "@mantine/notifications";
 import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { formatWeight } from "@/lib/format";
+import { variantSpecLabel } from "@/lib/format";
 import { variantDisplayPrice } from "@/lib/promotions";
 import { useAuth } from "@/lib/auth/useAuth";
 import { usePromotionIndex } from "@/components/product/usePromotionIndex";
@@ -322,12 +322,10 @@ export function ProductDetail({ productId }: { productId: number }) {
                           >
                             <Stack gap={2}>
                               <Text size="sm" fw={600}>
-                                {variant.weight
-                                  ? formatWeight(variant.weight, variant.weightUnit)
-                                  : variant.name}
+                                {variantSpecLabel(variant)}
                               </Text>
                               <Text size="xs" c="dimmed">
-                                {variant.name}
+                                Đơn vị: {variant.saleUnit}
                               </Text>
                               <Group gap="xs" wrap="wrap">
                                 <Text size="sm" fw={700} c="agri.9">
@@ -453,12 +451,7 @@ export function ProductDetail({ productId }: { productId: number }) {
                     <Stack gap="xs">
                       {activeVariants.map((variant) => (
                         <Group key={variant.id} justify="space-between" wrap="nowrap">
-                          <Text size="sm">
-                            {variant.name}
-                            {variant.weight
-                              ? ` · ${formatWeight(variant.weight, variant.weightUnit)}`
-                              : ""}
-                          </Text>
+                          <Text size="sm">{variantSpecLabel(variant)}</Text>
                           <Text size="sm" c="dimmed">
                             Đơn vị: {variant.saleUnit}
                           </Text>

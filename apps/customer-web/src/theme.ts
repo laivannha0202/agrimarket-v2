@@ -53,6 +53,16 @@ export const theme = createTheme({
     Paper: {
       defaultProps: { withBorder: true, shadow: undefined },
     },
+    /**
+     * Mantine's visibility toggle ships an English `aria-label`
+     * ("Toggle password visibility"). The storefront is Vietnamese, so the
+     * screen-reader label is overridden here once for every password field.
+     */
+    PasswordInput: {
+      defaultProps: {
+        visibilityToggleButtonProps: { "aria-label": "Hiện hoặc ẩn mật khẩu" },
+      },
+    },
   },
 });
 

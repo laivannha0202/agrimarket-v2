@@ -51,6 +51,7 @@ export function CartView() {
   const queryClient = useQueryClient();
   const { index } = usePromotionIndex();
   const [pendingRemoval, setPendingRemoval] = useState<CartItem | null>(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   const cartQuery = useQuery({
     queryKey: queryKeys.cart.me(),
@@ -92,7 +93,17 @@ export function CartView() {
 
   const clearCart = useMutation({
     mutationFn: () => resources.clearCart(),
-    onSuccess: applyCart,
+    onSuccess: (cart) => {
+      applyCart(cart);
+      setConfirmClearAll(false);
+    },
+    onError: (error) => {
+      notifications.show({
+        title: "Không xóa được giỏ hàng",
+        message: error instanceof ApiError ? error.message : "Vui lòng thử lại.",
+        color: "red",
+      });
+    },
   });
 
   const items = useMemo(() => cartQuery.data?.items ?? [], [cartQuery.data]);
@@ -169,7 +180,7 @@ export function CartView() {
               color="red"
               size="sm"
               leftSection={<IconTrash size={16} />}
-              onClick={() => clearCart.mutate()}
+              onClick={() => setConfirmClearAll(true)}
               loading={clearCart.isPending}
             >
               Xóa toàn bộ
@@ -380,6 +391,31 @@ export function CartView() {
               onClick={() => pendingRemoval && removeItem.mutate(pendingRemoval.id)}
             >
               Xóa sản phẩm
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+      <Modal
+        opened={confirmClearAll}
+        onClose={() => setConfirmClearAll(false)}
+        title="Xóa toàn bộ giỏ hàng?"
+        centered
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            {items.length} sản phẩm trong giỏ sẽ bị xóa. Bạn có thể thêm lại sau, nhưng giá và
+            tồn kho có thể đã thay đổi.
+          </Text>
+          <Group justify="flex-end" gap="sm">
+            <Button variant="default" onClick={() => setConfirmClearAll(false)}>
+              Giữ lại
+            </Button>
+            <Button
+              color="red"
+              loading={clearCart.isPending}
+              onClick={() => clearCart.mutate()}
+            >
+              Xóa toàn bộ
             </Button>
           </Group>
         </Stack>

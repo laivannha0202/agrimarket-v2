@@ -189,6 +189,8 @@ export interface Harvest {
 
 export type CertificateVerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
 
+export type CertificateValidity = "VALID" | "EXPIRED" | "INVALID";
+
 export interface Certificate {
   id: number;
   farmId: number;
@@ -205,6 +207,8 @@ export interface Certificate {
   createdAt: string;
   updatedAt: string;
   farm?: { id: number; code: string; name: string };
+  /** Computed at read time by the API; absent on rows fetched before the A3 fix. */
+  validity?: CertificateValidity;
 }
 
 // Lots & QC -----------------------------------------------------------------

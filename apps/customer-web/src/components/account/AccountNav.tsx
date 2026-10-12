@@ -16,6 +16,7 @@ import {
   IconPackage,
   IconPackageExport,
   IconStar,
+  IconTicket,
   IconUser,
 } from "@tabler/icons-react";
 import Link from "next/link";
@@ -29,6 +30,7 @@ const LINKS = [
   { href: "/tra-hang", label: "Trả hàng", icon: IconPackageExport },
   { href: "/khieu-nai", label: "Khiếu nại", icon: IconMessageReport },
   { href: "/danh-gia", label: "Đánh giá sản phẩm", icon: IconStar },
+  { href: "/ma-giam-gia", label: "Mã giảm giá", icon: IconTicket },
 ];
 
 export function AccountNav() {

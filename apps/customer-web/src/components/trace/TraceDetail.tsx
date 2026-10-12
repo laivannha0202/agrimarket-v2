@@ -283,9 +283,9 @@ export function TraceDetail({ traceCode }: { traceCode: string }) {
                         {certificate.type}
                       </Text>
                       {/* "Hồ sơ đã đối chiếu" is what the system actually
-                          checked (the certificate record exists, is active and
-                          within validity). It must not claim a site audit that
-                          never happened. */}
+                          checked (the certificate record exists, is active,
+                          within validity and carries a document). It must not
+                          claim a site audit that never happened. */}
                       <Badge color="agri" variant="light" size="xs" radius="sm">
                         Hồ sơ đã đối chiếu
                       </Badge>

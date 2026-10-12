@@ -1048,12 +1048,15 @@ export class OrdersService {
    * Give an order's reserved stock back — or, when the goods have already left
    * the warehouse, quarantine it instead.
    *
-   * Each release is the atomic `releaseStock`
-   * (`reserved = GREATEST(reserved - ?, 0)`), never a read-then-write: the
-   * balance is shared with other live orders, and computing
-   * `newReserved = reserved - qty` from a value read earlier would drop a
-   * concurrent checkout's reservation. The status compare-and-set above is what
-   * guarantees this runs once per order.
+   * Each release is the atomic guarded `releaseStock`
+   * (`reserved = reserved - ? WHERE reserved >= ?`), never a read-then-write
+   * and never a clamping write: the balance is shared with other live orders,
+   * and computing `newReserved = reserved - qty` from a value read earlier
+   * would drop a concurrent checkout's reservation. The status compare-and-set
+   * above is what guarantees this runs once per order; the row guard is what
+   * guarantees the single run cannot release a reservation the balance no
+   * longer holds (a lost race rolls back with 409 instead of fabricating
+   * stock).
    *
    * `quarantine` is set for a cancellation from `SHIPPING`: the physical goods
    * are in transit, so releasing them as sellable would oversell stock the
@@ -1088,7 +1091,18 @@ export class OrdersService {
         }
         moved = quarantined;
       } else {
-        moved = await this.inventory.releaseStock(tx, balance.id, quantity);
+        // Guarded release: `null` means a concurrent writer already
+        // consumed/released the reservation the allocation points at. The
+        // order's stock state no longer matches its allocation, so the whole
+        // cancellation rolls back (the order is not cancelled) instead of
+        // fabricating a release of stock the balance never had.
+        const released = await this.inventory.releaseStock(tx, balance.id, quantity);
+        if (!released) {
+          throw new ConflictException(
+            'The order stock changed while this request was being processed, please reload',
+          );
+        }
+        moved = released;
       }
       await this.inventory.recordMovement(tx, {
         warehouseId: balance.warehouseId,

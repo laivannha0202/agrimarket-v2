@@ -134,8 +134,8 @@ describe('Inventory rules', () => {
         1,
       );
       expect(result.available).toBe('95.000');
-      // `reserved = GREATEST(reserved - ?, 0)` runs in the database so a
-      // concurrent checkout's reservation is never dropped.
+      // Guarded `reserved = reserved - ? WHERE reserved >= ?` runs in the
+      // database so a concurrent checkout's reservation is never dropped.
       expect(prisma.$executeRaw).toHaveBeenCalled();
     });
 
@@ -155,6 +155,41 @@ describe('Inventory rules', () => {
       await expect(
         service.release({ warehouseId: 1, productLotId: 1, productVariantId: 1, quantity: 10 }, 1),
       ).rejects.toThrow(/more than currently reserved/);
+    });
+
+    it('rolls back with 409 when a concurrent writer took the reservation', async () => {
+      prisma.inventoryBalance.findUnique.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        onHand: 100,
+        reserved: 5,
+        blocked: 0,
+        unit: 'kg',
+      });
+      // The friendly pre-check passed, but the guarded UPDATE matched 0 rows:
+      // a concurrent consume/release took the reservation first.
+      prisma.$executeRaw.mockResolvedValue(0);
+
+      const { service } = makeService(prisma);
+      await expect(
+        service.release({ warehouseId: 1, productLotId: 1, productVariantId: 1, quantity: 5 }, 1),
+      ).rejects.toThrow(/stock changed/);
+      expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('releaseStock guard', () => {
+    it('returns null instead of clamping when the reservation is gone', async () => {
+      prisma.$executeRaw.mockResolvedValue(0);
+
+      const { service } = makeService(prisma);
+      const result = await service.releaseStock(prisma as never, 1, 5);
+
+      // No fabricated `before = after + quantity` ledger entry may be built.
+      expect(result).toBeNull();
+      expect(prisma.inventoryBalance.findUniqueOrThrow).not.toHaveBeenCalled();
     });
   });
 

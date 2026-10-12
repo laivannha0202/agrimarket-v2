@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
@@ -101,19 +101,35 @@ export class ShipmentsService {
 
   /**
    * Advance shipment status and write a ShipmentEvent. On DELIVERED the
-   * parent order and its partner orders become DELIVERED (which also settles
-   * COD). On RETURNED the returned goods are flagged for quarantine via a
-   * trace event — they are never added straight back to sellable stock.
+   * parent order and its partner orders become DELIVERED (consuming the
+   * order's reservations; COD collection is confirmed separately through the
+   * payments module). On RETURNED the returned goods are flagged for
+   * quarantine via a trace event — they are never added straight back to
+   * sellable stock.
+   *
+   * Both the shipment and the partner-order transitions are claimed with a
+   * conditional compare-and-set inside the transaction, so two concurrent
+   * DELIVERED updates (or a shipment racing the orders endpoint) cannot both
+   * consume the same reservation or both write the order DELIVERED. Re-applying
+   * the current shipment status is a documented no-op for non-terminal states
+   * and performs no side effect twice.
    */
   async updateStatus(id: number, dto: UpdateShipmentStatusDto, actorUserId: number) {
     const shipment = await this.findOne(id);
-    if (shipment.status !== dto.status) {
-      const allowed = SHIPMENT_TRANSITIONS[shipment.status] ?? [];
-      if (!allowed.includes(dto.status)) {
-        throw new BadRequestException(
-          `Cannot change shipment status from ${shipment.status} to ${dto.status}`,
-        );
-      }
+    if (shipment.status === dto.status) {
+      // Idempotent replay of the current status: no event, no side effect.
+      // Terminal states are still terminal — replaying DELIVERED/RETURNED must
+      // not resurrect the consume/return flow — but the replay itself is a
+      // no-op success so at-least-once delivery of the same webhook/request is
+      // safe. Re-entering a terminal state from a *different* status is still
+      // refused by the transition map below.
+      return shipment;
+    }
+    const allowed = SHIPMENT_TRANSITIONS[shipment.status] ?? [];
+    if (!allowed.includes(dto.status)) {
+      throw new BadRequestException(
+        `Cannot change shipment status from ${shipment.status} to ${dto.status}`,
+      );
     }
 
     return this.prisma.$transaction(async (tx) => {
@@ -123,7 +139,19 @@ export class ShipmentsService {
       if (dto.status === ShipmentStatus.DELIVERED) data.deliveredAt = now;
       if (dto.status === ShipmentStatus.DELIVERY_FAILED) data.failureReason = dto.failureReason;
 
-      const updated = await tx.shipment.update({ where: { id }, data });
+      // Claim the shipment row only while it still holds the expected status:
+      // the loser of a concurrent update matches 0 rows and rolls back instead
+      // of writing a second event and re-consuming the reservation.
+      const claimed = await tx.shipment.updateMany({
+        where: { id, status: shipment.status },
+        data,
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The shipment status changed while this request was being processed, please reload',
+        );
+      }
+      const updated = await tx.shipment.findUniqueOrThrow({ where: { id } });
 
       await tx.shipmentEvent.create({
         data: { shipmentId: id, status: dto.status, occurredAt: now, note: dto.note },
@@ -135,8 +163,11 @@ export class ShipmentsService {
       });
 
       if (dto.status === ShipmentStatus.DELIVERED) {
-        await tx.partnerOrder.update({
-          where: { id: partnerOrder.id },
+        // The partner order is DELIVERED exactly once (compare-and-set); a
+        // replayed DELIVERED for an already-DELIVERED partner order records
+        // the shipment event but never re-runs the order-level consume.
+        await tx.partnerOrder.updateMany({
+          where: { id: partnerOrder.id, status: { not: 'DELIVERED' } },
           data: { status: 'DELIVERED' },
         });
         // Order becomes DELIVERED once all partner orders are delivered.
@@ -148,15 +179,11 @@ export class ShipmentsService {
           // orders endpoint), its stock was already consumed there — consuming
           // again would be refused by the atomic guard and fail this shipment
           // update for no reason.
-          const order = await tx.order.findUniqueOrThrow({
-            where: { id: partnerOrder.orderId },
-            select: { status: true },
+          const claimedOrder = await tx.order.updateMany({
+            where: { id: partnerOrder.orderId, status: { not: 'DELIVERED' } },
+            data: { status: 'DELIVERED' },
           });
-          if (order.status !== 'DELIVERED') {
-            await tx.order.update({
-              where: { id: partnerOrder.orderId },
-              data: { status: 'DELIVERED' },
-            });
+          if (claimedOrder.count > 0) {
             // Goods physically leave the warehouse: consume the order's
             // reservations and write the OUTBOUND movements. COD is
             // deliberately NOT marked PAID — a delivered parcel does not prove
@@ -168,8 +195,12 @@ export class ShipmentsService {
       }
 
       if (dto.status === ShipmentStatus.DELIVERY_FAILED) {
-        await tx.partnerOrder.update({
-          where: { id: partnerOrder.id },
+        // A failed last-mile attempt must not resurrect a partner order whose
+        // goods already left (DELIVERED): only a non-terminal partner order
+        // falls back to SHIPPING, otherwise the failure is recorded on the
+        // shipment only.
+        await tx.partnerOrder.updateMany({
+          where: { id: partnerOrder.id, status: { not: 'DELIVERED' } },
           data: { status: 'SHIPPING' },
         });
       }

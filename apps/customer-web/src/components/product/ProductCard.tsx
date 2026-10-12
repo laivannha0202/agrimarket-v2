@@ -40,10 +40,18 @@ export function ProductCard({
     ? activeVariants.reduce((min, v) => (Number(v.basePrice) < Number(min.basePrice) ? v : min))
     : null;
 
+  /**
+   * The card states the quantity the price is quoted for, in the same shape the
+   * Mobile card uses ("1 kg / túi"): the weight the backend recorded, then the
+   * unit it is sold in. The variant's human name is deliberately not repeated
+   * here — it says the same thing ("Túi 1 kg") in different words.
+   */
   const packageLabel = cheapestVariant
-    ? cheapestVariant.weight
-      ? formatWeight(cheapestVariant.weight, cheapestVariant.weightUnit)
-      : cheapestVariant.name
+    ? (() => {
+        const weight = formatWeight(cheapestVariant.weight, cheapestVariant.weightUnit);
+        if (weight) return `${weight} / ${cheapestVariant.saleUnit}`;
+        return cheapestVariant.saleUnit || cheapestVariant.name;
+      })()
     : null;
 
   return (

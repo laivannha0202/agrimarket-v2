@@ -246,7 +246,25 @@ export class PromotionsService {
 
   // ----- Flash sales --------------------------------------------------------
 
-  createFlashSale(dto: CreateFlashSaleDto) {
+  /**
+   * Create a flash sale. The window is validated (`endsAt` after `startsAt`)
+   * and a "weekend" label is refused on a programme longer than 7 days: the
+   * fs#3 history (a "cuối tuần" name on a 60-day window) misled both operators
+   * and customers, so the API now rejects that contradiction instead of
+   * storing it. Both checks run before anything is written.
+   */
+  async createFlashSale(dto: CreateFlashSaleDto) {
+    const startsAt = new Date(dto.startsAt);
+    const endsAt = new Date(dto.endsAt);
+    if (!(endsAt.getTime() > startsAt.getTime())) {
+      throw new BadRequestException('Flash sale endsAt must be after startsAt');
+    }
+    const spanDays = (endsAt.getTime() - startsAt.getTime()) / 86_400_000;
+    if (spanDays > 7 && /cuoi tuan|cuối tuần|weekend/i.test(dto.name)) {
+      throw new BadRequestException(
+        'A flash sale longer than 7 days must not be labelled as a weekend sale',
+      );
+    }
     return this.prisma.flashSale.create({
       data: {
         name: dto.name,

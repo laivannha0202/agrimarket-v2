@@ -112,7 +112,19 @@ export default function FarmDetailPage() {
     {
       title: "Xác minh",
       dataIndex: "verificationStatus",
-      render: (s: string) => <StatusTag status={certificateStatus(s)} />,
+      render: (s: string, row: Certificate) => {
+        const expired =
+          row.validity === "EXPIRED" ||
+          (row.validity === undefined && new Date(row.expiresAt).getTime() < Date.now());
+        return (
+          <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+            <StatusTag status={certificateStatus(s)} />
+            {s === "VERIFIED" && expired ? (
+              <StatusTag status={{ label: "Hết hiệu lực", color: "error" }} />
+            ) : null}
+          </span>
+        );
+      },
     },
   ];
 

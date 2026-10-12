@@ -85,6 +85,69 @@ export function shortPartnerName(name: string): string {
   return cleaned || name;
 }
 
+/**
+ * One-line label for a product variant ("loại đóng gói").
+ *
+ * The backend stores two independent fields: a human `name` ("Túi 1 kg") and a
+ * numeric `weight` + `weightUnit` ("1000" + "g"). Printing both produces the
+ * tautology `Túi 1 kg · 1000 g` — two halves of the same statement.
+ *
+ * So the name is preferred whenever it already conveys the weight, and the
+ * numeric weight is only appended when the name does not mention it (a name
+ * such as "Loại gia đình" carries no size, so the weight is real new
+ * information there).
+ */
+export function variantSpecLabel(variant: {
+  name?: string | null;
+  weight?: string | number | null;
+  weightUnit?: string | null;
+  saleUnit?: string | null;
+}): string {
+  const name = (variant.name ?? "").trim();
+  const weight = formatWeight(variant.weight, variant.weightUnit);
+
+  if (!name) return weight;
+  if (!weight) return name;
+
+  // Does the name already state the weight? Compare the normalised digits and
+  // the unit, so "Túi 1 kg" matches "1000 g" only through the unit-aware check
+  // below and "Bó 500 g" matches its own weight directly.
+  const normalizedName = foldForComparison(name);
+  const normalizedWeight = foldForComparison(weight);
+  if (normalizedName.includes(normalizedWeight)) return name;
+
+  const weightNumber = toNumber(variant.weight);
+  if (weightNumber !== null) {
+    const unit = (variant.weightUnit ?? "").trim().toLowerCase();
+    // "1 kg" and "1000 g" describe the same amount: accept either spelling.
+    const candidates = [`${formatNumber(weightNumber)} ${unit}`];
+    if (unit === "kg" && Number.isInteger(weightNumber * 1000)) {
+      candidates.push(`${weightNumber * 1000} g`);
+    }
+    if (unit === "g" && weightNumber % 1000 === 0) {
+      candidates.push(`${weightNumber / 1000} kg`);
+    }
+    if (candidates.some((c) => normalizedName.includes(foldForComparison(c)))) return name;
+  }
+
+  return `${name} · ${weight}`;
+}
+
+function formatNumber(n: number): string {
+  return Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
+}
+
+function foldForComparison(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+
 /** Product code shown to customers: `ORD-20261006-0006` -> `ORD-…0006`. */
 export function formatOrderCode(code: string): string {
   return code;

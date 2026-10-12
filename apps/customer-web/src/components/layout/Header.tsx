@@ -38,6 +38,7 @@ import {
   IconQrcode,
   IconSearch,
   IconShoppingCart,
+  IconTicket,
   IconUser,
 } from "@tabler/icons-react";
 import Link from "next/link";
@@ -244,6 +245,13 @@ export function Header() {
                       leftSection={<IconMapPin size={16} />}
                     >
                       Sổ địa chỉ
+                    </Menu.Item>
+                    <Menu.Item
+                      component={Link}
+                      href="/ma-giam-gia"
+                      leftSection={<IconTicket size={16} />}
+                    >
+                      Mã giảm giá
                     </Menu.Item>
                     <Menu.Divider />
                     <Menu.Item

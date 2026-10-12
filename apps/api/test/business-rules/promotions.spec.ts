@@ -674,4 +674,43 @@ describe('Flash sale & promotion rules', () => {
       expect(price.flashSaleItemId).toBeNull();
     });
   });
+
+  describe('flash sale creation guard (A4)', () => {
+    const item = { productVariantId: 1, flashPrice: 50000, quota: 100, perCustomerLimit: 2 };
+
+    it('rejects a window that ends before it starts', async () => {
+      await expect(
+        service.createFlashSale({
+          name: 'Flash Sale nông sản Hưng Yên',
+          startsAt: '2026-11-06T17:00:00.000Z',
+          endsAt: '2026-09-07T17:00:00.000Z',
+          items: [item],
+        }),
+      ).rejects.toThrow(/after startsAt/);
+      expect(prisma.flashSale.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a weekend label on a 60-day programme (fs#3 shape)', async () => {
+      await expect(
+        service.createFlashSale({
+          name: 'Flash Sale cuối tuần Hưng Yên',
+          startsAt: '2026-09-07T17:00:00.000Z',
+          endsAt: '2026-11-06T17:00:00.000Z',
+          items: [item],
+        }),
+      ).rejects.toThrow(/weekend/);
+      expect(prisma.flashSale.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a weekend label inside a 7-day window', async () => {
+      prisma.flashSale.create.mockResolvedValue({ id: 9 });
+      const sale = await service.createFlashSale({
+        name: 'Flash Sale cuối tuần Hưng Yên',
+        startsAt: '2026-09-07T17:00:00.000Z',
+        endsAt: '2026-09-13T17:00:00.000Z',
+        items: [item],
+      });
+      expect(sale).toEqual({ id: 9 });
+    });
+  });
 });

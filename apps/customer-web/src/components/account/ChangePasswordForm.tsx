@@ -111,7 +111,7 @@ export function ChangePasswordForm() {
         <Group align="flex-start" gap="lg">
           <AccountNav />
 
-          <Stack gap="md" style={{ flex: 1, minWidth: 300 }}>
+          <Stack gap="md" style={{ flex: 1 }} miw={{ base: 0, md: 300 }}>
             <Card padding="lg" radius="md" withBorder>
               <Stack gap="md">
                 <Group gap="sm">

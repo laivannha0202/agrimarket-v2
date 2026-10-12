@@ -1288,6 +1288,21 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       expect(outbound).toBe(1);
     });
 
+    it('refuses to confirm COD collection without a transaction reference', async () => {
+      const payment = await prisma.payment.findFirstOrThrow({
+        where: { orderId, method: 'COD' },
+      });
+      expect(payment.status).toBe('PENDING');
+
+      const res = await patch(`/api/v1/payments/${payment.id}/status`, adminToken, {
+        status: 'PAID',
+      }).expect(400);
+      expect(res.body.message).toMatch(/transaction reference/i);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status).toBe(
+        'PENDING',
+      );
+    });
+
     it('records the COD collection explicitly and only then marks the payment PAID', async () => {
       const payment = await prisma.payment.findFirstOrThrow({
         where: { orderId, method: 'COD' },
@@ -1301,10 +1316,101 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       expect(res.body.status).toBe('PAID');
       expect(res.body.paidAt).toBeTruthy();
 
-      // Marking it paid twice is idempotent at the data level but still writes
-      // a fresh audit row; what matters is the payment is PAID exactly once.
+      // Re-confirming the same PAID status is an idempotent no-op: the payment
+      // stays PAID exactly once and no duplicate state change is recorded.
+      const replay = await patch(`/api/v1/payments/${payment.id}/status`, adminToken, {
+        status: 'PAID',
+        transactionReference: `COD-${RUN_ID}`,
+      }).expect(200);
+      expect(replay.body.status).toBe('PAID');
       const paid = await prisma.payment.count({ where: { orderId, status: 'PAID' } });
       expect(paid).toBe(1);
+    });
+
+    it('refuses to move a REFUNDED payment back to PAID', async () => {
+      const target = await prisma.payment.findFirstOrThrow({
+        where: { orderId, method: 'COD' },
+      });
+      await prisma.payment.update({
+        where: { id: target.id },
+        data: { status: 'REFUNDED' },
+      });
+      await patch(`/api/v1/payments/${target.id}/status`, adminToken, {
+        status: 'PAID',
+        transactionReference: `COD-${RUN_ID}-BACK`,
+      }).expect(400);
+      await prisma.payment.update({
+        where: { id: target.id },
+        data: { status: 'PAID' },
+      });
+    });
+
+    it('a second DELIVERED through the shipment path cannot consume twice', async () => {
+      // The order is already DELIVERED via the orders endpoint (consumed once
+      // above). Driving a shipment for its partner order to DELIVERED must not
+      // consume the same reservation again: the shipment event is recorded but
+      // the OUTBOUND count is unchanged.
+      const partnerOrder = await prisma.partnerOrder.findFirstOrThrow({ where: { orderId } });
+      const shipment = await prisma.shipment.create({
+        data: {
+          code: `${RUN_ID}-SHP-NODBL`,
+          partnerOrderId: partnerOrder.id,
+          carrier: 'E2E Carrier',
+          status: 'OUT_FOR_DELIVERY',
+        },
+      });
+      const outboundBefore = await prisma.inventoryMovement.count({
+        where: { referenceType: 'Order', referenceId: orderId, type: 'OUTBOUND' },
+      });
+      await patch(`/api/v1/shipments/${shipment.id}/status`, adminToken, {
+        status: 'DELIVERED',
+      }).expect(200);
+      const outboundAfter = await prisma.inventoryMovement.count({
+        where: { referenceType: 'Order', referenceId: orderId, type: 'OUTBOUND' },
+      });
+      expect(outboundAfter).toBe(outboundBefore);
+      const balance = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+      expect(Number(balance.reserved)).toBe(0);
+      expect(Number(balance.onHand)).toBe(195);
+      const events = await prisma.shipmentEvent.count({ where: { shipmentId: shipment.id } });
+      expect(events).toBe(1);
+      await prisma.shipmentEvent.deleteMany({ where: { shipmentId: shipment.id } });
+      await prisma.shipment.deleteMany({ where: { id: shipment.id } });
+    });
+
+    it('a retried shipment DELIVERED is idempotent (no second event, no second consume)', async () => {
+      const partnerOrder = await prisma.partnerOrder.findFirstOrThrow({ where: { orderId } });
+      const shipment = await prisma.shipment.create({
+        data: {
+          code: `${RUN_ID}-SHP-REPLAY`,
+          partnerOrderId: partnerOrder.id,
+          carrier: 'E2E Carrier',
+          status: 'OUT_FOR_DELIVERY',
+        },
+      });
+      await patch(`/api/v1/shipments/${shipment.id}/status`, adminToken, {
+        status: 'DELIVERED',
+      }).expect(200);
+      const eventsAfterFirst = await prisma.shipmentEvent.count({
+        where: { shipmentId: shipment.id },
+      });
+      expect(eventsAfterFirst).toBe(1);
+      const outboundAfterFirst = await prisma.inventoryMovement.count({
+        where: { referenceType: 'Order', referenceId: orderId, type: 'OUTBOUND' },
+      });
+      await patch(`/api/v1/shipments/${shipment.id}/status`, adminToken, {
+        status: 'DELIVERED',
+      }).expect(200);
+      const eventsAfterReplay = await prisma.shipmentEvent.count({
+        where: { shipmentId: shipment.id },
+      });
+      expect(eventsAfterReplay).toBe(eventsAfterFirst);
+      const outboundAfterReplay = await prisma.inventoryMovement.count({
+        where: { referenceType: 'Order', referenceId: orderId, type: 'OUTBOUND' },
+      });
+      expect(outboundAfterReplay).toBe(outboundAfterFirst);
+      await prisma.shipmentEvent.deleteMany({ where: { shipmentId: shipment.id } });
+      await prisma.shipment.deleteMany({ where: { id: shipment.id } });
     });
 
     it('filters orders by the new order status', async () => {
@@ -1885,9 +1991,11 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         issuer: 'Tổ chức chứng nhận E2E',
         issuedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 86400000 * 365).toISOString(),
+        fileUrl: 'https://cdn.agrimarket.vn/certs/e2e.pdf',
       }).expect(201);
       certId = res.body.id;
       expect(res.body.verificationStatus).toBe('PENDING');
+      expect(res.body.validity).toBe('INVALID');
     });
 
     it('refuses a rejection without a reason', async () => {
@@ -1903,6 +2011,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       }).expect(200);
       expect(res.body.verificationStatus).toBe('VERIFIED');
       expect(res.body.verifiedAt).toBeTruthy();
+      expect(res.body.validity).toBe('VALID');
 
       const valid = await request(app.getHttpServer())
         .get(`/api/v1/certificates/farm/${farmId}/valid`)
@@ -1916,10 +2025,67 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       }).expect(400);
     });
 
+    it('an expired VERIFIED certificate keeps its flag but is never listed as valid', async () => {
+      // cert#11 shape in DEV: VERIFIED + ACTIVE but past its window. The stored
+      // flags are history and stay untouched; validity is computed at read.
+      const expired = await post('/api/v1/certificates', adminToken, {
+        farmId,
+        type: 'GlobalGAP',
+        certificateCode: `${RUN_ID}-GG-EXP`,
+        issuer: 'Tổ chức chứng nhận E2E',
+        issuedAt: new Date(Date.now() - 400 * 86400000).toISOString(),
+        expiresAt: new Date(Date.now() - 30 * 86400000).toISOString(),
+        fileUrl: 'https://cdn.agrimarket.vn/certs/expired.pdf',
+      }).expect(201);
+      const expiredId = expired.body.id as number;
+      expect(expired.body.validity).toBe('EXPIRED');
+
+      const verified = await patch(`/api/v1/certificates/${expiredId}/verify`, adminToken, {
+        verificationStatus: 'VERIFIED',
+      }).expect(200);
+      // Verifying paperwork does not resurrect the expired window.
+      expect(verified.body.verificationStatus).toBe('VERIFIED');
+      expect(verified.body.validity).toBe('EXPIRED');
+
+      const valid = await request(app.getHttpServer())
+        .get(`/api/v1/certificates/farm/${farmId}/valid`)
+        .expect(200);
+      expect(valid.body.some((c: { id: number }) => c.id === expiredId)).toBe(false);
+
+      const detail = await request(app.getHttpServer())
+        .get(`/api/v1/certificates/${expiredId}`)
+        .expect(200);
+      expect(detail.body.validity).toBe('EXPIRED');
+
+      await prisma.certificate.deleteMany({ where: { id: expiredId } });
+    });
+
+    it('a VERIFIED certificate without a document is never listed as valid', async () => {
+      const nodoc = await post('/api/v1/certificates', adminToken, {
+        farmId,
+        type: 'VietGAP',
+        certificateCode: `${RUN_ID}-VG-NODOC`,
+        issuer: 'Tổ chức chứng nhận E2E',
+        issuedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
+      }).expect(201);
+      const nodocId = nodoc.body.id as number;
+      await patch(`/api/v1/certificates/${nodocId}/verify`, adminToken, {
+        verificationStatus: 'VERIFIED',
+      }).expect(200);
+
+      const valid = await request(app.getHttpServer())
+        .get(`/api/v1/certificates/farm/${farmId}/valid`)
+        .expect(200);
+      expect(valid.body.some((c: { id: number }) => c.id === nodocId)).toBe(false);
+
+      await prisma.certificate.deleteMany({ where: { id: nodocId } });
+    });
+
     it('lists the certificate through the farmId filter', async () => {
       const res = await get(`/api/v1/certificates?farmId=${farmId}`, adminToken).expect(200);
-      expect(res.body.meta.total).toBe(1);
-      expect(res.body.data[0].id).toBe(certId);
+      expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+      expect(res.body.data.some((c: { id: number }) => c.id === certId)).toBe(true);
     });
 
     it('approves a review and exposes it publicly for the product', async () => {
@@ -2068,7 +2234,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
 
     afterAll(async () => {
       await prisma.review.deleteMany({ where: { id: reviewId } });
-      await prisma.certificate.deleteMany({ where: { id: certId } });
+      await prisma.certificate.deleteMany({ where: { farmId } });
       if (traceLotId) {
         await prisma.traceEvent.deleteMany({ where: { productLotId: traceLotId } });
         await prisma.productLot.deleteMany({ where: { id: traceLotId } });

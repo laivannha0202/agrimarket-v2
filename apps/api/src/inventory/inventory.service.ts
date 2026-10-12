@@ -249,21 +249,29 @@ export class InventoryService {
   /**
    * Release `quantity` from a balance's reservation, atomically.
    *
-   * A single `reserved = GREATEST(reserved - ?, 0)` so the arithmetic happens
-   * on the current column value: `reserved` is also written by concurrent
-   * checkouts, and a read-then-write here would silently drop their
-   * reservation. The clamp mirrors the previous defensive `Math.max(0, …)`.
+   * A single conditional UPDATE (`reserved = reserved - ? WHERE id = ? AND
+   * reserved >= ?`): the predicate is re-evaluated under the row's exclusive
+   * lock, so a concurrent checkout's reservation can never be dropped and a
+   * double release can never drive `reserved` below the stock the balance
+   * actually holds. Returns `null` when the balance does not hold that many
+   * reserved units; the caller must roll back instead of fabricating a release.
+   *
+   * The previous `GREATEST(reserved - ?, 0)` clamp is deliberately removed: it
+   * hid underflow (releasing a reservation the balance never had) and reported
+   * a fabricated `before = after + quantity` ledger entry.
    */
   async releaseStock(
     tx: Tx,
     balanceId: number,
     quantity: number,
-  ): Promise<{ balance: InventoryBalance; before: number; after: number }> {
-    await tx.$executeRaw`
+  ): Promise<{ balance: InventoryBalance; before: number; after: number } | null> {
+    const affected = await tx.$executeRaw`
       UPDATE inventory_balances
-         SET reserved = GREATEST(reserved - ${quantity}, 0), updated_at = UTC_TIMESTAMP(3)
-       WHERE id = ${balanceId}
-    `;
+         SET reserved = reserved - ${quantity}, updated_at = UTC_TIMESTAMP(3)
+        WHERE id = ${balanceId}
+          AND reserved >= ${quantity}
+     `;
+    if (affected === 0) return null;
     const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
     const after = Number(balance.reserved);
     return { balance, before: after + quantity, after };
@@ -375,6 +383,24 @@ export class InventoryService {
           'The order stock changed while this request was being processed, please reload',
         );
       }
+      // The lot's remaining quantity follows the goods that actually left.
+      // Guarded (`remaining_quantity >= ?`) and claimed BEFORE the movement is
+      // written: the lot must still hold the units being consumed. The previous
+      // `GREATEST(..., 0)` clamp hid underflow and let the ledger claim a
+      // shipment of stock the lot never had; a rejected guard now rolls the
+      // whole delivery back (409) with no movement left behind.
+      const lotAffected = await tx.$executeRaw`
+        UPDATE product_lots
+           SET remaining_quantity = remaining_quantity - ${quantity},
+               updated_at = UTC_TIMESTAMP(3)
+         WHERE id = ${alloc.productLotId}
+           AND remaining_quantity >= ${quantity}
+      `;
+      if (lotAffected === 0) {
+        throw new ConflictException(
+          'The lot stock changed while this request was being processed, please reload',
+        );
+      }
       const balance = alloc.inventoryBalance;
       await this.recordMovement(tx, {
         warehouseId: balance.warehouseId,
@@ -388,13 +414,6 @@ export class InventoryService {
         referenceId: orderId,
         note: 'Giao hàng — hàng rời kho',
       });
-      // The lot's remaining quantity follows the goods that actually left.
-      await tx.$executeRaw`
-        UPDATE product_lots
-           SET remaining_quantity = GREATEST(remaining_quantity - ${quantity}, 0),
-               updated_at = UTC_TIMESTAMP(3)
-         WHERE id = ${alloc.productLotId}
-      `;
     }
   }
 
@@ -479,7 +498,15 @@ export class InventoryService {
       if (dto.quantity > Number(balance.reserved)) {
         throw new BadRequestException('Cannot release more than currently reserved');
       }
+      // The read above is only a friendly pre-check; `releaseStock` is the
+      // guard, so a concurrent consume/release can never drive `reserved`
+      // below the stock the balance actually holds.
       const released = await this.releaseStock(tx, balance.id, dto.quantity);
+      if (!released) {
+        throw new ConflictException(
+          'The order stock changed while this request was being processed, please reload',
+        );
+      }
       await this.recordMovement(tx, {
         warehouseId: dto.warehouseId,
         productLotId: dto.productLotId,
@@ -541,7 +568,9 @@ export class InventoryService {
         available: InventoryService.available(Number(b.onHand), Number(b.reserved), Number(b.blocked)),
         expiresAt: b.productLot.expiresAt,
       }))
-      .sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime());
+      // Deterministic FEFO: earliest expiry first, balance id as the tie-break
+      // so two balances sharing an expiry always allocate in the same order.
+      .sort((a, b) => a.expiresAt.getTime() - b.expiresAt.getTime() || a.balanceId - b.balanceId);
 
     let remaining = params.quantity;
     const chosen: AvailableStock[] = [];

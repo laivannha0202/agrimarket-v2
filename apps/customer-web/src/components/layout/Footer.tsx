@@ -59,6 +59,9 @@ export function Footer() {
               <Text component={Link} href="/trang-trai" size="sm" c="dimmed">
                 Trang trại
               </Text>
+              <Text component={Link} href="/ma-giam-gia" size="sm" c="dimmed">
+                Mã giảm giá
+              </Text>
               <Text component={Link} href="/gio-hang" size="sm" c="dimmed">
                 Giỏ hàng
               </Text>

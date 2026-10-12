@@ -60,8 +60,33 @@ export class PaymentsService {
     return payment;
   }
 
+  /**
+   * Confirm a payment status transition (ADMIN only via the controller guard).
+   *
+   * The only path that marks money collected: moving to PAID stamps `paidAt`
+   * and requires a `transactionReference` (courier receipt / gateway reference)
+   * so a COD collection is never confirmed without evidence. Re-applying the
+   * current status is an idempotent no-op (returns the row untouched, no audit
+   * row), while re-entering a terminal status (REFUNDED) is refused. Terminal
+   * payments cannot be moved backwards, and a payment can leave PENDING/FAILED
+   * only towards PAID.
+   */
   async updateStatus(id: number, dto: UpdatePaymentStatusDto, actorUserId: number) {
     const payment = await this.findOne(id);
+    if (dto.status === payment.status) {
+      if (dto.status === PaymentStatus.REFUNDED) {
+        throw new BadRequestException(
+          `Cannot change payment status from ${payment.status} to ${dto.status}`,
+        );
+      }
+      return payment;
+    }
+    assertPaymentTransition(payment.status, dto.status);
+    if (dto.status === PaymentStatus.PAID && !dto.transactionReference?.trim()) {
+      throw new BadRequestException(
+        'A transaction reference is required to confirm cash collection',
+      );
+    }
     const data: Prisma.PaymentUpdateInput = { status: dto.status };
     if (dto.status === PaymentStatus.PAID) data.paidAt = new Date();
     if (dto.transactionReference) data.transactionReference = dto.transactionReference;
@@ -146,5 +171,20 @@ export class PaymentsService {
       this.prisma.refund.count(),
     ]);
     return paginate(data, total, page, limit);
+  }
+}
+
+const ALLOWED_PAYMENT_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
+  [PaymentStatus.PENDING]: [PaymentStatus.PAID, PaymentStatus.FAILED],
+  [PaymentStatus.PAID]: [PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED],
+  [PaymentStatus.PARTIALLY_REFUNDED]: [PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED],
+  [PaymentStatus.REFUNDED]: [],
+  [PaymentStatus.FAILED]: [PaymentStatus.PAID],
+};
+
+function assertPaymentTransition(from: PaymentStatus, to: PaymentStatus): void {
+  const allowed = ALLOWED_PAYMENT_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(to)) {
+    throw new BadRequestException(`Cannot change payment status from ${from} to ${to}`);
   }
 }

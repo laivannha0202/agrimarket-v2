@@ -467,19 +467,50 @@ describe('Checkout hardening', () => {
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a cancel whose compare-and-set loses the race (409)', async () => {
-    prisma.order.findFirst.mockResolvedValue({
-      id: 500,
-      customerId: 7,
-      status: 'PENDING_CONFIRMATION',
-    });
-    // A concurrent request moved the order first, so the predicate no longer
-    // matches and 0 rows are claimed: the double release is refused.
-    prisma.order.updateMany.mockResolvedValue({ count: 0 });
+    it('rejects a cancel whose compare-and-set loses the race (409)', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: 500,
+        customerId: 7,
+        status: 'PENDING_CONFIRMATION',
+      });
+      // A concurrent request moved the order first, so the predicate no longer
+      // matches and 0 rows are claimed: the double release is refused.
+      prisma.order.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(service.cancelForCustomer(500, 7, 7)).rejects.toBeInstanceOf(ConflictException);
-    expect(prisma.inventoryAllocation.findMany).not.toHaveBeenCalled();
-  });
+      await expect(service.cancelForCustomer(500, 7, 7)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.inventoryAllocation.findMany).not.toHaveBeenCalled();
+    });
+
+    it('rolls back a cancel whose reservation was already consumed (409, no movement)', async () => {
+      prisma.order.findFirst.mockResolvedValue({
+        id: 500,
+        customerId: 7,
+        status: 'PENDING_CONFIRMATION',
+      });
+      prisma.order.updateMany.mockResolvedValue({ count: 1 });
+      prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 500, status: 'CANCELLED' });
+      prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
+      prisma.inventoryAllocation.findMany.mockResolvedValue([
+        {
+          id: 1,
+          quantity: 2,
+          inventoryBalance: {
+            id: 1,
+            warehouseId: 1,
+            productLotId: 1,
+            productVariantId: 1,
+            reserved: 0,
+          },
+        },
+      ]);
+      // The guarded release matches 0 rows: the reservation is gone (a
+      // concurrent delivery consumed it), so the cancellation must roll back
+      // instead of fabricating a release.
+      prisma.$executeRaw.mockResolvedValue(0);
+
+      await expect(service.cancelForCustomer(500, 7, 7)).rejects.toBeInstanceOf(ConflictException);
+      expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    });
 
   it('refuses to cancel an order that is not the customer\'s (404)', async () => {
     prisma.order.findFirst.mockResolvedValue(null);
@@ -571,6 +602,18 @@ describe('Checkout hardening', () => {
       // The guarded consume matches 0 rows: a concurrent writer changed the
       // balance, so delivery must not pretend the goods left.
       prisma.$executeRaw.mockResolvedValue(0);
+
+      await expect(service.updateStatus(500, 'DELIVERED' as never, 7)).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('rolls back with 409 when the lot no longer holds the units', async () => {
+      stubDelivery();
+      // Balance consume wins (1 row), lot guard rejects (0 rows): the whole
+      // delivery rolls back instead of hiding the underflow with GREATEST.
+      prisma.$executeRaw.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
 
       await expect(service.updateStatus(500, 'DELIVERED' as never, 7)).rejects.toBeInstanceOf(
         ConflictException,

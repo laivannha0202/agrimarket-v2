@@ -98,13 +98,21 @@ export default function CertificatesPage() {
       dataIndex: "verificationStatus",
       render: (s: string, row: Certificate) => {
         // "Đã xác minh" records that the paperwork was checked — it must not
-        // read as "still valid" once the expiry date has passed.
-        const expired = new Date(row.expiresAt).getTime() < Date.now();
+        // read as "still valid" once the expiry date has passed. The API
+        // computes `validity` at read time; the client-side date check is the
+        // fallback for rows fetched before the A3 fix.
+        const expired =
+          row.validity === "EXPIRED" ||
+          (row.validity === undefined && new Date(row.expiresAt).getTime() < Date.now());
+        const missingDoc = row.validity === "INVALID" && s === "VERIFIED" && !row.fileUrl;
         return (
           <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
             <StatusTag status={certificateStatus(s)} />
             {s === "VERIFIED" && expired ? (
               <StatusTag status={{ label: "Hết hiệu lực", color: "error" }} />
+            ) : null}
+            {missingDoc ? (
+              <StatusTag status={{ label: "Thiếu chứng từ", color: "warning" }} />
             ) : null}
           </span>
         );

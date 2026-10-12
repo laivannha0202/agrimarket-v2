@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { Button, Col, Dropdown, Row, Table, Tag, Typography, type MenuProps } from "antd";
+import { Button, Col, Dropdown, Form, Input, Modal, Row, Table, Tag, Typography, type MenuProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
 import { InfoDescriptions, formatAddress } from "@/components/common/InfoDescriptions";
@@ -70,13 +70,23 @@ export default function OrderDetailPage() {
   /**
    * Records that the courier actually handed over the cash. This is the ONLY
    * action that marks a COD payment PAID — moving the order to DELIVERED no
-   * longer does, because a delivered parcel does not prove collection.
+   * longer does, because a delivered parcel does not prove collection. The
+   * backend requires a transaction reference (courier receipt / gateway
+   * reference), so the operator must type it in the dialog below; without it
+   * the API answers 400 and nothing is marked PAID.
    */
+  const [collectTarget, setCollectTarget] = useState<Payment | null>(null);
+  const [collectForm] = Form.useForm();
   const confirmCollection = useAction(
-    (paymentId: number) => resources.updatePaymentStatus(paymentId, "PAID"),
+    (vars: { paymentId: number; transactionReference: string }) =>
+      resources.updatePaymentStatus(vars.paymentId, "PAID", vars.transactionReference),
     {
       invalidate: [queryKeys.order(id), ["orders"], ["payments"]],
       successMessage: "Đã ghi nhận thu tiền COD.",
+      onSuccess: () => {
+        setCollectTarget(null);
+        collectForm.resetFields();
+      },
     },
   );
 
@@ -372,7 +382,10 @@ export default function OrderDetailPage() {
                         size="small"
                         style={{ paddingInline: 0 }}
                         loading={confirmCollection.isPending}
-                        onClick={() => confirmCollection.mutate(row.id)}
+                        onClick={() => {
+                          setCollectTarget(row);
+                          collectForm.setFieldsValue({ transactionReference: "" });
+                        }}
                       >
                         Ghi nhận thu tiền
                       </Button>
@@ -386,6 +399,42 @@ export default function OrderDetailPage() {
               locale={{ emptyText: "Chưa có thanh toán" }}
             />
           </DetailCard>
+
+          <Modal
+            open={!!collectTarget}
+            title="Ghi nhận thu tiền COD"
+            onCancel={() => setCollectTarget(null)}
+            onOk={() => collectForm.submit()}
+            confirmLoading={confirmCollection.isPending}
+            okText="Xác nhận đã thu tiền"
+            cancelText="Hủy"
+            forceRender
+          >
+            <p className="agri-muted" style={{ marginTop: 0 }}>
+              Nhập mã biên lai thu tiền của đơn vị vận chuyển. Không có mã này,
+              hệ thống không cho ghi nhận PAID.
+            </p>
+            <Form
+              form={collectForm}
+              layout="vertical"
+              requiredMark={false}
+              onFinish={(values: { transactionReference: string }) => {
+                if (!collectTarget) return;
+                confirmCollection.mutate({
+                  paymentId: collectTarget.id,
+                  transactionReference: values.transactionReference?.trim() ?? "",
+                });
+              }}
+            >
+              <Form.Item
+                label="Mã biên lai / mã giao dịch"
+                name="transactionReference"
+                rules={[{ required: true, message: "Nhập mã biên lai thu tiền." }]}
+              >
+                <Input placeholder="VD: COD-BL-20261012-001" />
+              </Form.Item>
+            </Form>
+          </Modal>
 
           {order.voucherRedemptions && order.voucherRedemptions.length > 0 ? (
             <DetailCard title="Voucher đã dùng">

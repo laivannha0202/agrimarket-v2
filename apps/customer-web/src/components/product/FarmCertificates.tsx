@@ -3,10 +3,11 @@
 /**
  * Public certificates for a farm.
  *
- * Only `GET /certificates/farm/:farmId/valid` is used, which the backend already
- * filters to VERIFIED + ACTIVE + within the validity period. The copy is
- * deliberately "Đã xác minh bởi AgriMarket" — AgriMarket verifies the document,
- * it does not issue VietGAP or any other certification.
+ * Only `GET /certificates/farm/:farmId/valid` is used, which the backend
+ * filters at read time to VERIFIED + ACTIVE + within the validity period +
+ * carrying a document. The badge is deliberately "Hồ sơ đã đối chiếu" (the
+ * record was checked), never a claim that AgriMarket audited the farm on site
+ * or issued the certification itself.
  */
 
 import { Alert, Badge, Card, Group, SimpleGrid, Stack, Text } from "@mantine/core";
@@ -64,7 +65,7 @@ export function FarmCertificates({ farmId }: { farmId: number }) {
                   {certificate.type}
                 </Text>
                 <Badge color="agri" variant="light" size="sm" radius="sm">
-                  Đã xác minh bởi AgriMarket
+                  Hồ sơ đã đối chiếu
                 </Badge>
               </Group>
               <Text size="xs" c="dimmed">

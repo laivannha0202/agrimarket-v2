@@ -197,7 +197,7 @@ export function AddressListView() {
         <Group align="flex-start" gap="lg" wrap="wrap">
           <AccountNav />
 
-          <Stack gap="md" style={{ flex: 1, minWidth: 300 }}>
+          <Stack gap="md" style={{ flex: 1 }} miw={{ base: 0, md: 300 }}>
             <Card padding="lg" radius="md" withBorder>
               <Stack gap="md">
                 <Group justify="space-between" wrap="wrap">

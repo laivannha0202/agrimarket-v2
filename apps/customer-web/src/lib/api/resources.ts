@@ -133,7 +133,7 @@ export const resources = {
 
   getFarm: (id: number) => api.getPublic<Farm>(`/farms/${id}`),
 
-  /** Only VERIFIED + ACTIVE + within its validity period. */
+  /** Only VERIFIED + ACTIVE + within its validity period + carrying a document. */
   listValidCertificates: (farmId: number) =>
     api.getPublic<Certificate[]>(`/certificates/farm/${farmId}/valid`),
 

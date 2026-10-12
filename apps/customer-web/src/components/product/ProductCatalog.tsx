@@ -149,9 +149,6 @@ export function ProductCatalog({ lockedCategoryId }: { lockedCategoryId?: number
         onChange={(value) => setParam({ partnerId: value ?? undefined })}
       />
       <Divider />
-      <Text size="xs" c="dimmed">
-        Sắp xếp theo giá và khoảng giá chưa được hỗ trợ bởi API danh mục sản phẩm.
-      </Text>
       {hasFilters || urlSearch ? (
         <Button variant="default" leftSection={<IconX size={16} />} onClick={clearAll}>
           Xóa bộ lọc

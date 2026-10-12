@@ -199,7 +199,7 @@ export default function FlashSalesPage() {
         width={720}
       >
         <Form.Item label="Tên chương trình" name="name" rules={[{ required: true, message: "Nhập tên." }]}>
-          <Input placeholder="VD: Flash Sale cuối tuần Hưng Yên" />
+          <Input placeholder="VD: Flash Sale nông sản Hưng Yên (chỉ dùng chữ “cuối tuần” cho chương trình ≤ 7 ngày)" />
         </Form.Item>
         <Form.Item label="Thời gian" name="period" rules={[{ required: true, message: "Chọn thời gian." }]}>
           <DatePicker.RangePicker showTime style={{ width: "100%" }} />
