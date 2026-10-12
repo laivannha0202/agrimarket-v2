@@ -1,6 +1,6 @@
 # AgriMarket V2 — GitHub Final Handoff
 
-**Ngày:** 2026-10-12 · **Branch:** `main` · **Old HEAD:** `c7220ee` · **New HEAD:** (ghi sau khi commit — xem `git log -1 --oneline`)
+**Ngày:** 2026-10-12 · **Branch:** `main` · **Old HEAD:** `c7220ee` · **New HEAD:** `f87bebc` (`release: finalize AgriMarket V2 customer apps and business acceptance`, 71 files, +3824/−327)
 **Remote:** `origin` → `https://github.com/laivannha0202/agrimarket-v2.git`
 **Phạm vi:** toàn bộ source đang sử dụng (API + Admin + Customer + Mobile + tests + migrations + docs + QA scripts an toàn).
 **Nguyên tắc:** DEV `agrimarket_v2` chỉ đọc (SELECT); mọi kiểm thử ghi trên TEST `agrimarket_v2_test` độc lập; không `reset --hard`, không `clean -fd`, không force push, không sửa dữ liệu DEV.
