@@ -18,8 +18,8 @@
 | Repository (local) | `E:\dev\Xay-dung-nen-tang-ban-nong-san-tich-hop-truy-xuat-nguon-goc` |
 | Branch | `main` (`git branch --show-current` → `main`) |
 | Old HEAD | `c7220ee` — `docs: add complete step-by-step root README + dev:customer script` |
-| New HEAD | Ghi sau commit: `git rev-parse HEAD` + `git log -1 --oneline` |
-| Remote origin/main | `git rev-parse origin/main` + `git ls-remote origin refs/heads/main` (xác minh sau push) |
+| New HEAD | `c300a9a` (`docs: record final handoff HEAD f87bebc`; release commit `f87bebc`, 71 files, +3824/−327) |
+| Remote origin/main | `c300a9a` — `git rev-parse HEAD` == `git rev-parse origin/main` == `git ls-remote origin refs/heads/main` (đã xác minh) |
 | Commit | `release: finalize AgriMarket V2 customer apps and business acceptance` |
 | Push | `git push origin main` (không force; chỉ PASS khi exit code 0) |
 | Git status còn lại | Chỉ còn `?? apps/api/s.name` (file 0-byte lạ, không phải source — giữ tại local, không commit, không xóa khi chưa xác minh) |
@@ -115,10 +115,10 @@ Tất cả chạy bằng lệnh thật, trên TEST DB độc lập (`agrimarket_
 
 ## G. GitHub Verification
 
-- [ ] `git status --short` sau push: chỉ còn `?? apps/api/s.name` (đã phân loại, không phải source quan trọng bị bỏ sót).
-- [ ] `git log -1 --oneline` = commit mới; `git rev-parse HEAD` == `git rev-parse origin/main` == `git ls-remote origin refs/heads/main`.
-- [ ] Git tree chứa đủ: `apps/api`, `apps/admin-web`, `apps/customer-web`, `apps/mobile`, `prisma/migrations`, tests, README, `docs/`.
-- [ ] Clean checkout (nếu điều kiện cho phép): clone vào thư mục tạm độc lập, `pnpm install` + `db:deploy` khô để chứng minh không thiếu file.
+- [x] `git status --short` sau push: chỉ còn `?? apps/api/s.name` (đã phân loại, không phải source quan trọng bị bỏ sót).
+- [x] `git log -1 --oneline` = `c300a9a`; `git rev-parse HEAD` == `git rev-parse origin/main` == `git ls-remote origin refs/heads/main` == `c300a9a`.
+- [x] Git tree chứa đủ: `apps/api`, `apps/admin-web`, `apps/customer-web`, `apps/mobile`, `prisma/migrations`, tests, README, `docs/` (429 file source + 9 migrations + handoff report, đã kiểm tra `git ls-tree`).
+- [x] Clean checkout: đã clone `https://github.com/laivannha0202/agrimarket-v2.git` vào thư mục tạm độc lập — HEAD `c300a9a`, đủ `package.json`, `pnpm-lock.yaml`, `schema.prisma`, `/ma-giam-gia`, `app.json`, handoff report. Đã xóa thư mục tạm sau kiểm tra.
 - [ ] Không force push; không branch mới; không ghi đè lịch sử remote (remote không tiến lên trước push — `0 0`).
 - [ ] Hạn chế còn lại: P2 (Customer test runner; phiên máy thật/browser thật/Expo Go vật lý/SMTP thật) + dữ liệu DEV lịch sử chờ duyệt — đã nêu rõ, không che.
 
