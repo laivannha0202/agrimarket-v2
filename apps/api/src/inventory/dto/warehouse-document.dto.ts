@@ -73,6 +73,31 @@ export class CreateWarehouseDocumentDto {
   lines!: WarehouseDocumentLineDto[];
 }
 
+/**
+ * Edit a DRAFT document (ADMIN).
+ *
+ * Only drafts may be edited: a COMPLETED/CANCELLED document is immutable and
+ * must be corrected through a controlled adjustment document instead. The
+ * warehouse, type and source linkage never change here — editing must not
+ * rewrite the business origin of the document. Lines are replaced wholesale
+ * (validated like creation: lot/variant exist, quantity positive, no duplicate
+ * lot+variant pair), so the draft always holds a coherent set.
+ */
+export class UpdateWarehouseDocumentDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  note?: string;
+
+  @ApiPropertyOptional({ type: [WarehouseDocumentLineDto] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => WarehouseDocumentLineDto)
+  lines?: WarehouseDocumentLineDto[];
+}
+
 /** Query DTO for `GET /warehouse-documents`: strict status/type enums. */
 export class WarehouseDocumentQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: WarehouseDocumentStatus })

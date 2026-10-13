@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Form, Input, InputNumber, Select, Tabs } from "antd";
 import { PlusOutlined, SwapOutlined } from "@ant-design/icons";
@@ -20,7 +21,11 @@ import { lotStatus, inventoryMovementType, inventoryMovementBasis } from "@/lib/
 import type { InventoryBalance, InventoryMovement } from "@/types/api";
 
 function BalancesTab() {
-  const list = useListState();
+  // Deep-link from the warehouses page (`/inventory?warehouseId=3`): the query
+  // seeds the warehouse filter so "Xem tồn" opens already scoped to that row.
+  const searchParams = useSearchParams();
+  const preselectedWarehouse = searchParams.get("warehouseId") ?? undefined;
+  const list = useListState({ initialFilters: { warehouseId: preselectedWarehouse } });
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"inbound" | "adjust">("inbound");
   const [form] = Form.useForm();
@@ -335,12 +340,14 @@ function MovementsTab() {
 
 export default function InventoryPage() {
   return (
-    <Tabs
-      defaultActiveKey="balances"
-      items={[
-        { key: "balances", label: "Tồn kho", children: <BalancesTab /> },
-        { key: "movements", label: "Biến động kho", children: <MovementsTab /> },
-      ]}
-    />
+    <Suspense>
+      <Tabs
+        defaultActiveKey="balances"
+        items={[
+          { key: "balances", label: "Tồn kho", children: <BalancesTab /> },
+          { key: "movements", label: "Biến động kho", children: <MovementsTab /> },
+        ]}
+      />
+    </Suspense>
   );
 }

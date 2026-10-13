@@ -12,6 +12,7 @@ import {
   InventoryMovementType,
   ProductLotStatus,
   QcResult,
+  RecordStatus,
 } from '../../generated/prisma/enums.js';
 
 type Tx = Prisma.TransactionClient;
@@ -95,6 +96,7 @@ export class InventoryService {
     const balances = await this.prisma.inventoryBalance.findMany({
       where: {
         productVariantId: { in: productVariantIds },
+        warehouse: { status: RecordStatus.ACTIVE },
         productLot: {
           status: ProductLotStatus.SELLABLE,
           expiresAt: { gte: now },
@@ -125,9 +127,33 @@ export class InventoryService {
     return result;
   }
 
+  /**
+   * Refuse new stock-writing work at an INACTIVE warehouse.
+   *
+   * The warehouse row is locked (`SELECT ... FOR UPDATE`) before any balance
+   * is touched, using the same lock the deactivation path holds: a concurrent
+   * ACTIVE → INACTIVE flip serialises here instead of slipping past the check.
+   * Adjustments are the documented exception — fixing a miscount at a closed
+   * warehouse is allowed, creating new inbound/reserve business is not. The
+   * document `complete` path calls this too (see `WarehouseDocumentsService`).
+   */
+  static async requireActiveWarehouse(
+    tx: Tx,
+    warehouseId: number,
+  ): Promise<void> {
+    const rows = await tx.$queryRaw<{ id: number; status: string }[]>`
+      SELECT id, status FROM warehouses WHERE id = ${warehouseId} FOR UPDATE
+    `;
+    if (rows.length === 0) throw new NotFoundException('Warehouse not found');
+    if (rows[0].status !== RecordStatus.ACTIVE) {
+      throw new ConflictException('Kho đã ngừng hoạt động, không thể tạo nghiệp vụ mới');
+    }
+  }
+
   /** Inbound stock (e.g. from a completed warehouse-in document). */
   async inbound(dto: InboundInventoryDto, actorUserId?: number) {
     return this.prisma.$transaction(async (tx) => {
+      await InventoryService.requireActiveWarehouse(tx, dto.warehouseId);
       const balance = await this.getOrCreateBalance(
         tx,
         dto.warehouseId,
@@ -447,6 +473,7 @@ export class InventoryService {
   /** Reserve stock for an order. Reserve never exceeds available. */
   async reserve(dto: ReserveInventoryDto, actorUserId?: number) {
     return this.prisma.$transaction(async (tx) => {
+      await InventoryService.requireActiveWarehouse(tx, dto.warehouseId);
       const balance = await this.requireBalance(
         tx,
         dto.warehouseId,
@@ -534,6 +561,7 @@ export class InventoryService {
     const balances = await tx.inventoryBalance.findMany({
       where: {
         productVariantId: params.productVariantId,
+        warehouse: { status: RecordStatus.ACTIVE },
         productLot: {
           status: ProductLotStatus.SELLABLE,
           expiresAt: { gte: now },

@@ -78,6 +78,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Kho hàng",
     items: [
+      { key: "/warehouses", label: "Kho hàng", icon: <InboxOutlined /> },
       { key: "/inventory", label: "Tồn kho", icon: <InboxOutlined /> },
       { key: "/warehouse-documents", label: "Phiếu kho", icon: <FileTextOutlined /> },
     ],

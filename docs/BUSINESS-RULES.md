@@ -48,6 +48,47 @@ Stock is allocated from the lot with the earliest `expires_at` first.
 - `reserve` refuses to reserve more than `available`.
 - `allocateFefo` refuses when sellable stock is insufficient.
 - Checkout runs inside a transaction; a shortfall rolls the whole order back.
+
+## 4b. Warehouse lifecycle (single central warehouse)
+
+The demo operates one central warehouse (Hưng Yên); the backend keeps the
+multi-warehouse model but no fake zone-warehouses are created. Warehouse codes
+are system-generated (`WH-NNNN`, next free sequence, unique under concurrency)
+and immutable; there is **no** `DELETE /warehouses` endpoint — history is kept
+and deactivation is used instead.
+
+- `ACTIVE → INACTIVE` is guarded in a transaction with a `SELECT ... FOR
+  UPDATE` row lock: it is refused with `409` while the warehouse holds
+  on-hand / reserved / blocked stock, has a `DRAFT` document, or serves an
+  open order allocation. The row lock serialises deactivation against
+  inbound/reserve paths that lock the same row first.
+- New stock business at an `INACTIVE` warehouse is refused with `409`:
+  document creation, document completion, manual inbound and manual reserve.
+  (Signed adjustments stay allowed to fix a miscount; FEFO allocation and
+  sellable previews only read `ACTIVE` warehouses.)
+- Reactivation (`INACTIVE → ACTIVE`) is admin-only and audited
+  (`WAREHOUSE_REACTIVATE`); all transitions write `AuditLog`.
+
+## 4c. Warehouse document lifecycle
+
+`DRAFT → COMPLETED`, `DRAFT → CANCELLED`; `COMPLETED` and `CANCELLED` are
+immutable terminal states (no edit, no reopen, no delete; corrections use a
+separate adjustment document).
+
+- `PATCH /warehouse-documents/:id` edits a `DRAFT` note/lines only: no balance
+  or movement is written (stock moves at COMPLETE time). Lines are replaced
+  wholesale and validated (lot/variant exist, positive quantity, no duplicate
+  lot+variant); documents carrying a business `sourceType` cannot be edited by
+  hand. The write is a conditional claim (`WHERE status = DRAFT`), so an edit
+  racing a complete/cancel either wins first or is refused — never forks.
+- `POST /warehouse-documents/:id/cancel` moves `DRAFT → CANCELLED` with no
+  stock or movement effect; it is idempotent when already `CANCELLED` and
+  refused for `COMPLETED`. Cancel racing complete lets exactly one branch win
+  via compare-and-set.
+- `POST /warehouse-documents/:id/complete` claims the document with
+  compare-and-set *after* locking the warehouse row first (lock order
+  warehouse → document everywhere), so concurrent completes, edits and
+  cancels cannot deadlock or double-apply stock.
 - `adjust` refuses any change that would push `onHand` below zero or below
   `reserved + blocked`.
 

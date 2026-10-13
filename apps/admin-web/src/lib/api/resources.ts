@@ -122,6 +122,10 @@ export const resources = {
 
   // Warehouse & inventory
   warehouses: (p?: ListParams) => api.get<Paginated<Warehouse>>("/warehouses", toQuery(p)),
+  warehouse: (id: number | string) => api.get<Warehouse>(`/warehouses/${id}`),
+  createWarehouse: (body: unknown) => api.post<Warehouse>("/warehouses", body),
+  updateWarehouse: (id: number | string, body: unknown) =>
+    api.patch<Warehouse>(`/warehouses/${id}`, body),
   inventory: (p?: ListParams) =>
     api.get<Paginated<InventoryBalance>>("/inventory", toQuery(p)),
   movements: (p?: ListParams) =>
@@ -136,6 +140,10 @@ export const resources = {
     api.post<WarehouseDocument>("/warehouse-documents", body),
   completeWarehouseDocument: (id: number | string) =>
     api.post<WarehouseDocument>(`/warehouse-documents/${id}/complete`),
+  updateWarehouseDocument: (id: number | string, body: unknown) =>
+    api.patch<WarehouseDocument>(`/warehouse-documents/${id}`, body),
+  cancelWarehouseDocument: (id: number | string) =>
+    api.post<WarehouseDocument>(`/warehouse-documents/${id}/cancel`),
 
   // Promotions
   vouchers: (p?: ListParams) => api.get<Paginated<Voucher>>("/vouchers", toQuery(p)),

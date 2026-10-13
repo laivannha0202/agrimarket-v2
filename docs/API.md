@@ -320,8 +320,8 @@ PENDING_QC, QUARANTINED, RECALLED or expired is not counted.
 | ------ | ------- | ------ | ------------------ |
 | GET    | `/`     | Public | List warehouses    |
 | GET    | `/:id`  | Public | Get a warehouse    |
-| POST   | `/`     | ADMIN  | Create a warehouse |
-| PATCH  | `/:id`  | ADMIN  | Update a warehouse |
+| POST   | `/`     | ADMIN  | Create a warehouse (code auto-generated `WH-NNNN`, unique under concurrency) |
+| PATCH  | `/:id`  | ADMIN  | Update name/address/status. `ACTIVE → INACTIVE` is refused with `409` while the warehouse holds on-hand/reserved/blocked stock, has a `DRAFT` document, or serves an open order; new inbound/reserve/complete work at an `INACTIVE` warehouse is refused with `409`. No `DELETE` endpoint by design. |
 
 ### `/inventory`
 | Method | Path           | Access | Description                                  |
@@ -334,12 +334,14 @@ PENDING_QC, QUARANTINED, RECALLED or expired is not counted.
 | POST   | `/release`     | ADMIN  | Release a reservation                        |
 
 ### `/warehouse-documents`
-| Method | Path            | Access | Description                    |
-| ------ | --------------- | ------ | ------------------------------ |
-| GET    | `/`             | ADMIN  | List documents (`status`, `type`) |
-| GET    | `/:id`          | ADMIN  | Get a document with lines      |
-| POST   | `/`             | ADMIN  | Create a document              |
-| POST   | `/:id/complete` | ADMIN  | Complete a document            |
+| Method | Path              | Access | Description                    |
+| ------ | ----------------- | ------ | ------------------------------ |
+| GET    | `/`               | ADMIN  | List documents (`status`, `type`) |
+| GET    | `/:id`           | ADMIN  | Get a document with lines      |
+| POST   | `/`               | ADMIN  | Create a `DRAFT` document (refused at an `INACTIVE` warehouse) |
+| PATCH  | `/:id`           | ADMIN  | Edit a `DRAFT` note/lines (no stock change; refused for `COMPLETED`/`CANCELLED` and sourced documents) |
+| POST   | `/:id/complete`  | ADMIN  | Complete a `DRAFT` (compare-and-set: exactly one winner under concurrency) |
+| POST   | `/:id/cancel`    | ADMIN  | Cancel a `DRAFT` → `CANCELLED` (no stock/movement; idempotent; never completable/editable/reopenable) |
 
 ## Cart — CUSTOMER
 

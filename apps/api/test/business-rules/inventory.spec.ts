@@ -26,6 +26,7 @@ describe('Inventory rules', () => {
 
   describe('reserve', () => {
     it('reserves when enough is available', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 1, status: 'ACTIVE' }]);
       prisma.inventoryBalance.findUnique.mockResolvedValue({
         id: 1,
         warehouseId: 1,
@@ -64,6 +65,7 @@ describe('Inventory rules', () => {
     });
 
     it('rejects reserving more than available', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 1, status: 'ACTIVE' }]);
       prisma.inventoryBalance.findUnique.mockResolvedValue({
         id: 1,
         warehouseId: 1,
@@ -82,6 +84,7 @@ describe('Inventory rules', () => {
     });
 
     it('rejects when the conditional claim loses the race (0 rows)', async () => {
+      prisma.$queryRaw.mockResolvedValue([{ id: 1, status: 'ACTIVE' }]);
       prisma.inventoryBalance.findUnique.mockResolvedValue({
         id: 1,
         warehouseId: 1,

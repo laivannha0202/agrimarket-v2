@@ -256,17 +256,39 @@ adapter Wi-Fi (dạng `192.168.x.x`).
 > ⚠️ **Tuyệt đối không dùng `localhost`** trong file này: `localhost` trên điện thoại
 > là chính điện thoại, không phải máy tính của bạn. Điện thoại và PC phải **cùng Wi-Fi**.
 
-**10.2. Chạy Expo**
+**10.2. Chạy Expo (khuyên dùng: một lệnh tự tìm IP LAN)**
 
 Từ thư mục gốc repo, mở **terminal 4**:
 
 ```bash
-pnpm dev:mobile
+pnpm demo:mobile
 ```
+
+Lệnh này tự tìm IP LAN hiện tại, kiểm tra API `:3000` khỏe mới chạy tiếp,
+ghi đúng một biến `EXPO_PUBLIC_API_BASE_URL=http://<IP-hiện-tại>:3000/api/v1`
+vào `apps/mobile/.env` (file git-ignored, không commit), rồi khởi động
+Expo LAN mode (`expo start --lan`) và hiện QR. Đổi Wi-Fi/hotspot → dừng
+(Ctrl+C) và chạy lại lệnh, không sửa IP tay.
+
+- Nhiều card mạng / IP không chắc: `pnpm demo:mobile --lan-ip=10.0.0.5`
+  (hoặc `AGRIMARKET_LAN_IP=10.0.0.5 pnpm demo:mobile`).
+- Chỉ chẩn đoán, không khởi động: `pnpm lan:diagnose`.
+- Chạy cả 4 app một lệnh: `pnpm demo:all` (API + Admin `:3001` +
+  Customer `:3002` + Expo Go).
+- Cách cũ vẫn dùng được: `pnpm dev:mobile` (nhưng phải tự sửa IP trong
+  `apps/mobile/.env` mỗi lần đổi mạng).
 
 Một mã QR hiện ra trong terminal. Mở app **Expo Go** trên điện thoại → quét QR.
 Nếu mạng chặn LAN, thử `pnpm --filter @agrimarket/mobile dev:tunnel`
 (lưu ý: tunnel chỉ áp dụng cho Expo dev server — API URL vẫn phải là địa chỉ LAN).
+
+> Phân biệt 2 URL: **Metro URL** (`http://<IP>:8081`, QR trỏ tới đây — nơi tải
+> bundle JS) khác **Backend URL** (`http://<IP>:3000/api/v1` — nơi app lấy dữ
+> liệu). Đổi Wi-Fi đổi cả hai; `demo:mobile` đồng bộ cả hai. Bundle đã build
+> không tự nhận IP mới — phải khởi động lại Expo.
+> Firewall: Wi-Fi ở profile **Private** là đủ (rule `node.exe Allow/Private`
+> có sẵn); không tắt firewall. Nếu Wi-Fi đang **Public**, chuyển sang Private
+> (Settings → Network) thay vì mở cổng Public.
 
 **10.3. Chức năng chính của app mobile**
 
