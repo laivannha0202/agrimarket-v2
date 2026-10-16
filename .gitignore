@@ -42,3 +42,7 @@ Thumbs.db
 .kilo/
 .playwright-mcp/
 .tmp-verify/
+
+# npm workspaces: the root package-lock.json is the single source of truth
+apps/*/package-lock.json
+packages/*/package-lock.json
