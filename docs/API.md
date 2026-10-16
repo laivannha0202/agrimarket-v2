@@ -414,6 +414,13 @@ Stock reservations are released with `RELEASE` movements.
 | GET    | `/refunds`             | ADMIN  | List refunds             |
 | POST   | `/refunds`             | ADMIN  | Create a refund          |
 
+**Collecting money (`PATCH /payments/:id/status`).** Only the `PAID` transition
+collects: it requires a `transactionReference` and checks the ORDER, not just the
+payment row — a payment of a `CANCELLED` order can never become `PAID` (use
+`FAILED` for that case), and a COD payment requires the order to be `DELIVERED`
+first, because cash is handed over at the doorstep. Re-applying the current
+status is an idempotent no-op; terminal statuses cannot move backwards.
+
 ## Promotions
 
 ### `/vouchers`, `/product-discounts`, `/flash-sales`

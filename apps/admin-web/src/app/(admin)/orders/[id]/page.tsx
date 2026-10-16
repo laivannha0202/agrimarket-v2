@@ -375,8 +375,17 @@ export default function OrderDetailPage() {
                 {
                   title: "Thao tác",
                   width: 150,
-                  render: (_, row) =>
-                    row.status === "PENDING" ? (
+                  render: (_, row) => {
+                    // Only COD is collected by hand: an online payment is
+                    // confirmed by its own gateway, never by this button.
+                    if (row.method !== "COD" || row.status !== "PENDING") return "—";
+                    // Cash is handed over at delivery. The API refuses an
+                    // earlier PAID, so the button waits for DELIVERED instead
+                    // of offering an action that is guaranteed to fail.
+                    if (order.status !== "DELIVERED") {
+                      return <span className="agri-muted">Chờ giao hàng</span>;
+                    }
+                    return (
                       <Button
                         type="link"
                         size="small"
@@ -389,9 +398,8 @@ export default function OrderDetailPage() {
                       >
                         Ghi nhận thu tiền
                       </Button>
-                    ) : (
-                      "—"
-                    ),
+                    );
+                  },
                 },
               ]}
               dataSource={order.payments ?? []}

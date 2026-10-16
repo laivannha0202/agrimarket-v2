@@ -45,6 +45,10 @@ export function RequireCustomer({
   }
 
   if (!isAuthenticated) {
+    // `pathname` alone would drop the query string, so a "Mua ngay" checkout
+    // (`/thanh-toan?mua-ngay=…`) would land on an empty page after signing in.
+    // The prompt only renders after hydration, when `window` is available.
+    const continueTo = `${pathname}${window.location.search}`;
     return (
       <Center py={60} px={12}>
         <Stack align="center" gap={12} maw={420}>
@@ -68,7 +72,7 @@ export function RequireCustomer({
           </Text>
           <Button
             component={Link}
-            href={`/dang-nhap?tiep-theo=${encodeURIComponent(pathname)}`}
+            href={`/dang-nhap?tiep-theo=${encodeURIComponent(continueTo)}`}
             radius={8}
             fullWidth
             styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}

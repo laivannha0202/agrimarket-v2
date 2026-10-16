@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { apiConfigNotice, isApiConfigured, isLocalhostBaseUrl } from "../config";
 import {
   galleryImages,
-  isFlashSaleActive,
   isIdempotencyKey,
   newIdempotencyKey,
   primaryImage,
@@ -102,10 +101,15 @@ describe("promotions", () => {
    * used to duplicate the flash-sale/discount precedence here, which could
    * disagree with the server total shown at checkout. It was removed; this test
    * fails if it (or any similar arithmetic helper) comes back.
+   *
+   * Same rule for the flash-sale window: `isFlashSaleActive` used to live here
+   * and drifted from Web's copy; the single implementation is now
+   * `isFlashSaleLive` in `@agrimarket/shared-domain`.
    */
   it("exposes no client-side price computation", async () => {
     const mod: Record<string, unknown> = await import("../promotions");
     expect(mod.variantDisplayPrice).toBeUndefined();
+    expect(mod.isFlashSaleActive).toBeUndefined();
 
     // `cheapestVariantPrice` is allowed because it only *selects* a value the
     // server already computed — it must never derive a new number.
@@ -121,17 +125,6 @@ describe("promotions", () => {
     const product = { variants: [variant(18000, 20000), variant(12000, 12000)] } as never;
     // Exactly the server's number for the cheapest variant, not a recomputation.
     expect(cheapestVariantPrice(product)).toEqual({ unitPrice: 12000, basePrice: 12000 });
-  });
-
-  it("detects active flash sales by window", () => {
-    const now = Date.now();
-    const active = {
-      status: "ACTIVE" as const,
-      startsAt: new Date(now - 1000).toISOString(),
-      endsAt: new Date(now + 60_000).toISOString(),
-    };
-    expect(isFlashSaleActive(active, now)).toBe(true);
-    expect(isFlashSaleActive({ ...active, status: "INACTIVE" }, now)).toBe(false);
   });
 
   it("uses the backend isPrimary image as the cover, not whichever is first", () => {

@@ -9,7 +9,7 @@
  */
 
 import { getApiOrigin } from "./config";
-import type { PricedVariant, Product, FlashSale } from "./types";
+import type { Product } from "./types";
 
 export function cheapestVariantPrice(product: Product): { unitPrice: number; basePrice: number } | null {
   if (product.variants.length === 0) return null;
@@ -78,17 +78,6 @@ export function resolveImageUrl(url: string | null | undefined, apiOrigin: strin
     return trimmed.replace(/^https?:\/\/[^/]+/i, origin);
   }
   return trimmed;
-}
-
-export function isFlashSaleActive(sale: Pick<FlashSale, "startsAt" | "endsAt" | "status">, now = Date.now()): boolean {
-  if (sale.status !== "ACTIVE") return false;
-  const start = new Date(sale.startsAt).getTime();
-  const end = new Date(sale.endsAt).getTime();
-  return Number.isFinite(start) && Number.isFinite(end) && start <= now && now < end;
-}
-
-export function pricedVariantLabel(v: PricedVariant): string {
-  return v.name;
 }
 
 /** One idempotency key per checkout payload signature; regenerated on change. */

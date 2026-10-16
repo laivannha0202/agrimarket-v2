@@ -18,6 +18,11 @@ import { Box, Group, ScrollArea, Stack, Text } from "@mantine/core";
 import { IconBolt } from "@tabler/icons-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import {
+  flashSaleRemainingTotal,
+  isFlashItemSoldOut,
+  isFlashSaleLive,
+} from "@agrimarket/shared-domain/home";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { discountPercent, formatDate, formatMoney, formatRemaining, variantSpecLabel } from "@/lib/format";
@@ -69,14 +74,11 @@ export function useActiveFlashSales(): { sales: FlashSale[]; now: number } {
     staleTime: 30_000,
   });
 
-  // Only sales that are actually running right now. Until the clock is known
-  // (server render) the window check is skipped and the ACTIVE status decides.
-  const sales = (data?.data ?? []).filter((sale) => {
-    if (sale.status !== "ACTIVE") return false;
-    if ((sale.items?.length ?? 0) === 0) return false;
-    if (now === 0) return true;
-    return new Date(sale.startsAt).getTime() <= now && new Date(sale.endsAt).getTime() >= now;
-  });
+  // Only sales that are actually running right now. The rule lives in
+  // `@agrimarket/shared-domain` so the Mobile home tab selects the exact same
+  // sales; until the clock is known (server render) the window check is skipped
+  // there and the ACTIVE status decides.
+  const sales = (data?.data ?? []).filter((sale) => isFlashSaleLive(sale, now));
 
   return { sales, now };
 }
@@ -109,10 +111,7 @@ export function FlashSaleSection() {
       </Group>
 
       {active.map((sale) => {
-        const remainingTotal = sale.items.reduce(
-          (sum, item) => sum + Math.max(0, item.quota - item.soldQuantity),
-          0,
-        );
+        const remainingTotal = flashSaleRemainingTotal(sale);
 
         return (
           <AppCard key={sale.id}>
@@ -129,7 +128,7 @@ export function FlashSaleSection() {
               <ScrollArea type="never">
                 <Group gap={10} wrap="nowrap" align="flex-start">
                   {sale.items.map((item) => {
-                    const remaining = Math.max(0, item.quota - item.soldQuantity);
+                    const soldOut = isFlashItemSoldOut(item);
                     const basePrice = Number(item.productVariant.basePrice);
                     const flashPrice = Number(item.flashPrice);
                     const percent = discountPercent(basePrice, flashPrice);
@@ -170,7 +169,7 @@ export function FlashSaleSection() {
                               -{percent}%
                             </Box>
                           ) : null}
-                          {remaining === 0 ? (
+                          {soldOut ? (
                             <Box
                               style={{
                                 position: "absolute",

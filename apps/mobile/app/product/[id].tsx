@@ -37,7 +37,7 @@ import {
   QtyStepper,
 } from "../../src/components/ui";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
-import { discountPercent, formatMoney, formatQuantity, formatWeight } from "../../src/lib/format";
+import { discountPercent, formatMoney, formatQuantity, formatWeight, variantSpecLabel } from "../../src/lib/format";
 import { displayVariant } from "../../src/lib/product-variant";
 import { galleryImages, resolveImageUrl } from "../../src/lib/promotions";
 import { resources } from "../../src/lib/resources";
@@ -275,10 +275,12 @@ export default function ProductDetailScreen() {
             <Text style={styles.contact}>Liên hệ để biết giá</Text>
           )}
 
+          {/* The weight the price is quoted for, e.g. "1 kg / túi". The variant
+              name is not repeated here — the rows above use the shared
+              `variantSpecLabel`, which already avoids name/weight tautology. */}
           {weight || selected ? (
             <Text style={styles.unitLine}>
               {weight ? `${weight} / ${selected?.saleUnit ?? ""}` : selected?.saleUnit}
-              {weight && selected ? ` (${formatWeight(selected.weight, selected.weightUnit)})` : ""}
             </Text>
           ) : null}
           {priceSourceLabel ? <Text style={styles.priceSource}>Đang áp dụng: {priceSourceLabel}</Text> : null}
@@ -301,7 +303,6 @@ export default function ProductDetailScreen() {
           {product.variants.map((v) => {
             const vPct = discountPercent(v.effectivePrice.basePrice, v.effectivePrice.unitPrice);
             const active = selected?.id === v.id;
-            const vWeight = formatWeight(v.weight, v.weightUnit);
             return (
               <Pressable
                 key={v.id}
@@ -316,8 +317,7 @@ export default function ProductDetailScreen() {
               >
                 <View style={styles.variantBody}>
                   <Text style={styles.variantName}>
-                    {v.name}
-                    {vWeight ? ` · ${vWeight}` : ""} / {v.saleUnit}
+                    {variantSpecLabel(v)} / {v.saleUnit}
                   </Text>
                   <View style={styles.variantPriceRow}>
                     <Text style={styles.variantPrice}>{formatMoney(v.effectivePrice.unitPrice)}</Text>

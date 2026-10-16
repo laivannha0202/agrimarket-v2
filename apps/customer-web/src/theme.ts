@@ -3,27 +3,22 @@
 /**
  * Mantine theme for the AgriMarket storefront.
  *
- * The palette and radii are copied 1:1 from the Mobile app
- * (`apps/mobile/src/lib/theme.ts`) so the web and the app look like the same
- * product: one AgriMarket green (#0b7a39), neutral greys, hairline borders and
- * a moderate radius. No gradients, no heavy shadows.
+ * The palette, tone colours and layout constants come from
+ * `@agrimarket/design-tokens` — the same tokens the Mobile app consumes — so
+ * web and app look like one product: one AgriMarket green (#0b7a39), neutral
+ * greys, hairline borders and a moderate radius. No gradients, no heavy
+ * shadows.
  */
 
 import { createTheme, type MantineColorsTuple } from "@mantine/core";
+import {
+  primaryScale,
+  toneColors as tokenToneColors,
+  layout as tokenLayout,
+} from "@agrimarket/design-tokens";
 
 /** AgriMarket primary green (light -> dark); shade 8 is the brand green. */
-const agriGreen: MantineColorsTuple = [
-  "#eefaf1",
-  "#d7f2df",
-  "#aee5bf",
-  "#82d79c",
-  "#5fcb80",
-  "#48c36e",
-  "#3bbf66",
-  "#2ca655",
-  "#0b7a39",
-  "#095c2c",
-];
+const agriGreen = [...primaryScale] as unknown as MantineColorsTuple;
 
 export const theme = createTheme({
   primaryColor: "agri",
@@ -81,27 +76,11 @@ export const theme = createTheme({
   },
 });
 
-/** Shared layout tokens. */
-export const layout = {
-  headerHeight: 64,
-  headerHeightMobile: 56,
-  containerSize: 1280,
-  /** Bottom tab bar height on phones (mirrors the Mobile app's 60). */
-  tabBarHeight: 60,
-};
+/** Shared layout tokens (mirrors the Mobile shell). */
+export const layout = tokenLayout;
 
 /**
- * Tone palette for status badges/pills, copied from the Mobile theme
- * (`toneColors`): background / foreground / border per tone.
+ * Tone palette for status badges/pills — the same `toneColors` the Mobile app
+ * uses, consumed as one object so the two palettes cannot drift.
  */
-export const toneColors: Record<
-  "green" | "blue" | "yellow" | "orange" | "red" | "gray",
-  { bg: string; fg: string; border: string }
-> = {
-  green: { bg: "#eefaf1", fg: "#0b7a39", border: "#aee5bf" },
-  blue: { bg: "#e8f0fe", fg: "#1d4ed8", border: "#bfcffb" },
-  yellow: { bg: "#fdf3d7", fg: "#8a5a00", border: "#f0d48a" },
-  orange: { bg: "#fdeedd", fg: "#b45309", border: "#f5c98a" },
-  red: { bg: "#fdecea", fg: "#c0392b", border: "#f3b3ab" },
-  gray: { bg: "#eef0ee", fg: "#5f6b5f", border: "#d7dbd7" },
-};
+export const toneColors = tokenToneColors;

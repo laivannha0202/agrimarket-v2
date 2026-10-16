@@ -135,6 +135,8 @@ export class ReturnsService {
     const [rows, total] = await Promise.all([
       this.prisma.orderItem.findMany({
         where,
+        skip,
+        take,
         orderBy: { id: 'desc' },
         include: {
           partnerOrder: {

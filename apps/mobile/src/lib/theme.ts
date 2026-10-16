@@ -1,50 +1,18 @@
 /**
- * Brand tokens. One green, neutral greys, light borders. No gradients,
- * no heavy shadows — matches the Customer Web palette.
- *
- * The UI Kit mockups suggest `#087A3B`; the shipped token stays `#0b7a39`
- * because that is the colour the Customer Web and the backend-issued assets
- * already use. Two near-identical greens in one product is a bug, not a style.
+ * Brand tokens. Values live in `@agrimarket/design-tokens` so the Customer Web
+ * and the Mobile app can never drift apart: one green, neutral greys, light
+ * borders. This file only adds the React-Native-specific pieces (elevation,
+ * touch targets, line boxes) on top of those shared tokens.
  */
 
-export const colors = {
-  primary: "#0b7a39",
-  primaryDark: "#095c2c",
-  primarySoft: "#eefaf1",
-  primaryBorder: "#aee5bf",
-  page: "#f7f8f7",
-  surface: "#ffffff",
-  text: "#1a1d1a",
-  textStrong: "#0f120f",
-  muted: "#5f6b5f",
-  mutedSoft: "#8b968b",
-  border: "#e6e8eb",
-  borderStrong: "#d7dbd7",
-  danger: "#c0392b",
-  dangerSoft: "#fdecea",
-  warning: "#b7791f",
-  warningSoft: "#fdf3d7",
-  info: "#1d4ed8",
-  infoSoft: "#e8f0fe",
-  /** Overlay behind "Hết hàng" so the photo stays readable underneath. */
-  scrim: "rgba(15,18,15,0.45)",
-} as const;
+import { colors as tokenColors, spacing, radius, toneColors, type BrandTone } from "@agrimarket/design-tokens";
 
-export type Tone = "green" | "blue" | "yellow" | "red" | "gray" | "orange";
+export const colors = tokenColors;
 
-export const toneColors: Record<Tone, { bg: string; fg: string; border: string }> = {
-  green: { bg: "#eefaf1", fg: "#0b7a39", border: "#aee5bf" },
-  blue: { bg: "#e8f0fe", fg: "#1d4ed8", border: "#bfcffb" },
-  yellow: { bg: "#fdf3d7", fg: "#8a5a00", border: "#f0d48a" },
-  orange: { bg: "#fdeedd", fg: "#b45309", border: "#f5c98a" },
-  red: { bg: "#fdecea", fg: "#c0392b", border: "#f3b3ab" },
-  gray: { bg: "#eef0ee", fg: "#5f6b5f", border: "#d7dbd7" },
-};
+/** Status-badge tone, matching `toneColors` in the shared design tokens. */
+export type Tone = BrandTone;
 
-export const radius = { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
-
-/** 4pt spacing scale. Use these instead of ad-hoc numbers. */
-export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 28 } as const;
+export { toneColors, radius, spacing };
 
 /** Shared type scale so every screen reads the same. */
 export const typography = {
@@ -68,7 +36,7 @@ export const typography = {
 export const productNameLineHeight = { grid: 18, row: 19 } as const;
 
 /** Minimum comfortable touch target (Material / iOS HIG). */
-export const TOUCH = 44;
+export { TOUCH } from "@agrimarket/design-tokens";
 
 /**
  * Elevation presets. RN maps `elevation` on Android and `shadow*` on iOS; both

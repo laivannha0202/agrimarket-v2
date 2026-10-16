@@ -14,6 +14,12 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true,
   },
+  /**
+   * Workspace packages ship raw TypeScript (`main`/`exports` point at `src/*.ts`),
+   * so they must be compiled by the Next.js compiler instead of being treated as
+   * pre-built runtime code from `node_modules`.
+   */
+  transpilePackages: ["@agrimarket/shared-domain", "@agrimarket/design-tokens"],
 };
 
 export default nextConfig;

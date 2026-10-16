@@ -15,11 +15,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiBody, ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { memoryStorage } from 'multer';
-import {
-  EVIDENCE_MAX_BYTES,
-  EvidenceService,
-  MAX_EVIDENCE_PER_REQUEST,
-} from './evidence.service.js';
+import { EVIDENCE_MAX_BYTES, EvidenceService } from './evidence.service.js';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';

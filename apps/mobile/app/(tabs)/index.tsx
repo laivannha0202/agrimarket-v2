@@ -29,12 +29,18 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ProductCard } from "../../src/components/ProductCard";
 import { Card, EmptyView, ErrorView, LinkPress, LoadingView, ProductThumb, SectionHeader } from "../../src/components/ui";
+import {
+  flashSaleRemainingTotal,
+  isFlashItemSoldOut,
+  isFlashSaleLive,
+  isProductOnSale,
+  partitionHomeProducts,
+} from "@agrimarket/shared-domain/home";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
 import { apiConfigNotice } from "../../src/lib/config";
 import { formatCountdown, formatCountdownLabel } from "../../src/lib/countdown";
 import { categoryIcon, designAssets } from "../../src/lib/design-assets";
 import { discountPercent, formatMoney, formatQuantity } from "../../src/lib/format";
-import { isFlashSaleActive } from "../../src/lib/promotions";
 import { resources } from "../../src/lib/resources";
 import { colors, elevation, radius, spacing, TOUCH } from "../../src/lib/theme";
 import type { FlashSale, FlashSaleItem, Product } from "../../src/lib/types";
@@ -73,13 +79,9 @@ export default function HomeScreen() {
   });
   const flash = useQuery({ queryKey: ["flash-sales"], queryFn: () => resources.listFlashSales(10) });
   const farms = useQuery({ queryKey: ["farms", "home"], queryFn: () => resources.listFarms(undefined, 6) });
-  const discounts = useQuery({
-    queryKey: ["product-discounts", "home"],
-    queryFn: () => resources.listProductDiscounts(100),
-  });
 
   const activeFlash = useMemo(
-    () => (flash.data?.data ?? []).filter((s) => isFlashSaleActive(s)),
+    () => (flash.data?.data ?? []).filter((s) => isFlashSaleLive(s)),
     [flash.data],
   );
 
@@ -110,17 +112,34 @@ export default function HomeScreen() {
     activeFlash.flatMap((s) => s.items.map((i) => i.productVariant.productId)),
   );
 
-  /** Products that currently carry a real discount (server `effectivePrice`). */
-  const onSale = useMemo(() => {
-    const list = products.data?.data ?? [];
-    return list.filter((p) =>
-      p.variants.some(
-        (v) => v.effectivePrice.source !== "NONE" && v.effectivePrice.unitPrice < v.effectivePrice.basePrice,
-      ),
-    );
-  }, [products.data]);
+  /** Product IDs already on display in the flash-sale strip above. */
+  const flashSaleProductIds = useMemo(
+    () => new Set(activeFlash.flatMap((s) => s.items.map((i) => i.productVariant.productId))),
+    [activeFlash],
+  );
 
-  const hasDiscountProgram = (discounts.data?.data.length ?? 0) > 0;
+  /**
+   * The two product blocks below the flash strip, de-duplicated.
+   *
+   * Rules live in `@agrimarket/shared-domain` so the Web homepage shows the
+   * exact same sections: a product never appears twice (by ID), the flash-sale
+   * strip wins, and "Đang giảm giá" only lists products whose ACTIVE variant
+   * really is cheaper than its base price — the server already resolved that
+   * price, the app only selects it. The previous extra `/product-discounts`
+   * request was never used to decide anything a product row did not already
+   * answer, so the home screen no longer makes it.
+   */
+  const home = useMemo(
+    () =>
+      partitionHomeProducts(products.data?.data ?? [], {
+        getId: (p) => p.id,
+        excludeIds: flashSaleProductIds,
+        isDiscounted: isProductOnSale,
+        discountedLimit: 4,
+        featuredLimit: 6,
+      }),
+    [products.data, flashSaleProductIds],
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -130,7 +149,6 @@ export default function HomeScreen() {
         products.refetch(),
         flash.refetch(),
         farms.refetch(),
-        discounts.refetch(),
       ]);
     } finally {
       setRefreshing(false);
@@ -370,14 +388,14 @@ export default function HomeScreen() {
         emptyKind="search"
         onRetry={() => void products.refetch()}
       />
-      {renderGrid((products.data?.data ?? []).slice(0, 6))}
+      {renderGrid(home.featured)}
 
       {/* --------------------------------------------------------- on sale --- */}
-      {/* Only when the backend actually has a discount programme running. */}
-      {hasDiscountProgram && onSale.length > 0 ? (
+      {/* Only products with a real price cut that are not already shown above. */}
+      {home.discounted.length > 0 ? (
         <>
           <SectionHeader title="Đang giảm giá" icon="pricetags-outline" />
-          {renderGrid(onSale.slice(0, 4))}
+          {renderGrid(home.discounted)}
         </>
       ) : null}
 
@@ -494,7 +512,7 @@ function FlashSaleCard({
   onExpired: () => void;
 }) {
   const countdown = useCountdown(sale.endsAt, onExpired);
-  const quotaLeft = sale.items.reduce((s, i) => s + Math.max(0, i.quota - i.soldQuantity), 0);
+  const quotaLeft = flashSaleRemainingTotal(sale);
 
   // The programme is over: render nothing rather than a card whose prices are
   // no longer valid. `onExpired` has already asked the API for the live list.
@@ -551,7 +569,7 @@ function FlashSaleItemCard({ item, product }: { item: FlashSaleItem; product: Pr
   const flash = Number(item.flashPrice);
   const base = Number(item.productVariant.basePrice);
   const off = discountPercent(base, flash);
-  const soldOut = item.soldQuantity >= item.quota;
+  const soldOut = isFlashItemSoldOut(item);
 
   return (
     <LinkPress
@@ -580,7 +598,7 @@ function FlashSaleItemCard({ item, product }: { item: FlashSaleItem; product: Pr
           {item.productVariant.name}
         </Text>
         <Text style={styles.flashPrice}>{formatMoney(flash)}</Text>
-        <Text style={styles.flashWas}>{formatMoney(base)}</Text>
+        {off !== null ? <Text style={styles.flashWas}>{formatMoney(base)}</Text> : null}
     </LinkPress>
   );
 }

@@ -8,7 +8,12 @@ import {
   UpdatePaymentStatusDto,
 } from './dto/payment.dto.js';
 import type { Payment, Prisma, Refund } from '../../generated/prisma/client.js';
-import { PaymentStatus, RefundStatus } from '../../generated/prisma/enums.js';
+import {
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+  RefundStatus,
+} from '../../generated/prisma/enums.js';
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -65,11 +70,20 @@ export class PaymentsService {
    *
    * The only path that marks money collected: moving to PAID stamps `paidAt`
    * and requires a `transactionReference` (courier receipt / gateway reference)
-   * so a COD collection is never confirmed without evidence. Re-applying the
-   * current status is an idempotent no-op (returns the row untouched, no audit
-   * row), while re-entering a terminal status (REFUNDED) is refused. Terminal
-   * payments cannot be moved backwards, and a payment can leave PENDING/FAILED
-   * only towards PAID.
+   * so a COD collection is never confirmed without evidence. The ORDER is
+   * checked too, because a payment row alone must not claim money the real
+   * world has not collected yet:
+   *  - a cancelled order can never be marked PAID (money on a cancelled order
+   *    is nonsense; the FAILED transition exists for that case);
+   *  - a COD payment only becomes PAID once the order is DELIVERED — cash is
+   *    collected by the courier at the doorstep, never earlier. Without this
+   *    check an operator could confirm a collection for a parcel still in
+   *    transit, and the settlement report would book money that does not exist.
+   *
+   * Re-applying the current status is an idempotent no-op (returns the row
+   * untouched, no audit row), while re-entering a terminal status (REFUNDED) is
+   * refused. Terminal payments cannot be moved backwards, and a payment can
+   * leave PENDING/FAILED only towards PAID.
    */
   async updateStatus(id: number, dto: UpdatePaymentStatusDto, actorUserId: number) {
     const payment = await this.findOne(id);
@@ -82,10 +96,25 @@ export class PaymentsService {
       return payment;
     }
     assertPaymentTransition(payment.status, dto.status);
-    if (dto.status === PaymentStatus.PAID && !dto.transactionReference?.trim()) {
-      throw new BadRequestException(
-        'A transaction reference is required to confirm cash collection',
-      );
+    if (dto.status === PaymentStatus.PAID) {
+      if (!dto.transactionReference?.trim()) {
+        throw new BadRequestException(
+          'A transaction reference is required to confirm cash collection',
+        );
+      }
+      const order = await this.prisma.order.findUnique({
+        where: { id: payment.orderId },
+        select: { status: true },
+      });
+      if (!order) throw new NotFoundException('Order not found');
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Cannot confirm a payment for a cancelled order');
+      }
+      if (payment.method === PaymentMethod.COD && order.status !== OrderStatus.DELIVERED) {
+        throw new BadRequestException(
+          'Cash on delivery can only be confirmed once the order is delivered',
+        );
+      }
     }
     const data: Prisma.PaymentUpdateInput = { status: dto.status };
     if (dto.status === PaymentStatus.PAID) data.paidAt = new Date();

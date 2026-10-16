@@ -4,10 +4,10 @@
  * Homepage product sections.
  *
  * Both sections are built from real API data:
- *   - "Sản phẩm đang giảm giá"  = products whose catalog `effectivePrice`
- *     reports a real promotion (`PRODUCT_DISCOUNT` or `FLASH_SALE`). The
- *     backend resolves that price, so the section needs no client-side join
- *     against the promotion endpoints.
+ *   - "Sản phẩm đang giảm giá"  = products with a REAL discount on an ACTIVE
+ *     variant (`effectivePrice.unitPrice < basePrice`, shared rule
+ *     `isProductOnSale`). The backend resolves that price, so the section
+ *     needs no client-side join against the promotion endpoints.
  *   - "Sản phẩm nổi bật"        = the newest products the catalog returns.
  *
  * NO PRODUCT APPEARS TWICE ON THE HOMEPAGE
@@ -24,6 +24,7 @@
 import { useMemo } from "react";
 import { SimpleGrid, Stack } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
+import { isProductOnSale, partitionHomeProducts } from "@agrimarket/shared-domain/home";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { ProductCard } from "@/components/product/ProductCard";
@@ -31,7 +32,6 @@ import { useAddToCart } from "@/components/product/useAddToCart";
 import { SectionHeader } from "@/components/ui/kit";
 import { usePromotionIndex } from "@/components/product/usePromotionIndex";
 import { ProductGridSkeleton, ErrorState, EmptyState } from "@/components/common/States";
-import type { Product } from "@/lib/api/types";
 
 const GRID_COLS = { base: 2, xs: 2, sm: 3, md: 4, lg: 5 } as const;
 
@@ -61,30 +61,16 @@ function useHomeSections(flashSaleProductIds: ReadonlySet<number>) {
   const sections = useMemo(() => {
     const products = productsQuery.data?.data ?? [];
 
-    const isDiscounted = (product: Product): boolean =>
-      (product.variants ?? []).some(
-        (variant) =>
-          variant.status === "ACTIVE" && variant.effectivePrice?.source !== "NONE",
-      );
-
-    // Products whose variant carries a flash-sale price belong to the flash-sale
-    // block, not to the generic discount block.
-    const isFlashSale = (product: Product): boolean =>
-      (product.variants ?? []).some(
-        (variant) => variant.status === "ACTIVE" && variant.effectivePrice?.source === "FLASH_SALE",
-      );
-
-    const discounted = products
-      .filter((product) => !flashSaleProductIds.has(product.id) && isDiscounted(product))
-      .slice(0, DISCOUNTED_LIMIT);
-
-    const shown = new Set<number>([...flashSaleProductIds, ...discounted.map((p) => p.id)]);
-
-    const featured = products
-      .filter((product) => !shown.has(product.id))
-      .slice(0, FEATURED_LIMIT);
-
-    return { discounted, featured, hasAnyFlashPriced: products.some(isFlashSale) };
+    // Section rules (dedup by product ID, "sale" means a REAL discount on an
+    // ACTIVE variant) live in `@agrimarket/shared-domain` so the Mobile home
+    // tab picks the exact same products.
+    return partitionHomeProducts(products, {
+      getId: (product) => product.id,
+      excludeIds: flashSaleProductIds,
+      isDiscounted: isProductOnSale,
+      discountedLimit: DISCOUNTED_LIMIT,
+      featuredLimit: FEATURED_LIMIT,
+    });
   }, [productsQuery.data, flashSaleProductIds]);
 
   return { ...sections, index, productsQuery, cart };

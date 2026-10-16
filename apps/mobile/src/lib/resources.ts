@@ -39,6 +39,8 @@ import type {
   Ward,
 } from "./types";
 
+import type { CheckoutPayloadLike } from "@agrimarket/shared-domain";
+
 export interface ProductListParams {
   page?: number;
   limit?: number;
@@ -53,14 +55,12 @@ export interface OrderListParams {
   status?: string;
 }
 
-export interface CheckoutPayload {
-  shippingAddress: ShippingAddressInput;
-  items?: { productVariantId: number; quantity: number }[];
-  voucherCode?: string;
-  paymentMethod?: "COD";
-  note?: string;
-  expectedGrandTotal?: number;
-}
+/**
+ * The checkout request body. The shape is owned by `@agrimarket/shared-domain`
+ * — `buildCheckoutPayload` returns exactly this — so the app and the shared
+ * payload builder cannot disagree about it.
+ */
+export type CheckoutPayload = CheckoutPayloadLike;
 
 export interface CheckoutPreviewPayload {
   items?: { productVariantId: number; quantity: number }[];

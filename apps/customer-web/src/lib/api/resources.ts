@@ -43,6 +43,8 @@ import type {
   Ward,
 } from "./types";
 
+import type { CheckoutPayloadLike } from "@agrimarket/shared-domain";
+
 export const resources = {
   // ----- Auth ---------------------------------------------------------------
   login: (email: string, password: string) =>
@@ -296,15 +298,12 @@ export const resources = {
   },
 };
 
-export interface CheckoutPayload {
-  shippingAddress: ShippingAddressInput;
-  items?: Array<{ productVariantId: number; quantity: number }>;
-  voucherCode?: string;
-  paymentMethod?: "COD" | "VNPAY" | "MOCK_ONLINE";
-  note?: string;
-  /** Grand total seen on the preview; the backend refuses a silent re-price. */
-  expectedGrandTotal?: number;
-}
+/**
+ * The checkout request body. The shape is owned by `@agrimarket/shared-domain`
+ * — `buildCheckoutPayload` returns exactly this — so the Web and Mobile apps
+ * cannot disagree with the backend contract.
+ */
+export type CheckoutPayload = CheckoutPayloadLike;
 
 /** Preview request: the line selection and voucher, never an address. */
 export interface CheckoutPreviewPayload {

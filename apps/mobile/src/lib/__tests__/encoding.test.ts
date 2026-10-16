@@ -34,6 +34,10 @@ const APP_ROOT = resolve(__dirname, "../../..");
 /** Directories that are generated, vendored or binary. */
 const SKIP_DIRS = new Set([
   "node_modules",
+  // Leftover artefacts from an interrupted pnpm install; they may contain
+  // broken junctions that statSync cannot follow on Windows.
+  "node_modules_pnpm_broken",
+  "node_modules_*_broken",
   ".expo",
   "dist",
   ".next",
@@ -89,15 +93,27 @@ const MOJIBAKE_SIGNATURE =
 const VIETNAMESE = /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/i;
 
 function collectSourceFiles(dir: string, acc: string[] = []): string[] {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(entry.name)) continue;
+  let entries;
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    // A directory that cannot be read (e.g. a broken junction left behind by
+    // an interrupted install) is not source — skip it instead of crashing.
+    return acc;
+  }
+  for (const entry of entries) {
+    if (SKIP_DIRS.has(entry.name) || entry.name.startsWith("node_modules_")) continue;
     const abs = join(dir, entry.name);
     if (entry.isDirectory()) {
       collectSourceFiles(abs, acc);
       continue;
     }
     if (SKIP_EXT.has(extname(entry.name).toLowerCase())) continue;
-    if (statSync(abs).size > 2 * 1024 * 1024) continue;
+    try {
+      if (statSync(abs).size > 2 * 1024 * 1024) continue;
+    } catch {
+      continue;
+    }
     acc.push(abs);
   }
   return acc;

@@ -111,7 +111,20 @@ One customer order that spans several partners is split into one
   over. Delivery success is **not** proof of collection: a delivered parcel
   proves the goods arrived, not that money changed hands, so moving an order to
   `DELIVERED` leaves its COD payment `PENDING` until the receipt is confirmed.
-- Online payments follow the same lifecycle through the payments module.
+- The transition to `PAID` requires a `transactionReference` (courier receipt /
+  gateway reference) and checks the ORDER as well as the payment row
+  (`PaymentsService.updateStatus`):
+  - a payment of a `CANCELLED` order can never be marked `PAID` — the `FAILED`
+    transition exists for that case;
+  - a COD payment can only be marked `PAID` once the order is `DELIVERED`,
+    because the courier collects at the doorstep; confirming cash for a parcel
+    still in transit would book money that does not exist.
+  - The Admin UI follows the same rule: the "Ghi nhận thu tiền" button is only
+    rendered for a `PENDING` COD payment whose order is `DELIVERED`; otherwise
+    the row shows "Chờ giao hàng" (or "—").
+- Non-COD (online) payments follow the same lifecycle through the payments
+  module without the `DELIVERED` requirement: the gateway reference is the
+  receipt, not the courier.
 
 ## 6b. Delivery consumes the reservation
 

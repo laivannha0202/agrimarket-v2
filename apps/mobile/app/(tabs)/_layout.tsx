@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
+import { useQuery } from "@tanstack/react-query";
 import { Platform, StyleSheet, Text, View, type ColorValue } from "react-native";
 import { colors, spacing } from "../../src/lib/theme";
+import { resources } from "../../src/lib/resources";
+import { useAuth } from "../../src/providers";
 
 /**
  * Bottom tabs.
@@ -17,6 +20,9 @@ import { colors, spacing } from "../../src/lib/theme";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
+/** Route names that own a tab — keeps `ICONS[routeName]` total. */
+type RouteName = "index" | "catalog" | "trace" | "cart" | "account";
+
 /**
  * Minimum bar height so the label is never flex-shrunk.
  *
@@ -29,7 +35,7 @@ type IconName = React.ComponentProps<typeof Ionicons>["name"];
  */
 const TAB_BAR_MIN_HEIGHT = 60;
 
-const ICONS: Record<string, { on: IconName; off: IconName }> = {
+const ICONS: Record<RouteName, { on: IconName; off: IconName }> = {
   index: { on: "home", off: "home-outline" },
   catalog: { on: "grid", off: "grid-outline" },
   trace: { on: "qr-code", off: "qr-code-outline" },
@@ -37,11 +43,44 @@ const ICONS: Record<string, { on: IconName; off: IconName }> = {
   account: { on: "person", off: "person-outline" },
 };
 
-function TabIcon({ routeName, focused, color }: { routeName: string; focused: boolean; color: ColorValue }) {
-  const set = ICONS[routeName] ?? { on: "ellipse", off: "ellipse-outline" };
+function TabIcon({ routeName, focused, color }: { routeName: RouteName; focused: boolean; color: ColorValue }) {
+  const set = ICONS[routeName];
   return (
     <View style={styles.iconWrap}>
       <Ionicons name={focused ? set.on : set.off} size={22} color={color} />
+    </View>
+  );
+}
+
+/**
+ * Cart tab icon with a live item-count badge.
+ *
+ * Same contract as the Web header badge: the count is the number of cart lines
+ * the BACKEND reports (`items.length` of `GET /carts/me`), never a number this
+ * app computes or keeps in a parallel store. The query is only enabled once the
+ * session is hydrated and signed in, so a guest never sees a badge; it shares
+ * the `["cart"]` query key with the cart screen, so add/remove invalidations
+ * refresh the badge in the same render pass. Capped at `99+` so the pill cannot
+ * grow a second line.
+ */
+function CartTabIcon({ focused, color }: { focused: boolean; color: ColorValue }) {
+  const { token, hydrated } = useAuth();
+  const { data } = useQuery({
+    queryKey: ["cart"],
+    queryFn: () => resources.getCart(),
+    enabled: hydrated && Boolean(token),
+    staleTime: 10_000,
+  });
+  const count = data?.items.length ?? 0;
+
+  return (
+    <View style={styles.iconWrap}>
+      <Ionicons name={focused ? ICONS.cart.on : ICONS.cart.off} size={22} color={color} />
+      {count > 0 ? (
+        <View style={styles.cartBadge}>
+          <Text style={styles.cartBadgeText}>{count > 99 ? "99+" : count}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -107,7 +146,7 @@ export default function TabsLayout() {
         options={{
           title: "Giỏ hàng",
           tabBarLabel: ({ focused }) => <TabLabel focused={focused}>Giỏ hàng</TabLabel>,
-          tabBarIcon: ({ focused, color }) => <TabIcon routeName="cart" focused={focused} color={color} />,
+          tabBarIcon: ({ focused, color }) => <CartTabIcon focused={focused} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -139,6 +178,20 @@ const styles = StyleSheet.create({
   },
   tabItem: { paddingBottom: Platform.OS === "android" ? spacing.xs : 0 },
   iconWrap: { alignItems: "center", justifyContent: "center", height: 26 },
+  // Red count pill on the cart tab, anchored to the icon's top-right corner.
+  cartBadge: {
+    position: "absolute",
+    top: -5,
+    right: -10,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700", lineHeight: 13 },
   // Explicit lineHeight keeps the Vietnamese glyphs (with their diacritics)
   // inside the box; the default `normal` line box was clipping them.
   label: { fontSize: 11, lineHeight: 15, fontWeight: "600", marginTop: 1, textAlign: "center" },

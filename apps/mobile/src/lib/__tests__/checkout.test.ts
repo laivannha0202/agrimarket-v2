@@ -16,7 +16,6 @@ const {
   needsTotalConfirm,
   parseBuyNowParam,
   translatedMessage,
-  validateAddressInput,
 } = await import("../checkout");
 const { formatAddressLine, isCatalogueAddress, wardMatches, foldForSearch } = await import("../address");
 
@@ -232,7 +231,7 @@ describe("checkout helpers", () => {
       "Mã giảm giá đã hết lượt sử dụng.",
     );
     // No translated text -> the cause supplies an actionable sentence.
-    expect(checkoutErrorMessage(new ApiError(0, ""), null)).toContain("Wi-Fi");
+    expect(checkoutErrorMessage(new ApiError(0, ""), null)).toContain("kết nối mạng");
     expect(checkoutErrorMessage(new ApiError(401, ""), null)).toContain("đăng nhập");
     expect(checkoutErrorMessage(new ApiError(400, "Insufficient sellable stock"), null)).toContain("đủ hàng");
     expect(checkoutErrorMessage(new ApiError(400, "Voucher not found"), null)).toContain("giảm giá");
@@ -246,14 +245,11 @@ describe("checkout helpers", () => {
     expect(translatedMessage(new Error("x"))).toBeNull();
   });
 
-  it("summarises and validates addresses", () => {
+  it("summarises a saved address in one line", () => {
     // Legacy: shows the stored free text, district included.
     expect(formatAddressLine(legacyAddress())).toBe("Số 12, Tân Quang, Văn Lâm, Hưng Yên");
     // Catalogue: shows the official ward name and NO district.
     expect(formatAddressLine(catalogueAddress())).toBe("Số 12, Phường Phố Hiến, Hưng Yên");
-
-    expect(validateAddressInput({ recipientName: "", phone: "09", province: "HY", detail: "x" })).not.toBeNull();
-    expect(validateAddressInput({ recipientName: "A", phone: "09", province: "HY", detail: "x" })).toBeNull();
   });
 
   it("distinguishes a catalogue address from a legacy one", () => {

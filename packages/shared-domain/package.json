@@ -1,0 +1,43 @@
+{
+  "name": "@agrimarket/shared-domain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure domain logic shared by Customer Web and Mobile: statuses, formatting and checkout rules. No React, no DOM, no React Native, no network.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./types": {
+      "types": "./src/types.ts",
+      "default": "./src/types.ts"
+    },
+    "./format": {
+      "types": "./src/format.ts",
+      "default": "./src/format.ts"
+    },
+    "./statuses": {
+      "types": "./src/statuses.ts",
+      "default": "./src/statuses.ts"
+    },
+    "./checkout": {
+      "types": "./src/checkout.ts",
+      "default": "./src/checkout.ts"
+    },
+    "./home": {
+      "types": "./src/home.ts",
+      "default": "./src/home.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11"
+  },
+  "packageManager": "npm@11.20.0"
+}

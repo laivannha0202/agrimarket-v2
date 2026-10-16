@@ -56,6 +56,7 @@ import {
   variantSpecLabel,
 } from "@/lib/format";
 import { variantDisplayPrice } from "@/lib/promotions";
+import { buyNowParam } from "@/lib/checkout";
 import { displayVariant } from "@/lib/product-variant";
 import { useAuth } from "@/lib/auth/useAuth";
 import { ProductImage } from "@/components/common/ProductImage";
@@ -206,16 +207,29 @@ export function ProductDetail({ productId }: { productId: number }) {
 
   const handleBuyNow = () => {
     if (!selected || !canBuySelected) return;
-    if (!isAuthenticated || !isCustomer) {
-      handleAddToCart();
+    /**
+     * "Mua ngay" checks out EXACTLY this line without touching the cart: the
+     * cart keeps whatever it already holds and the checkout page orders the
+     * `mua-ngay` line alone. Adding to the cart here (the old behaviour)
+     * silently turned "Mua ngay" into "add to cart + checkout", so the order
+     * contained whatever else the customer had in the cart.
+     */
+    const target = `/thanh-toan?mua-ngay=${encodeURIComponent(
+      buyNowParam(selected.id, clampedQuantity),
+    )}`;
+    if (!isAuthenticated) {
+      router.push(`/dang-nhap?tiep-theo=${encodeURIComponent(target)}`);
       return;
     }
-    // "Mua ngay" reuses the SAME cart + checkout flow: the item is added to the
-    // cart and the customer is sent to checkout. No second pricing path exists.
-    addToCart.mutate(
-      { variantId: selected.id, qty: clampedQuantity },
-      { onSuccess: () => router.push("/thanh-toan") },
-    );
+    if (!isCustomer) {
+      notifications.show({
+        title: "Tài khoản không phù hợp",
+        message: "Vui lòng đăng nhập bằng tài khoản khách hàng để mua hàng.",
+        color: "orange",
+      });
+      return;
+    }
+    router.push(target);
   };
 
   return (

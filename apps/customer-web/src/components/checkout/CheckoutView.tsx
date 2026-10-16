@@ -19,6 +19,14 @@
  * Only COD is offered. `PaymentMethod.VNPAY` / `MOCK_ONLINE` exist in the enum
  * but no gateway or payment-initiation endpoint exists, so no online payment UI
  * is shown.
+ *
+ * TWO MODES, ONE FLOW
+ *
+ * `/thanh-toan` checks out the cart; `/thanh-toan?mua-ngay=<variantId>:<qty>`
+ * ("Mua ngay") checks out exactly that one line and leaves the cart untouched.
+ * Both modes run through the same preview + idempotent submit path, and the
+ * payload is built by the shared `buildCheckoutPayload` helper, so the Web and
+ * Mobile flows cannot diverge.
  */
 
 import {
@@ -67,7 +75,14 @@ import {
   toAddressPayload,
   type AddressFormValues,
 } from "@/lib/address";
-import { classifyCheckoutConflict, needsTotalConfirm } from "@/lib/checkout";
+import {
+  buildCheckoutPayload,
+  checkoutErrorMessage,
+  classifyCheckoutConflict,
+  needsTotalConfirm,
+  parseBuyNowParam,
+  translatedMessage,
+} from "@/lib/checkout";
 import { formatMoney, formatQuantity } from "@/lib/format";
 import { splitVouchers, voucherValueLabel } from "@/lib/vouchers";
 import { EmptyState, ErrorState } from "@/components/common/States";
@@ -122,9 +137,23 @@ function InlineError({ message, onRetry }: { message: string; onRetry?: () => vo
   );
 }
 
-export function CheckoutView() {
+export function CheckoutView({ buyNowRaw }: { buyNowRaw?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+
+  /**
+   * "Mua ngay" (`/thanh-toan?mua-ngay=<variantId>:<quantity>`): checkout with
+   * exactly the tapped line, WITHOUT going through the cart — the cart keeps
+   * whatever it already holds. Absent (undefined) -> normal cart checkout;
+   * present but malformed -> an explicit error state, never a silent fallback
+   * to the cart (that fallback is the bug this mode replaces).
+   */
+  const hasBuyNow = buyNowRaw !== undefined;
+  const directItems = useMemo(
+    () => (hasBuyNow ? parseBuyNowParam(buyNowRaw) : null),
+    [buyNowRaw, hasBuyNow],
+  );
+  const buyNowInvalid = hasBuyNow && directItems === null;
 
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
   const [voucherCode, setVoucherCode] = useState("");
@@ -145,6 +174,8 @@ export function CheckoutView() {
   const cartQuery = useQuery({
     queryKey: queryKeys.cart.me(),
     queryFn: resources.getCart,
+    // A "Mua ngay" checkout must not depend on the cart (it is not read at all).
+    enabled: !hasBuyNow,
   });
 
   const addressesQuery = useQuery({
@@ -184,7 +215,19 @@ export function CheckoutView() {
   // Derived list state is declared before the mutations that read it: a
   // mutation defined above would close over the binding before it is
   // initialised, which is exactly what the React Compiler refuses to memoize.
-  const items = useMemo(() => cartQuery.data?.items ?? [], [cartQuery.data]);
+  //
+  // The ordered lines are the "Mua ngay" line when present, otherwise the cart.
+  // Quantities come back as Decimal strings, so they are numbers here — the same
+  // normalisation the Mobile app performs.
+  const items = useMemo(
+    () =>
+      directItems ??
+      (cartQuery.data?.items ?? []).map((item) => ({
+        productVariantId: item.productVariantId,
+        quantity: Number(item.quantity),
+      })),
+    [cartQuery.data, directItems],
+  );
   const addresses = useMemo(() => addressesQuery.data ?? [], [addressesQuery.data]);
 
   const formProvinceName = useMemo(
@@ -227,9 +270,11 @@ export function CheckoutView() {
   const voucher = voucherCode.trim();
 
   /**
-   * The preview prices the lines the signature encodes; the endpoint reads the
-   * cart server-side, so no line is sent from here. The key also carries the
-   * voucher, and is shared with the cart screen when no voucher is applied.
+   * The preview prices the exact lines in the signature — the buy-now line or
+   * the cart lines — so the endpoint never has to be trusted to guess the right
+   * selection. The same inputs (lines + voucher) always produce the same
+   * preview, which is why the key is shared with the cart screen when no
+   * voucher is applied.
    */
   const itemSignature = items
     .map((item) => `${item.productVariantId}:${item.quantity}`)
@@ -237,7 +282,11 @@ export function CheckoutView() {
 
   const previewQuery = useQuery({
     queryKey: queryKeys.checkout.preview(itemSignature, voucher),
-    queryFn: () => resources.checkoutPreview({ voucherCode: voucher || undefined }),
+    queryFn: () =>
+      resources.checkoutPreview({
+        items: items.length > 0 ? items : undefined,
+        voucherCode: voucher || undefined,
+      }),
     enabled: items.length > 0,
     retry: false,
   });
@@ -283,33 +332,6 @@ export function CheckoutView() {
     setVoucherPickerOpen(false);
   };
 
-  const buildPayload = (): CheckoutPayload | null => {
-    if (!selectedAddress) return null;
-    return {
-      shippingAddress: {
-        recipientName: selectedAddress.recipientName,
-        phone: selectedAddress.phone,
-        province: selectedAddress.province,
-        // A code-verified address sends the official pair so the backend can
-        // re-resolve the commune and snapshot the OFFICIAL name; a legacy
-        // address sends its own free text and is snapshotted as-is.
-        provinceCode: selectedAddress.provinceCode ?? undefined,
-        wardCode: selectedAddress.wardCode ?? undefined,
-        district: selectedAddress.wardCode ? undefined : (selectedAddress.district ?? undefined),
-        ward: selectedAddress.wardCode ? undefined : (selectedAddress.ward ?? undefined),
-        village: selectedAddress.village ?? undefined,
-        detail: selectedAddress.detail,
-      },
-      voucherCode: voucher || undefined,
-      paymentMethod: "COD",
-      note: note.trim() || undefined,
-      // The total the customer is looking at. If the price or a promotion
-      // changed since the preview, the backend refuses with a 409 instead of
-      // silently charging a different amount.
-      expectedGrandTotal: preview?.grandTotal,
-    };
-  };
-
   /**
    * One idempotency key per payload: a retry of the same order reuses it (so a
    * lost response cannot create a duplicate), while any change to the order
@@ -348,13 +370,11 @@ export function CheckoutView() {
         // the customer accept the NEW amount before submitting again.
         if (preview) setPendingTotal(preview.grandTotal);
         void previewQuery.refetch();
-        message =
-          "Giá hoặc khuyến mãi vừa thay đổi. Vui lòng xem lại tổng tiền mới và xác nhận.";
+        // Same wording as the Mobile app: the backend's translated message when
+        // it names the exact rule, otherwise a cause-specific sentence.
+        message = checkoutErrorMessage(error, translatedMessage(error));
       } else {
-        message =
-          error instanceof ApiError
-            ? error.message
-            : "Không đặt được hàng. Vui lòng kiểm tra lại giỏ hàng.";
+        message = checkoutErrorMessage(error, translatedMessage(error));
       }
       setSubmitError(message);
       notifications.show({
@@ -374,28 +394,28 @@ export function CheckoutView() {
 
   const handlePlaceOrder = () => {
     setSubmitError(null);
-    const payload = buildPayload();
-    if (!payload) {
+    if (!selectedAddress) {
       setSubmitError("Vui lòng chọn địa chỉ giao hàng.");
       return;
     }
     if (items.length === 0) {
-      setSubmitError("Giỏ hàng đang trống.");
+      setSubmitError(hasBuyNow ? "Dòng hàng mua ngay không hợp lệ." : "Giỏ hàng đang trống.");
       return;
     }
     // The preview total is the contract that prevents a silent re-price: never
     // confirm without echoing the amount the customer actually saw.
-    if (preview?.grandTotal === undefined) {
+    if (!preview) {
       setSubmitError("Đang kiểm tra lại giá và tồn kho. Vui lòng thử lại sau giây lát.");
       void previewQuery.refetch();
       return;
     }
+    const payload = buildCheckoutPayload(selectedAddress, items, voucher, note, preview);
     checkout.mutate({ payload, key: idempotencyKeyFor(payload) });
   };
 
   /* ------------------------------------------------------------- states -- */
 
-  if (cartQuery.isLoading) {
+  if (!hasBuyNow && cartQuery.isLoading) {
     return (
       <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 24 }}>
         <LoadingView label="Đang tải giỏ hàng…" />
@@ -403,7 +423,7 @@ export function CheckoutView() {
     );
   }
 
-  if (cartQuery.isError) {
+  if (!hasBuyNow && cartQuery.isError) {
     return (
       <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 24 }}>
         <ErrorState error={cartQuery.error} onRetry={() => cartQuery.refetch()} />
@@ -411,13 +431,17 @@ export function CheckoutView() {
     );
   }
 
-  if (items.length === 0) {
+  if (buyNowInvalid || items.length === 0) {
     return (
       <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 24 }}>
         <EmptyState
           kind="cart"
-          title="Chưa có sản phẩm để đặt"
-          description="Thêm sản phẩm vào giỏ hàng trước khi đặt hàng."
+          title={buyNowInvalid ? "Dòng hàng không hợp lệ" : "Chưa có sản phẩm để đặt"}
+          description={
+            buyNowInvalid
+              ? "Thông tin mua ngay không đọc được. Vui lòng chọn lại sản phẩm."
+              : "Thêm sản phẩm vào giỏ hàng trước khi đặt hàng."
+          }
           action={
             <Button component={Link} href="/san-pham" radius={8}>
               Xem sản phẩm
