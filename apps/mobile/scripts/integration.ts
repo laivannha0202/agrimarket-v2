@@ -12,8 +12,8 @@
  *   AGRIMARKET_TEST_EMAIL / AGRIMARKET_TEST_PASSWORD are set
  *
  * Usage:
- *   pnpm --filter @agrimarket/mobile test:integration
- *   EXPO_PUBLIC_API_BASE_URL=http://<PC-LAN-IP>:3000/api/v1 pnpm test:integration
+ *   npm run test:integration --workspace @agrimarket/mobile
+ *   EXPO_PUBLIC_API_BASE_URL=http://<PC-LAN-IP>:3000/api/v1 npm run test:integration
  */
 
 const BASE = (process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:3000/api/v1").replace(/\/+$/, "");

@@ -198,8 +198,8 @@ three tables and adds only **nullable** columns, so no existing row is rewritten
 no legacy address text is touched, and applying it signs nobody out. Apply with:
 
 ```bash
-pnpm --filter @agrimarket/api db:deploy     # apply committed migrations
-pnpm --filter @agrimarket/api db:migrate    # create a new migration in dev
+npm run db:deploy --workspace @agrimarket/api     # apply committed migrations
+npm run db:migrate --workspace @agrimarket/api    # create a new migration in dev
 ```
 
 After the migrations, seed the administrative catalogue once (it reads the

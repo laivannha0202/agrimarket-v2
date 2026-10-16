@@ -22,7 +22,7 @@ Không dùng dữ liệu giả. Không reseed DEV. Không commit/push. Bảo to�
    - `netstat` lúc đầu: **không có LISTENING nào trên `:3000`**.
    - `Invoke-WebRequest http://localhost:3000/docs` → `Unable to connect to the remote server`.
    - Tiến trình còn sót `PID 13356: node dist/src/main` đang LISTEN trên **`0.0.0.0:3100`**
-     (cha là `nest start`, ông là `pnpm --filter @agrimarket/api start` từ 06:41).
+     (cha là `nest start`, ông là `npm run start --workspace @agrimarket/api` từ 06:41).
      Đây là **TEST API `:3100`** còn sót từ đợt write-flow (`docs/AGRIMARKET-V2-MOBILE-ACCEPTANCE.md §C-D`,
      guard trong `apps/mobile/scripts/write-flow.ts:63` từ chối `:3000` vì đó là DEV).
    - TEST `:3100` đọc DB TEST (`agrimarket_v2_test`: 14 products / 5 cats, ảnh `https://cdn.agrimarket.vn/...`,
@@ -52,7 +52,7 @@ Source API client, error handling, image-rewrite **đã đúng, không cần s�
 |---|---|
 | MySQL service `MySQL84` | `Running`, `0.0.0.0:3306` + `[::]:3306` LISTEN |
 | API process lúc đầu | Không có LISTEN `:3000`; còn sót TEST `:3100` (PID 13356) |
-| Hành động | Khởi DEV bằng script thật `pnpm dev:api` (background process, log `Nest application successfully started`, `AgriMarket API running on http://localhost:3000/api/v1`) |
+| Hành động | Khởi DEV bằng script thật `npm run dev:api` (background process, log `Nest application successfully started`, `AgriMarket API running on http://localhost:3000/api/v1`) |
 | Port sau sửa | `0.0.0.0:3000` + `[::]:3000` LISTEN (PID 6192 sau restart nạp CORS mới) |
 | Kết nối MySQL | Prisma connected (log `PrismaService Prisma connected`), endpoints trả dữ liệu DEV thật |
 | LAN accessibility (IP mới `10.218.208.43`) | Xem bảng Verification §E — toàn bộ 200 |
@@ -67,14 +67,14 @@ Không sửa `main.ts`, không đổi bind address, không sửa DB, không seed
 | Hạng mục | Kết quả |
 |---|---|
 | URL đã cấu hình (`apps/mobile/.env`, git-ignored) | `EXPO_PUBLIC_API_BASE_URL=http://10.218.208.43:3000/api/v1` (có `/api/v1`, không localhost, không double-path) |
-| Expo start mode | `pnpm --filter @agrimarket/mobile dev:lan` (`expo start --lan`); log `env: load .env` + `env: export EXPO_PUBLIC_API_BASE_URL` — biến mới đã nạp |
+| Expo start mode | `npm run dev:lan --workspace @agrimarket/mobile` (`expo start --lan`); log `env: load .env` + `env: export EXPO_PUBLIC_API_BASE_URL` — biến mới đã nạp |
 | Metro bundling | `:8081` LISTEN (`0.0.0.0:8081`), `GET /status` → `packager-status:running`, LAN `http://10.218.208.43:8081/status` → 200 |
 | API requests từ máy qua LAN IP | Categories / Products / Wards / Docs / Uploads đều 200 (bảng §E) |
 | Expo Go physical device | **NOT TESTED** — không có thiết bị thật trong môi trường AI; Metro đã dọn sau khi boot-check để user chạy foreground lấy QR (tránh chiếm cổng + giấu QR trong tiến trình nền) |
 | Lưu ý tunnel | Không dùng tunnel; tunnel chỉ chuyển tiếp Metro, **không chuyển tiếp Backend API localhost:3000** |
 
 Handoff cho người dùng (~5 phút, điện thoại + PC cùng Wi-Fi `10.218.208.x`):
-1. PC đang chạy DEV API `:3000` (giữ nguyên terminal background). Mở terminal mới: `pnpm dev:mobile` (hoặc `pnpm --filter @agrimarket/mobile dev:lan`), xem QR Metro.
+1. PC đang chạy DEV API `:3000` (giữ nguyên terminal background). Mở terminal mới: `npm run dev:mobile` (hoặc `npm run dev:lan --workspace @agrimarket/mobile`), xem QR Metro.
 2. Mở **Expo Go** (Android, cùng Wi-Fi, không bật 5G/dữ liệu di động), quét QR → Reload app.
 3. Kiểm tra: Home → Danh mục → Sản phẩm nổi bật → ảnh → Catalog → chi tiết SP → Farms → Trace `TRC-000019-BAPCA`.
 
@@ -123,11 +123,11 @@ Phân biệt lỗi (đã xác minh trong source, giữ nguyên):
 
 | Lệnh (thật, từ package.json) | Exit | Kết quả |
 |---|---|---|
-| `pnpm --filter @agrimarket/mobile typecheck` (`tsc --noEmit`) | 0 | PASS |
-| `pnpm --filter @agrimarket/mobile lint` (`eslint .`) | 0 | PASS 0 error 0 warning |
-| `pnpm --filter @agrimarket/mobile test` (`vitest run`) | 0 | **174/174 (18 files)** PASS |
-| `pnpm --filter @agrimarket/api typecheck` (`tsc --noEmit`) | 0 | PASS |
-| `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:3000/api/v1 pnpm --filter @agrimarket/mobile test:integration` | 0 | **7/7** read-only DEV PASS (categories, products 5 items, detail, farms, trace `TRC-000019-BAPCA`, vouchers, flash-sales; auth/write SKIP, **không ghi DEV**) |
+| `npm run typecheck --workspace @agrimarket/mobile` (`tsc --noEmit`) | 0 | PASS |
+| `npm run lint --workspace @agrimarket/mobile` (`eslint .`) | 0 | PASS 0 error 0 warning |
+| `npm run test --workspace @agrimarket/mobile` (`vitest run`) | 0 | **174/174 (18 files)** PASS |
+| `npm run typecheck --workspace @agrimarket/api` (`tsc --noEmit`) | 0 | PASS |
+| `EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:3000/api/v1 npm run test:integration --workspace @agrimarket/mobile` | 0 | **7/7** read-only DEV PASS (categories, products 5 items, detail, farms, trace `TRC-000019-BAPCA`, vouchers, flash-sales; auth/write SKIP, **không ghi DEV**) |
 
 Không xóa/không sửa test để đạt PASS. Không chạy `test:write` (ghi TEST) và không chạy `test:e2e` trong nhiệm vụ này.
 

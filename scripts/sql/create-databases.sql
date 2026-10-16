@@ -4,8 +4,8 @@
 --
 -- After creating the databases, point DATABASE_URL / TEST_DATABASE_URL in
 -- apps/api/.env at them, then run:
---   pnpm --filter @agrimarket/api db:migrate
---   pnpm --filter @agrimarket/api db:seed
+--   npm run db:migrate --workspace @agrimarket/api
+--   npm run db:seed --workspace @agrimarket/api
 
 CREATE DATABASE IF NOT EXISTS `agrimarket_v2`
   CHARACTER SET utf8mb4

@@ -1,27 +1,60 @@
 "use client";
 
-/** Login. Only a CUSTOMER session is allowed into the storefront. */
+/**
+ * Đăng nhập — web twin of the Mobile login screen.
+ *
+ * Only a CUSTOMER session is allowed into the storefront. The backend accepts
+ * any role here, so an admin is told so and the session is dropped — never
+ * routed into a customer account area.
+ *
+ * The layout follows the Mobile screen: brand block (leaf mark, name, tagline),
+ * one card with the two fields, the submit button and the "Quên mật khẩu?" link,
+ * a full-width "Đăng ký ngay" row and the capability note about Google/Facebook.
+ */
 
 import {
-  Alert,
+  Box,
   Button,
-  Card,
   Container,
-  Divider,
   Group,
+  Image,
   PasswordInput,
   Stack,
   Text,
   TextInput,
-  Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconLock, IconMail } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconChevronRight,
+  IconInfoCircle,
+  IconLock,
+  IconMail,
+  IconUserPlus,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/useAuth";
 import { clearSession } from "@/lib/auth/session";
+import { AppCard } from "@/components/ui/kit";
+
+/** Muted inline error row (Mobile `errorRow`). */
+function ErrorRow({ message }: { message: string }) {
+  return (
+    <Group gap={6} align="flex-start" wrap="nowrap" mt={10}>
+      <IconAlertCircle
+        size={15}
+        color="var(--agri-danger)"
+        style={{ flexShrink: 0, marginTop: 2 }}
+        aria-hidden
+      />
+      <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+        {message}
+      </Text>
+    </Group>
+  );
+}
 
 export function LoginForm() {
   const router = useRouter();
@@ -76,80 +109,133 @@ export function LoginForm() {
   };
 
   return (
-    <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-      <Card padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Stack gap={4} align="center">
-            <IconLock size={30} color="var(--mantine-color-agri-8)" />
-            <Title order={2} fz={24}>
-              Đăng nhập
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Đăng nhập để mua nông sản, theo dõi đơn hàng và truy xuất nguồn gốc.
-            </Text>
-          </Stack>
+    <Container size={460} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 56 }}>
+      <Stack gap={16}>
+        {/* Brand block */}
+        <Stack align="center" gap={2} mb={4}>
+          <Image
+            src="/design/brand/leaf_mark_512.png"
+            alt="AgriMarket"
+            w={64}
+            h={64}
+            fit="contain"
+          />
+          <Text fz={20} fw={800} c="var(--agri-text-strong)">
+            AgriMarket
+          </Text>
+          <Text fz={13} c="var(--agri-muted)">
+            Nông sản sạch, rõ nguồn gốc
+          </Text>
+        </Stack>
 
-          <Divider />
-
-          {notice ? (
-            <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}>
-              <Text size="sm">{notice}</Text>
-            </Alert>
-          ) : null}
-
-          {error ? (
-            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-              <Text size="sm">{error}</Text>
-            </Alert>
-          ) : null}
-
+        <AppCard padding={16}>
           <form onSubmit={handleSubmit}>
-            <Stack gap="md">
+            <Stack gap={0}>
               <TextInput
                 label="Email"
                 placeholder="khachhang@agrimarket.vn"
                 value={email}
-                onChange={(event) => setEmail(event.currentTarget.value)}
-                leftSection={<IconMail size={16} />}
+                onChange={(event) => {
+                  setEmail(event.currentTarget.value);
+                  setError(null);
+                }}
+                leftSection={<IconMail size={16} aria-hidden />}
                 type="email"
                 autoComplete="email"
                 required
                 size="md"
               />
               <PasswordInput
+                mt={12}
                 label="Mật khẩu"
-                placeholder="Nhập mật khẩu"
+                placeholder="••••••"
                 value={password}
-                onChange={(event) => setPassword(event.currentTarget.value)}
+                onChange={(event) => {
+                  setPassword(event.currentTarget.value);
+                  setError(null);
+                }}
+                leftSection={<IconLock size={16} aria-hidden />}
                 autoComplete="current-password"
                 required
                 size="md"
               />
-              <Group justify="flex-end">
-                <Text component={Link} href="/quen-mat-khau" size="xs" fw={600} c="agri.8">
+
+              {notice ? (
+                <Group
+                  gap={6}
+                  align="flex-start"
+                  wrap="nowrap"
+                  mt={10}
+                  style={{
+                    background: "var(--agri-warning-soft)",
+                    border: "1px solid var(--agri-warning)",
+                    borderRadius: 8,
+                    padding: 8,
+                  }}
+                >
+                  <IconAlertCircle
+                    size={16}
+                    color="var(--agri-warning)"
+                    style={{ flexShrink: 0, marginTop: 1 }}
+                    aria-hidden
+                  />
+                  <Text fz={12.5} lh="18px" style={{ flex: 1, color: "var(--agri-warning)" }}>
+                    {notice}
+                  </Text>
+                </Group>
+              ) : null}
+
+              {error ? <ErrorRow message={error} /> : null}
+
+              <Button
+                type="submit"
+                radius={8}
+                mt={16}
+                fullWidth
+                loading={submitting}
+                styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+              >
+                {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
+              </Button>
+
+              <Group justify="center" mt={12}>
+                <Text
+                  component={Link}
+                  href="/quen-mat-khau"
+                  fz={13}
+                  fw={700}
+                  c="var(--agri-primary)"
+                >
                   Quên mật khẩu?
                 </Text>
               </Group>
-              <Button type="submit" size="md" loading={submitting} fullWidth>
-                Đăng nhập
-              </Button>
             </Stack>
           </form>
+        </AppCard>
 
-          <Group justify="center" gap={4}>
-            <Text size="xs" c="dimmed">
-              Bạn chưa có tài khoản?
+        {/* Register entry — a full-width row, same as the Mobile registerBox. */}
+        <AppCard component={Link} href="/dang-ky" padding={12} className="agri-press">
+          <Group gap={8} align="center" wrap="nowrap">
+            <IconUserPlus size={16} color="var(--agri-primary)" aria-hidden />
+            <Text fz={13.5} fw={600} c="var(--agri-primary)" ta="center" style={{ flex: 1 }}>
+              Chưa có tài khoản? Đăng ký ngay
             </Text>
-            <Text component={Link} href="/dang-ky" size="xs" fw={600} c="agri.8">
-              Đăng ký ngay
-            </Text>
+            <IconChevronRight size={15} color="var(--agri-primary)" aria-hidden />
           </Group>
-          <Divider />
-          <Button component={Link} href="/" variant="subtle" size="sm" fullWidth>
-            Tiếp tục xem sản phẩm
-          </Button>
-        </Stack>
-      </Card>
+        </AppCard>
+
+        {/* Capability disclosure — neither client has a Google/Facebook button
+            because no OAuth endpoint exists behind it. */}
+        <Group gap={6} align="flex-start" wrap="nowrap" px={4}>
+          <Box component="span" style={{ flexShrink: 0, marginTop: 1 }}>
+            <IconInfoCircle size={16} color="var(--agri-muted)" aria-hidden />
+          </Box>
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+            Website chưa hỗ trợ đăng nhập Google/Facebook. Tài khoản AgriMarket dùng chung cho
+            ứng dụng và website.
+          </Text>
+        </Group>
+      </Stack>
     </Container>
   );
 }

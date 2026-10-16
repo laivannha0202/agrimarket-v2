@@ -42,7 +42,7 @@ against DEV.
 | App | Port | How checked |
 |---|---|---|
 | API (`apps/api`, global prefix `/api/v1`) | 3000 | `GET /api/v1/products?limit=1` → 200 |
-| Customer Web (`apps/customer-web`, `pnpm dev`) | 3002 | `GET /` → 200 |
+| Customer Web (`apps/customer-web`, `npm run dev`) | 3002 | `GET /` → 200 |
 
 ### Logged-in session
 
@@ -56,16 +56,16 @@ authed after-sales pages below.
 
 | Gate | Command | Result |
 |---|---|---|
-| Web typecheck | `pnpm --filter @agrimarket/customer-web typecheck` | exit 0, no output |
-| Web lint | `pnpm --filter @agrimarket/customer-web lint` | exit 0, no output |
-| Web build | `pnpm --filter @agrimarket/customer-web build` | Next.js 16.4.0 (Turbopack), **29 routes**, compiled clean, TypeScript clean |
+| Web typecheck | `npm run typecheck --workspace @agrimarket/customer-web` | exit 0, no output |
+| Web lint | `npm run lint --workspace @agrimarket/customer-web` | exit 0, no output |
+| Web build | `npm run build --workspace @agrimarket/customer-web` | Next.js 16.4.0 (Turbopack), **29 routes**, compiled clean, TypeScript clean |
 | Web voucher parity | `cd apps/mobile && node_modules\.bin\tsx.cmd ..\customer-web\qa\vouchers-parity.ts` | **PASS — 0 differences across 22 checks** |
-| API unit | `pnpm --filter @agrimarket/api test` | **28 files / 369 tests passed, exit 0** |
-| API e2e (business acceptance) | `pnpm --filter @agrimarket/api test:e2e` | **11 files / 325 tests passed, exit 0** (69s, TEST DB) |
-| API typecheck | `pnpm --filter @agrimarket/api typecheck` | exit 0 |
-| API lint | `pnpm --filter @agrimarket/api lint` | exit 0 |
-| Mobile typecheck | `pnpm --filter @agrimarket/mobile typecheck` | exit 0 |
-| Mobile tests | `pnpm --filter @agrimarket/mobile test` | **18 files / 174 tests passed, exit 0** |
+| API unit | `npm run test --workspace @agrimarket/api` | **28 files / 369 tests passed, exit 0** |
+| API e2e (business acceptance) | `npm run test:e2e --workspace @agrimarket/api` | **11 files / 325 tests passed, exit 0** (69s, TEST DB) |
+| API typecheck | `npm run typecheck --workspace @agrimarket/api` | exit 0 |
+| API lint | `npm run lint --workspace @agrimarket/api` | exit 0 |
+| Mobile typecheck | `npm run typecheck --workspace @agrimarket/mobile` | exit 0 |
+| Mobile tests | `npm run test --workspace @agrimarket/mobile` | **18 files / 174 tests passed, exit 0** |
 
 The API e2e suite is the business-acceptance layer: checkout hardening,
 FEFO/inventory, delivery + return, refund, settlement, commission,
@@ -189,18 +189,18 @@ pass.
 
 ```bash
 # servers
-pnpm --filter @agrimarket/api dev          # :3000
-pnpm --filter @agrimarket/customer-web dev # :3002
+npm run dev --workspace @agrimarket/api          # :3000
+npm run dev --workspace @agrimarket/customer-web # :3002
 
 # gates
-pnpm --filter @agrimarket/customer-web typecheck
-pnpm --filter @agrimarket/customer-web lint
-pnpm --filter @agrimarket/customer-web build
+npm run typecheck --workspace @agrimarket/customer-web
+npm run lint --workspace @agrimarket/customer-web
+npm run build --workspace @agrimarket/customer-web
 cd apps/mobile && node_modules\.bin\tsx.cmd ..\customer-web\qa\vouchers-parity.ts
 
 # business acceptance (TEST DB only)
-pnpm --filter @agrimarket/api test
-pnpm --filter @agrimarket/api test:e2e
+npm run test --workspace @agrimarket/api
+npm run test:e2e --workspace @agrimarket/api
 ```
 
 ---

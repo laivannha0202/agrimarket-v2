@@ -99,6 +99,8 @@ function fallbackMessage(status: number): string {
       return "Dữ liệu vừa thay đổi. Vui lòng tải lại.";
     case 429:
       return "Bạn thao tác quá nhanh. Vui lòng thử lại sau.";
+    case 503:
+      return "Hệ thống đang tạm thời không khả dụng. Vui lòng thử lại sau ít phút.";
     default:
       return "Đã xảy ra lỗi. Vui lòng thử lại.";
   }

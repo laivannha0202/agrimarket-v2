@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Customer self-registration.
+ * Đăng ký tài khoản — web twin of the Mobile register screen.
  *
  * One account system for Web and Mobile: this form posts to the same
  * `POST /auth/register` the app uses, and the resulting account signs in on
@@ -14,19 +14,22 @@
  */
 
 import {
-  Alert,
   Button,
-  Card,
   Container,
-  Divider,
   Group,
   PasswordInput,
   Stack,
   Text,
   TextInput,
-  Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconCheck, IconLock, IconMail, IconPhone, IconUserPlus } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconCircleCheck,
+  IconLock,
+  IconMail,
+  IconPhone,
+  IconUser,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -37,6 +40,7 @@ import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_PATTERN } from "@/lib/auth/password-policy";
 import { isValidVietnamesePhone } from "@/lib/phone";
+import { AppCard, GhostButton } from "@/components/ui/kit";
 
 const registerSchema = z
   .object({
@@ -104,6 +108,23 @@ function webFieldMessage(
   }
 }
 
+/** Muted inline error row (Mobile `errorRow`). */
+function ErrorRow({ message }: { message: string }) {
+  return (
+    <Group gap={6} align="flex-start" wrap="nowrap" mt={10}>
+      <IconAlertCircle
+        size={15}
+        color="var(--agri-danger)"
+        style={{ flexShrink: 0, marginTop: 2 }}
+        aria-hidden
+      />
+      <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+        {message}
+      </Text>
+    </Group>
+  );
+}
+
 export function RegisterForm() {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -113,7 +134,7 @@ export function RegisterForm() {
     register,
     handleSubmit,
     setError,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
     defaultValues: { fullName: "", email: "", phone: "", password: "", confirmPassword: "" },
@@ -151,126 +172,136 @@ export function RegisterForm() {
 
   if (createdEmail) {
     return (
-      <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-        <Card padding="lg" radius="md" withBorder>
-          <Stack gap="md" align="center">
-            <IconCheck size={30} color="var(--mantine-color-agri-8)" />
-            <Title order={2} fz={22} ta="center">
-              Đã tạo tài khoản
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Tài khoản <strong>{createdEmail}</strong> đã được tạo. Vui lòng đăng nhập bằng
-              mật khẩu bạn vừa đặt.
-            </Text>
-            <Button
-              size="md"
-              fullWidth
-              onClick={() =>
-                router.push(`/dang-nhap?email=${encodeURIComponent(createdEmail)}`)
-              }
-            >
-              Đăng nhập ngay
-            </Button>
-            <Button component={Link} href="/" variant="subtle" size="sm" fullWidth>
-              Tiếp tục xem sản phẩm
-            </Button>
-          </Stack>
-        </Card>
+      <Container size={460} px={{ base: 12, sm: "lg" }} py={{ base: 40, sm: 72 }}>
+        <Stack align="center" gap={0}>
+          <IconCircleCheck size={54} color="var(--agri-primary)" aria-hidden />
+          <Text fz={20} fw={800} c="var(--agri-text-strong)" mt={8}>
+            Đã tạo tài khoản
+          </Text>
+          <Text fz={13.5} lh="19px" c="var(--agri-muted)" ta="center" mt={4}>
+            Tài khoản {createdEmail} đã được tạo. Vui lòng đăng nhập bằng mật khẩu bạn vừa đặt.
+          </Text>
+
+          <Button
+            radius={8}
+            mt={20}
+            fullWidth
+            onClick={() => router.replace(`/dang-nhap?email=${encodeURIComponent(createdEmail)}`)}
+            styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+          >
+            Đăng nhập ngay
+          </Button>
+          <GhostButton
+            component={Link}
+            href="/"
+            radius={8}
+            mt={8}
+            fullWidth
+            styles={{ root: { minHeight: 48 }, label: { fontSize: 14, fontWeight: 700 } }}
+          >
+            Về trang chủ
+          </GhostButton>
+        </Stack>
       </Container>
     );
   }
 
   return (
-    <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-      <Card padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Stack gap={4} align="center">
-            <IconUserPlus size={30} color="var(--mantine-color-agri-8)" />
-            <Title order={2} fz={24}>
-              Đăng ký tài khoản
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Tạo tài khoản khách hàng AgriMarket để mua nông sản và theo dõi đơn hàng.
-            </Text>
-          </Stack>
+    <Container size={460} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 56 }}>
+      <Stack gap={16}>
+        <Stack gap={2}>
+          <Text fz={20} fw={800} c="var(--agri-text-strong)">
+            Tạo tài khoản
+          </Text>
+          <Text fz={13} c="var(--agri-muted)">
+            Dùng chung cho ứng dụng và website AgriMarket.
+          </Text>
+        </Stack>
 
-          <Divider />
-
-          {formError ? (
-            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-              <Text size="sm">{formError}</Text>
-            </Alert>
-          ) : null}
-
+        <AppCard padding={16}>
           <form onSubmit={handleSubmit(submit)}>
-            <Stack gap="md">
+            <Stack gap={0}>
               <TextInput
                 label="Họ và tên"
                 placeholder="Nguyễn Văn A"
-                leftSection={<IconUserPlus size={16} />}
+                leftSection={<IconUser size={16} aria-hidden />}
                 error={errors.fullName?.message}
                 autoComplete="name"
                 required
+                size="md"
                 {...register("fullName")}
               />
               <TextInput
+                mt={12}
                 label="Email"
                 placeholder="khachhang@agrimarket.vn"
-                leftSection={<IconMail size={16} />}
+                leftSection={<IconMail size={16} aria-hidden />}
                 type="email"
                 autoComplete="email"
                 error={errors.email?.message}
                 required
+                size="md"
                 {...register("email")}
               />
               <TextInput
+                mt={12}
                 label="Số điện thoại"
                 placeholder="0912345678"
-                leftSection={<IconPhone size={16} />}
+                leftSection={<IconPhone size={16} aria-hidden />}
                 autoComplete="tel"
                 error={errors.phone?.message}
                 required
+                size="md"
                 {...register("phone")}
               />
               <PasswordInput
+                mt={12}
                 label="Mật khẩu"
-                placeholder="Nhập mật khẩu"
-                leftSection={<IconLock size={16} />}
+                placeholder={`Tối thiểu ${PASSWORD_MIN_LENGTH} ký tự`}
+                leftSection={<IconLock size={16} aria-hidden />}
                 autoComplete="new-password"
-                description={`Tối thiểu ${PASSWORD_MIN_LENGTH} ký tự, có chữ và số.`}
                 error={errors.password?.message}
                 required
+                size="md"
                 {...register("password")}
               />
               <PasswordInput
+                mt={12}
                 label="Nhập lại mật khẩu"
                 placeholder="Nhập lại mật khẩu"
-                leftSection={<IconLock size={16} />}
+                leftSection={<IconLock size={16} aria-hidden />}
                 autoComplete="new-password"
                 error={errors.confirmPassword?.message}
                 required
+                size="md"
                 {...register("confirmPassword")}
               />
-              <Button type="submit" size="md" fullWidth>
-                Tạo tài khoản
+
+              {formError ? <ErrorRow message={formError} /> : null}
+
+              <Button
+                type="submit"
+                radius={8}
+                mt={16}
+                fullWidth
+                loading={isSubmitting}
+                styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+              >
+                Đăng ký
               </Button>
             </Stack>
           </form>
+        </AppCard>
 
-          <Group justify="center" gap={4}>
-            <Text size="xs" c="dimmed">
-              Đã có tài khoản?
-            </Text>
-            <Text component={Link} href="/dang-nhap" size="xs" fw={600} c="agri.8">
-              Đăng nhập
-            </Text>
-          </Group>
-          <Divider />
-          <Button component={Link} href="/" variant="subtle" size="sm" fullWidth>
-            Tiếp tục xem sản phẩm
-          </Button>
-        </Stack>
-      </Card>
+        <Group justify="center" gap={4}>
+          <Text fz={13} c="var(--agri-muted)">
+            Đã có tài khoản?
+          </Text>
+          <Text component={Link} href="/dang-nhap" fz={13} fw={700} c="var(--agri-primary)">
+            Đăng nhập
+          </Text>
+        </Group>
+      </Stack>
     </Container>
   );
 }

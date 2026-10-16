@@ -99,6 +99,8 @@ function fallbackMessage(status: number): string {
       return "Không tìm thấy dữ liệu.";
     case 409:
       return "Dữ liệu đã tồn tại hoặc xung đột nghiệp vụ.";
+    case 503:
+      return "Hệ thống đang tạm thời không khả dụng. Vui lòng thử lại sau ít phút.";
     default:
       return "Đã xảy ra lỗi. Vui lòng thử lại.";
   }

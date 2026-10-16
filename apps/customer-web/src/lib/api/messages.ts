@@ -105,6 +105,14 @@ const MESSAGES: Record<string, string> = {
     "Bạn đã thử quá nhiều lần. Vui lòng đợi một lát rồi thử lại.",
   "Insufficient permissions": "Bạn không có quyền thực hiện thao tác này.",
 
+  /**
+   * Infrastructure outage (MySQL down/unreachable). The API answers 503 with
+   * this exact message; without the mapping the storefront would fall back to
+   * generic text and hide the fact that the backend's database is offline.
+   */
+  "Database is not reachable":
+    "Hệ thống dữ liệu đang tạm thời không khả dụng. Vui lòng thử lại sau ít phút.",
+
   // Address book / checkout address (administrative catalogue)
   "Province not found": "Không tìm thấy tỉnh/thành phố.",
   "Ward not found": "Không tìm thấy xã/phường.",

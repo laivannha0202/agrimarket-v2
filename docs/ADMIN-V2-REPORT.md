@@ -119,14 +119,14 @@ Giữ lại (theo yêu cầu): tên trường, đơn vị, lỗi validate, trạ
 
 | Hạng mục | Lệnh | Kết quả |
 |----------|------|---------|
-| API typecheck | `pnpm --filter @agrimarket/api typecheck` | **PASS** (exit 0) |
-| API lint | `pnpm --filter @agrimarket/api lint` | **PASS** (exit 0; chỉ còn 2 warning có sẵn ở `test/concurrency.e2e-spec.ts`) |
-| API unit test | `pnpm --filter @agrimarket/api test` | **PASS** — **238/238** (19 files; +9 ở đợt chốt) |
-| API e2e (TEST DB) | `pnpm --filter @agrimarket/api test:e2e` | **PASS** — **231/231** (6 files; +11 ở đợt chốt) |
-| API build | `pnpm --filter @agrimarket/api build` | **PASS** (exit 0) |
-| Admin typecheck | `pnpm --filter @agrimarket/admin-web typecheck` | **PASS** (exit 0) |
-| Admin lint | `pnpm --filter @agrimarket/admin-web lint` | **PASS** (exit 0) |
-| Admin build | `pnpm --filter @agrimarket/admin-web build` | **PASS** — "Compiled successfully" |
+| API typecheck | `npm run typecheck --workspace @agrimarket/api` | **PASS** (exit 0) |
+| API lint | `npm run lint --workspace @agrimarket/api` | **PASS** (exit 0; chỉ còn 2 warning có sẵn ở `test/concurrency.e2e-spec.ts`) |
+| API unit test | `npm run test --workspace @agrimarket/api` | **PASS** — **238/238** (19 files; +9 ở đợt chốt) |
+| API e2e (TEST DB) | `npm run test:e2e --workspace @agrimarket/api` | **PASS** — **231/231** (6 files; +11 ở đợt chốt) |
+| API build | `npm run build --workspace @agrimarket/api` | **PASS** (exit 0) |
+| Admin typecheck | `npm run typecheck --workspace @agrimarket/admin-web` | **PASS** (exit 0) |
+| Admin lint | `npm run lint --workspace @agrimarket/admin-web` | **PASS** (exit 0) |
+| Admin build | `npm run build --workspace @agrimarket/admin-web` | **PASS** — "Compiled successfully" |
 | Customer-web typecheck/lint/build (hồi quy) | tương ứng | **PASS** (exit 0) |
 | Smoke API (DEV) | login admin; `/reports/daily?days=7` → 7 điểm zero-fill; `days=30` → 30 điểm; `days=14` → 400; `/reports/summary` OK; 4 `PATCH` trạng thái trả 400 (tồn tại, không 404); slug danh mục tự sinh | **PASS** |
 
@@ -216,12 +216,12 @@ trong nhãn); DOM Select đổi sang `.ant-select-content`.
 ### Kết quả kiểm thử đợt này
 | Hạng mục | Lệnh | Kết quả |
 |----------|------|---------|
-| Admin typecheck | `pnpm --filter @agrimarket/admin-web typecheck` | **PASS** (exit 0) |
-| Admin lint | `pnpm --filter @agrimarket/admin-web lint` | **PASS** (exit 0) |
-| Admin test (mới) | `pnpm --filter @agrimarket/admin-web test` | **PASS** — **12/12** (3 files) |
-| Admin build | `pnpm --filter @agrimarket/admin-web build` | **PASS** — "Compiled successfully" |
-| API unit | `pnpm --filter @agrimarket/api test` | **PASS** — **238/238** |
-| API e2e (MySQL TEST) | `pnpm --filter @agrimarket/api test:e2e` | **PASS** — **231/231** |
+| Admin typecheck | `npm run typecheck --workspace @agrimarket/admin-web` | **PASS** (exit 0) |
+| Admin lint | `npm run lint --workspace @agrimarket/admin-web` | **PASS** (exit 0) |
+| Admin test (mới) | `npm run test --workspace @agrimarket/admin-web` | **PASS** — **12/12** (3 files) |
+| Admin build | `npm run build --workspace @agrimarket/admin-web` | **PASS** — "Compiled successfully" |
+| API unit | `npm run test --workspace @agrimarket/api` | **PASS** — **238/238** |
+| API e2e (MySQL TEST) | `npm run test:e2e --workspace @agrimarket/api` | **PASS** — **231/231** |
 | Customer-web typecheck/lint/build | tương ứng | **PASS** (exit 0) |
 | Browser (Playwright) | crawl 24 route + verify.js | **PASS** — 0 antd warning |
 

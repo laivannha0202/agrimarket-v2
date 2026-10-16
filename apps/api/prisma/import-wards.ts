@@ -18,7 +18,7 @@
  *   because historical addresses and order snapshots may still reference it.
  *
  * Usage:
- *   pnpm --filter @agrimarket/api db:import-wards
+ *   npm run db:import-wards --workspace @agrimarket/api
  */
 import 'dotenv/config';
 import { readFileSync } from 'node:fs';

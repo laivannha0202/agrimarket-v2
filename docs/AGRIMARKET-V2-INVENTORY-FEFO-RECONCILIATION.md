@@ -96,10 +96,10 @@ Không thêm bảng/trạng thái allocation lifecycle: `InventoryAllocation` + 
 
 | Lệnh | Kết quả |
 |---|---|
-| `pnpm --filter @agrimarket/api exec tsc --noEmit -p tsconfig.json` | PASS (exit 0). |
-| `pnpm --filter @agrimarket/api exec oxlint --type-aware src/ test/ prisma/` | PASS, 5 warning có sẵn (evidence import, returns skip/take, 2 array-sort-compare). |
-| `pnpm --filter @agrimarket/api exec vitest run` | **376/376 PASS** (28 files). |
-| `pnpm --filter @agrimarket/api exec vitest run --config ./vitest.config.e2e.ts` | **329/329 PASS** (11 files, gồm concurrency 5 rounds: oversell/quota/cancel-vs-deliver/quarantine/double-complete + mutation 111 flows). |
+| `npm exec --workspace @agrimarket/api -- tsc --noEmit -p tsconfig.json` | PASS (exit 0). |
+| `npm exec --workspace @agrimarket/api -- oxlint --type-aware src/ test/ prisma/` | PASS, 5 warning có sẵn (evidence import, returns skip/take, 2 array-sort-compare). |
+| `npm exec --workspace @agrimarket/api -- vitest run` | **376/376 PASS** (28 files). |
+| `npm exec --workspace @agrimarket/api -- vitest run --config ./vitest.config.e2e.ts` | **329/329 PASS** (11 files, gồm concurrency 5 rounds: oversell/quota/cancel-vs-deliver/quarantine/double-complete + mutation 111 flows). |
 | DEV kiểm tra lại sau test | Vẫn 11 drift công thức cũ / 0 OUTBOUND lịch sử — **DEV không bị chạm** (đúng yêu cầu). |
 
 Bao phủ 25 điểm GĐ4: nhập→balance, QC→bán, reserve, oversell đồng thời, cancel 1 lần/2 lần, release-vs-consume, double consume, đua DELIVERED hai đường, xuất đúng thời điểm, COD không tự PAID + thu tiền có reference, fail không hồi tồn bán, hoàn quarantine, FEFO đúng/hết hạn/QC giữ, retry idempotent, rollback, preview-vs-confirm, ledger, dữ liệu cũ không backfill, phân quyền ADMIN, invariant `available = onHand − reserved − blocked`.

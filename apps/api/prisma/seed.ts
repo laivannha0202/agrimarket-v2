@@ -5,11 +5,14 @@
  * not expired, orders sit in the past). Re-runnable: it wipes existing rows in
  * FK-safe order then inserts fresh data.
  *
- * Run with: pnpm --filter @agrimarket/api db:seed
+ * Run with: npm run db:seed --workspace @agrimarket/api
  */
 import 'dotenv/config';
+import { existsSync, promises as fs } from 'node:fs';
+import * as path from 'node:path';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import * as bcrypt from 'bcryptjs';
+import sharp from 'sharp';
 import { PrismaClient } from '../generated/prisma/client.js';
 import { inboundCompletedAt } from '../src/inventory/warehouse-chronology.js';
 import {
@@ -120,6 +123,71 @@ async function wipe() {
   await prisma.address.deleteMany();
   await prisma.customerProfile.deleteMany();
   await prisma.user.deleteMany();
+}
+
+// ---- Product images --------------------------------------------------------
+/**
+ * Demo product photos shipped with the repo.
+ *
+ * `uploads/` is gitignored (local files, never committed), but a fresh seed
+ * must still produce a catalog with real pictures. The WebP files therefore
+ * live in `prisma/seed-assets/product-images/` and are copied into the uploads
+ * directory at seed time. Naming is deterministic — `<slug>-1.webp`,
+ * `<slug>-2.webp`, … — so sortOrder is the file order and the first file is
+ * the cover. URLs point at the API that serves `/uploads/products/`
+ * (`PUBLIC_API_BASE_URL`, default http://localhost:3000).
+ *
+ * A product without an asset simply gets no image row: the storefronts show
+ * their leaf fallback instead of a dead link. Nothing is ever guessed.
+ */
+const SEED_IMAGES_DIR = path.join(import.meta.dirname, 'seed-assets', 'product-images');
+const MAX_SEED_IMAGES = 6;
+const PUBLIC_API_BASE_URL = (process.env.PUBLIC_API_BASE_URL ?? 'http://localhost:3000').replace(
+  /\/+$/,
+  '',
+);
+
+function uploadsProductsDir(): string {
+  const configured = (process.env.UPLOADS_DIR ?? '').trim();
+  const root = configured
+    ? path.isAbsolute(configured)
+      ? configured
+      : path.join(process.cwd(), configured)
+    : path.join(process.cwd(), 'uploads');
+  return path.join(root, 'products');
+}
+
+async function seedProductImages(slug: string) {
+  const rows: {
+    url: string;
+    sortOrder: number;
+    isPrimary: boolean;
+    mimeType: string;
+    width: number | null;
+    height: number | null;
+    sizeBytes: number;
+  }[] = [];
+  for (let n = 1; n <= MAX_SEED_IMAGES; n++) {
+    const fileName = `${slug}-${n}.webp`;
+    const src = path.join(SEED_IMAGES_DIR, fileName);
+    if (!existsSync(src)) continue;
+    const dir = uploadsProductsDir();
+    await fs.mkdir(dir, { recursive: true });
+    const dest = path.join(dir, fileName);
+    await fs.copyFile(src, dest);
+    const meta = await sharp(dest).metadata();
+    const { size } = await fs.stat(dest);
+    rows.push({
+      url: `${PUBLIC_API_BASE_URL}/uploads/products/${fileName}`,
+      sortOrder: rows.length,
+      isPrimary: rows.length === 0,
+      mimeType: 'image/webp',
+      width: meta.width ?? null,
+      height: meta.height ?? null,
+      sizeBytes: size,
+    });
+  }
+  return rows;
 }
 
 async function main() {
@@ -535,6 +603,10 @@ async function main() {
   const productsBySlug: Record<string, { id: number; partnerId: number; categoryId: number }> = {};
 
   for (const p of productSeeds) {
+    const imageRows = await seedProductImages(p.slug);
+    if (imageRows.length === 0) {
+      console.log(`  note: no demo image for "${p.slug}" — the UI leaf fallback is used.`);
+    }
     const product = await prisma.product.create({
       data: {
         partnerId: p.partnerId,
@@ -544,12 +616,7 @@ async function main() {
         slug: p.slug,
         description: p.description,
         status: RecordStatus.ACTIVE,
-        images: {
-          create: [
-            { url: `https://cdn.agrimarket.vn/products/${p.slug}-1.jpg`, sortOrder: 0, isPrimary: true },
-            { url: `https://cdn.agrimarket.vn/products/${p.slug}-2.jpg`, sortOrder: 1, isPrimary: false },
-          ],
-        },
+        images: { create: imageRows },
       },
     });
     productsBySlug[p.slug] = { id: product.id, partnerId: p.partnerId, categoryId: p.categoryId };

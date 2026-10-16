@@ -1,7 +1,11 @@
 "use client";
 
 /**
- * Personal information.
+ * Tài khoản — web twin of the Mobile account tab.
+ *
+ * Layout follows the app: a centered profile header (initials avatar, name,
+ * email, phone), a "Thông tin cá nhân" card, the grouped navigation (rendered
+ * as the AccountNav sidebar on desktop) and a danger-styled logout row.
  *
  * `PATCH /customers/me` updates the customer's own profile (`fullName`,
  * `phone`); the response is the safe projection the API returns, so the screen
@@ -9,20 +13,8 @@
  * read-only here because the backend does not let a customer change them.
  */
 
-import {
-  Alert,
-  Avatar,
-  Button,
-  Card,
-  Container,
-  Divider,
-  Group,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
-import { IconAlertCircle, IconLogout, IconPackage, IconUser } from "@tabler/icons-react";
+import { Box, Button, Container, Group, Stack, Text, TextInput } from "@mantine/core";
+import { IconAlertCircle, IconLogout, IconPackage } from "@tabler/icons-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -34,6 +26,7 @@ import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { useAuth } from "@/lib/auth/useAuth";
 import { AccountNav } from "@/components/account/AccountNav";
+import { AppCard, GhostButton, PageTitle } from "@/components/ui/kit";
 import { layout } from "@/theme";
 
 const profileSchema = z.object({
@@ -45,6 +38,22 @@ const profileSchema = z.object({
 });
 
 type ProfileFormValues = z.infer<typeof profileSchema>;
+
+/** Two-letter initials, exactly like the Mobile account header. */
+function initials(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return (parts[0] ?? "").slice(0, 2).toUpperCase();
+  return `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <Text fz={15} fw={700} c="var(--agri-text-strong)" mb={8}>
+      {children}
+    </Text>
+  );
+}
 
 export function ProfileView() {
   const { user, logout, refetch } = useAuth();
@@ -90,133 +99,166 @@ export function ProfileView() {
   });
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Stack gap={4}>
-          <Title order={2}>Tài khoản của tôi</Title>
-          <Text size="sm" c="dimmed">
-            Thông tin tài khoản dùng để đăng nhập và nhận hàng trên AgriMarket.
-          </Text>
-        </Stack>
+    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
+      <PageTitle>Tài khoản</PageTitle>
 
-        <Group align="flex-start" gap="lg" wrap="wrap">
-          <AccountNav />
+      <Group align="flex-start" gap={16} wrap="wrap" mt={{ base: 0, md: 12 }}>
+        <AccountNav />
 
-          <Stack gap="md" style={{ flex: 1 }} miw={{ base: 0, md: 300 }}>
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Group gap="sm">
-                  <IconUser size={18} color="var(--mantine-color-agri-8)" />
-                  <Title order={4}>Thông tin cá nhân</Title>
-                </Group>
-                <Divider />
+        <Stack gap={12} style={{ flex: 1 }} miw={{ base: 0, md: 300 }}>
+          {/* Profile header (Mobile styles.profile) */}
+          <AppCard padding={16}>
+            <Stack align="center" gap={3}>
+              <Box
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 999,
+                  background: "var(--agri-primary)",
+                  display: "grid",
+                  placeItems: "center",
+                  marginBottom: 6,
+                }}
+              >
+                <Text fz={22} fw={700} c="#ffffff">
+                  {user?.fullName ? initials(user.fullName) : "?"}
+                </Text>
+              </Box>
+              <Text fz={18} fw={700} c="var(--agri-text-strong)" lineClamp={1}>
+                {user?.fullName ?? "—"}
+              </Text>
+              <Text fz={13} c="var(--agri-muted)" lineClamp={1}>
+                {user?.email ?? "—"}
+              </Text>
+              {user?.phone ? (
+                <Text fz={13} c="var(--agri-muted)" lineClamp={1}>
+                  {user.phone}
+                </Text>
+              ) : null}
+            </Stack>
+          </AppCard>
 
-                <Group gap="md" wrap="nowrap">
-                  <Avatar size={56} radius="xl" color="agri">
-                    {user?.fullName?.trim().charAt(0).toUpperCase() ?? "?"}
-                  </Avatar>
-                  <Stack gap={2}>
-                    <Text size="md" fw={600}>
-                      {user?.fullName ?? "—"}
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      {user?.email ?? "—"}
-                    </Text>
-                  </Stack>
-                </Group>
+          {/* Editable profile */}
+          <AppCard padding={16}>
+            <SectionTitle>Thông tin cá nhân</SectionTitle>
 
-                <Divider />
+            {saveError ? (
+              <Group gap={6} align="flex-start" wrap="nowrap" mb={8}>
+                <IconAlertCircle
+                  size={15}
+                  color="var(--agri-danger)"
+                  style={{ flexShrink: 0, marginTop: 2 }}
+                  aria-hidden
+                />
+                <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+                  {saveError}
+                </Text>
+              </Group>
+            ) : null}
 
-                <form onSubmit={handleSubmit((values) => saveProfile.mutate(values))}>
-                  <Stack gap="md">
-                    {saveError ? (
-                      <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-                        <Text size="sm">{saveError}</Text>
-                      </Alert>
-                    ) : null}
+            <form onSubmit={handleSubmit((values) => saveProfile.mutate(values))}>
+              <Stack gap={12}>
+                <TextInput
+                  label="Họ và tên"
+                  required
+                  error={errors.fullName?.message}
+                  size="md"
+                  {...register("fullName")}
+                />
+                <TextInput
+                  label="Số điện thoại"
+                  placeholder="Ví dụ: 0912345678"
+                  error={errors.phone?.message}
+                  size="md"
+                  {...register("phone")}
+                />
+                <TextInput
+                  label="Email"
+                  value={user?.email ?? ""}
+                  readOnly
+                  disabled
+                  size="md"
+                  description="Email dùng để đăng nhập nên chưa thể thay đổi tại đây."
+                />
 
-                    <TextInput
-                      label="Họ và tên"
-                      required
-                      error={errors.fullName?.message}
-                      {...register("fullName")}
-                    />
-                    <TextInput
-                      label="Số điện thoại"
-                      placeholder="Ví dụ: 0912345678"
-                      error={errors.phone?.message}
-                      {...register("phone")}
-                    />
-                    <TextInput
-                      label="Email"
-                      value={user?.email ?? ""}
-                      readOnly
-                      disabled
-                      description="Email dùng để đăng nhập nên chưa thể thay đổi tại đây."
-                    />
-
-                    <Group justify="flex-end" gap="sm">
-                      <Button
-                        variant="default"
-                        type="button"
-                        disabled={!isDirty || saveProfile.isPending}
-                        onClick={() => {
-                          setSaveError(null);
-                          reset({ fullName: user?.fullName ?? "", phone: user?.phone ?? "" });
-                        }}
-                      >
-                        Hoàn tác
-                      </Button>
-                      <Button
-                        type="submit"
-                        loading={saveProfile.isPending}
-                        disabled={!isDirty}
-                      >
-                        Lưu thay đổi
-                      </Button>
-                    </Group>
-                  </Stack>
-                </form>
-              </Stack>
-            </Card>
-
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Title order={4}>Mua sắm & hỗ trợ</Title>
-                <Divider />
-                <Group gap="sm" wrap="wrap">
-                  <Button
-                    component={Link}
-                    href="/don-hang"
-                    variant="light"
-                    size="sm"
-                    leftSection={<IconPackage size={16} />}
-                  >
-                    Đơn hàng của tôi
-                  </Button>
-                  <Button
-                    component={Link}
-                    href="/tai-khoan/dia-chi"
-                    variant="light"
-                    size="sm"
-                  >
-                    Sổ địa chỉ
-                  </Button>
+                <Group justify="flex-end" gap={8}>
                   <Button
                     variant="default"
-                    color="red"
-                    size="sm"
-                    leftSection={<IconLogout size={16} />}
-                    onClick={logout}
+                    type="button"
+                    disabled={!isDirty || saveProfile.isPending}
+                    radius={8}
+                    styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+                    onClick={() => {
+                      setSaveError(null);
+                      reset({ fullName: user?.fullName ?? "", phone: user?.phone ?? "" });
+                    }}
                   >
-                    Đăng xuất
+                    Hoàn tác
+                  </Button>
+                  <Button
+                    type="submit"
+                    loading={saveProfile.isPending}
+                    disabled={!isDirty}
+                    radius={8}
+                    styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+                  >
+                    Lưu thay đổi
                   </Button>
                 </Group>
               </Stack>
-            </Card>
-          </Stack>
-        </Group>
-      </Stack>
+            </form>
+          </AppCard>
+
+          {/* Shopping shortcuts */}
+          <AppCard padding={16}>
+            <SectionTitle>Mua sắm &amp; hỗ trợ</SectionTitle>
+            <Group gap={8} wrap="wrap">
+              <GhostButton
+                component={Link}
+                href="/don-hang"
+                radius={8}
+                leftSection={<IconPackage size={15} aria-hidden />}
+                styles={{ root: { minHeight: 40 }, label: { fontSize: 13, fontWeight: 600 } }}
+              >
+                Đơn hàng của tôi
+              </GhostButton>
+              <GhostButton
+                component={Link}
+                href="/tai-khoan/dia-chi"
+                radius={8}
+                styles={{ root: { minHeight: 40 }, label: { fontSize: 13, fontWeight: 600 } }}
+              >
+                Địa chỉ giao hàng
+              </GhostButton>
+            </Group>
+
+            {/* Mobile logout row: danger border, danger label, full width. */}
+            <Button
+              variant="default"
+              fullWidth
+              mt={16}
+              leftSection={<IconLogout size={17} aria-hidden />}
+              onClick={logout}
+              radius={8}
+              styles={{
+                root: {
+                  minHeight: 48,
+                  borderColor: "var(--agri-danger)",
+                  background: "var(--agri-surface)",
+                },
+                label: { color: "var(--agri-danger)", fontWeight: 700, fontSize: 14 },
+              }}
+            >
+              Đăng xuất
+            </Button>
+          </AppCard>
+
+          <Text fz={12} lh="17px" c="var(--agri-muted)" ta="center">
+            Danh sách yêu thích và điểm thưởng chưa được backend V2 hỗ trợ nên không hiển thị
+            trên website.
+          </Text>
+        </Stack>
+      </Group>
     </Container>
   );
 }

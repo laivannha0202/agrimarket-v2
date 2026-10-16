@@ -5,8 +5,10 @@ import "./globals.css";
 import { Suspense } from "react";
 import { ColorSchemeScript } from "@mantine/core";
 import { Providers } from "./providers";
+import { AppMain } from "@/components/layout/AppMain";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
+import { MobileTabBar } from "@/components/layout/MobileTabBar";
 
 export const metadata: Metadata = {
   title: {
@@ -28,8 +30,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Suspense fallback={null}>
             <Header />
           </Suspense>
-          <main style={{ minHeight: "60vh" }}>{children}</main>
+          <AppMain>{children}</AppMain>
           <Footer />
+          <MobileTabBar />
         </Providers>
       </body>
     </html>

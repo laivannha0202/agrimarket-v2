@@ -3,13 +3,15 @@
 /**
  * Mantine theme for the AgriMarket storefront.
  *
- * Deliberately restrained: one AgriMarket green, neutral greys, light borders
- * and a moderate radius. No gradients, no heavy shadows.
+ * The palette and radii are copied 1:1 from the Mobile app
+ * (`apps/mobile/src/lib/theme.ts`) so the web and the app look like the same
+ * product: one AgriMarket green (#0b7a39), neutral greys, hairline borders and
+ * a moderate radius. No gradients, no heavy shadows.
  */
 
 import { createTheme, type MantineColorsTuple } from "@mantine/core";
 
-/** AgriMarket primary green (light -> dark). */
+/** AgriMarket primary green (light -> dark); shade 8 is the brand green. */
 const agriGreen: MantineColorsTuple = [
   "#eefaf1",
   "#d7f2df",
@@ -19,8 +21,8 @@ const agriGreen: MantineColorsTuple = [
   "#48c36e",
   "#3bbf66",
   "#2ca655",
-  "#1f9148",
   "#0b7a39",
+  "#095c2c",
 ];
 
 export const theme = createTheme({
@@ -33,7 +35,7 @@ export const theme = createTheme({
   headings: {
     fontFamily:
       '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif',
-    fontWeight: "600",
+    fontWeight: "700",
   },
   radius: { md: "8px", lg: "12px" },
   shadows: {
@@ -43,15 +45,28 @@ export const theme = createTheme({
     lg: "0 4px 16px rgba(16, 24, 40, 0.10)",
     xl: "0 8px 24px rgba(16, 24, 40, 0.12)",
   },
+  fontSizes: {
+    xs: "12px",
+    sm: "13px",
+    md: "14px",
+    lg: "15px",
+    xl: "16px",
+  },
   components: {
     Button: {
       defaultProps: { fw: 600 },
     },
     Card: {
-      defaultProps: { withBorder: true, shadow: undefined, radius: "md" },
+      defaultProps: { withBorder: true, shadow: undefined, radius: "lg", padding: 12 },
     },
     Paper: {
-      defaultProps: { withBorder: true, shadow: undefined },
+      defaultProps: { withBorder: true, shadow: undefined, radius: "lg" },
+    },
+    Badge: {
+      defaultProps: { radius: 999 },
+    },
+    Modal: {
+      defaultProps: { radius: "lg", centered: true },
     },
     /**
      * Mantine's visibility toggle ships an English `aria-label`
@@ -71,4 +86,22 @@ export const layout = {
   headerHeight: 64,
   headerHeightMobile: 56,
   containerSize: 1280,
+  /** Bottom tab bar height on phones (mirrors the Mobile app's 60). */
+  tabBarHeight: 60,
+};
+
+/**
+ * Tone palette for status badges/pills, copied from the Mobile theme
+ * (`toneColors`): background / foreground / border per tone.
+ */
+export const toneColors: Record<
+  "green" | "blue" | "yellow" | "orange" | "red" | "gray",
+  { bg: string; fg: string; border: string }
+> = {
+  green: { bg: "#eefaf1", fg: "#0b7a39", border: "#aee5bf" },
+  blue: { bg: "#e8f0fe", fg: "#1d4ed8", border: "#bfcffb" },
+  yellow: { bg: "#fdf3d7", fg: "#8a5a00", border: "#f0d48a" },
+  orange: { bg: "#fdeedd", fg: "#b45309", border: "#f5c98a" },
+  red: { bg: "#fdecea", fg: "#c0392b", border: "#f3b3ab" },
+  gray: { bg: "#eef0ee", fg: "#5f6b5f", border: "#d7dbd7" },
 };

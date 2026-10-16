@@ -92,6 +92,8 @@ function fallbackMessage(status: number): string {
       return "Dữ liệu vừa thay đổi. Vui lòng tải lại trang.";
     case 429:
       return "Bạn thao tác quá nhanh. Vui lòng thử lại sau.";
+    case 503:
+      return "Hệ thống đang tạm thời không khả dụng. Vui lòng thử lại sau ít phút.";
     default:
       return "Đã xảy ra lỗi. Vui lòng thử lại.";
   }
@@ -149,7 +151,10 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // `FormData` bodies (evidence upload) must keep the browser-generated
+  // multipart boundary, so the JSON content type is only set for JSON payloads.
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
+  if (body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   if (extraHeaders) Object.assign(headers, extraHeaders);
 
   let res: Response;
@@ -157,7 +162,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     res = await fetch(buildUrl(path, params), {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isFormData ? body : JSON.stringify(body),
       signal: controller.signal,
       cache: "no-store",
     });

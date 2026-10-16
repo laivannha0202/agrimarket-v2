@@ -70,9 +70,28 @@ export const queryKeys = {
     all: ["cart"] as const,
     me: () => ["cart", "me"] as const,
   },
+  checkout: {
+    all: ["checkout"] as const,
+    /**
+     * Pre-submit amount. The signature encodes the lines the preview priced
+     * (`variantId:quantity,…`) plus the voucher code, so editing the cart (or
+     * choosing a voucher) changes the key and the totals are re-fetched — a
+     * stale total can never be displayed. The cart and the checkout share the
+     * entry whenever the same lines are priced without a voucher.
+     */
+    preview: (itemsSignature: string, voucherCode = "") =>
+      ["checkout", "preview", itemsSignature, voucherCode] as const,
+  },
   orders: {
     all: ["orders"] as const,
     list: (params: OrderListParams) => ["orders", "list", params] as const,
+    /**
+     * "Xem thêm" paging for the order-history screen: the key carries the status
+     * filter and the page size, and React Query appends each page to the same
+     * key. `orders.all` still invalidates every variant.
+     */
+    infinite: (status: OrderStatus | undefined, limit: number) =>
+      ["orders", "infinite", status ?? null, limit] as const,
     detail: (id: number) => ["orders", "detail", id] as const,
   },
   addresses: {
@@ -92,6 +111,8 @@ export const queryKeys = {
   returns: {
     all: ["returns"] as const,
     list: (params: ReturnListParams) => ["returns", "list", params] as const,
+    /** `GET /returns/me/eligible-items` — what the return form may offer. */
+    eligible: () => ["returns", "eligible"] as const,
     detail: (id: number) => ["returns", "detail", id] as const,
   },
   complaints: {
@@ -102,6 +123,8 @@ export const queryKeys = {
   reviews: {
     all: ["reviews"] as const,
     mine: () => ["reviews", "me"] as const,
+    /** `GET /reviews/me/eligible-items` — what the review form may offer. */
+    eligible: () => ["reviews", "eligible"] as const,
     forProduct: (productId: number, page: number) =>
       ["reviews", "product", productId, page] as const,
   },

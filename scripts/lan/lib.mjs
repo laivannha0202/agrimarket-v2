@@ -420,7 +420,7 @@ export async function checkApiReadiness({ lanIp, port = API_DEFAULT_PORT, timeou
   push("mysql:3306 reachable", mysqlTcpOpen, mysqlTcpOpen ? "TCP connect ok" : "TCP refused — MySQL service is down or firewalled");
 
   const portOpen = await checkTcpOpen("127.0.0.1", port, 3000);
-  push(`port ${port} listening`, portOpen, portOpen ? "TCP connect ok" : `nothing listens on ${port} — start with pnpm dev:api`);
+  push(`port ${port} listening`, portOpen, portOpen ? "TCP connect ok" : `nothing listens on ${port} — start with npm run dev:api`);
 
   let portOwner = null;
   if (process.platform === "win32") portOwner = getWindowsPortOwner(port);

@@ -30,20 +30,20 @@
 
 | Lệnh (từ repo root) | Kết quả |
 |---|---|
-| `pnpm --filter @agrimarket/api exec tsc --noEmit -p tsconfig.json` | PASS (exit 0) |
-| `pnpm --filter @agrimarket/api exec oxlint --type-aware src/ test/ prisma/` | PASS, 5 warning có sẵn (`returns.service` skip/take, `evidence.controller` import, 2 sort-compare trong test) |
-| `pnpm --filter @agrimarket/api exec vitest run` | **386/386 PASS**, 29 files |
-| `pnpm --filter @agrimarket/api exec vitest run --config ./vitest.config.e2e.ts` | **331/331 PASS**, 11 files (TEST DB) |
-| `pnpm --filter @agrimarket/admin-web exec tsc --noEmit -p tsconfig.json` | PASS |
-| `pnpm --filter @agrimarket/admin-web exec vitest run` | **40/40 PASS**, 7 files |
-| `pnpm --filter @agrimarket/admin-web exec eslint` 3 file đổi đợt này | PASS (no output) |
-| `pnpm --filter @agrimarket/customer-web exec tsc --noEmit -p tsconfig.json` | PASS |
-| `pnpm --filter @agrimarket/customer-web exec eslint` 4 file đổi đợt này | PASS (no output) |
-| `pnpm --filter @agrimarket/customer-web exec next build` | PASS — 30 routes (static + dynamic) liệt kê ở log build |
-| `pnpm --filter @agrimarket/admin-web exec next build` | PASS — 30 routes liệt kê ở log build |
-| `pnpm --filter @agrimarket/mobile exec tsc --noEmit -p tsconfig.json` | PASS |
-| `pnpm --filter @agrimarket/mobile exec vitest run` | **174/174 PASS**, 18 files |
-| `pnpm --filter @agrimarket/customer-web exec vitest run` | **KHÔNG CHẠY** — package không có test runner (không script test, không vitest/jest). Ghi nhận P2, không bịa PASS. |
+| `npm exec --workspace @agrimarket/api -- tsc --noEmit -p tsconfig.json` | PASS (exit 0) |
+| `npm exec --workspace @agrimarket/api -- oxlint --type-aware src/ test/ prisma/` | PASS, 5 warning có sẵn (`returns.service` skip/take, `evidence.controller` import, 2 sort-compare trong test) |
+| `npm exec --workspace @agrimarket/api -- vitest run` | **386/386 PASS**, 29 files |
+| `npm exec --workspace @agrimarket/api -- vitest run --config ./vitest.config.e2e.ts` | **331/331 PASS**, 11 files (TEST DB) |
+| `npm exec --workspace @agrimarket/admin-web -- tsc --noEmit -p tsconfig.json` | PASS |
+| `npm exec --workspace @agrimarket/admin-web -- vitest run` | **40/40 PASS**, 7 files |
+| `npm exec --workspace @agrimarket/admin-web -- eslint` 3 file đổi đợt này | PASS (no output) |
+| `npm exec --workspace @agrimarket/customer-web -- tsc --noEmit -p tsconfig.json` | PASS |
+| `npm exec --workspace @agrimarket/customer-web -- eslint` 4 file đổi đợt này | PASS (no output) |
+| `npm exec --workspace @agrimarket/customer-web -- next build` | PASS — 30 routes (static + dynamic) liệt kê ở log build |
+| `npm exec --workspace @agrimarket/admin-web -- next build` | PASS — 30 routes liệt kê ở log build |
+| `npm exec --workspace @agrimarket/mobile -- tsc --noEmit -p tsconfig.json` | PASS |
+| `npm exec --workspace @agrimarket/mobile -- vitest run` | **174/174 PASS**, 18 files |
+| `npm exec --workspace @agrimarket/customer-web -- vitest run` | **KHÔNG CHẠY** — package không có test runner (không script test, không vitest/jest). Ghi nhận P2, không bịa PASS. |
 
 ---
 

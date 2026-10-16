@@ -1,33 +1,24 @@
 "use client";
 
-/** Small badge rendering a centralised status label + tone. */
+/**
+ * Small badge rendering a centralised status label + tone.
+ *
+ * Styled as the Mobile tone pill (soft background, 1px border in the same hue).
+ * `size`/`variant` are accepted for backwards compatibility but the pill look
+ * is fixed so every status reads the same across the app.
+ */
 
-import { Badge } from "@mantine/core";
+import { ToneBadge } from "@/components/ui/kit";
 import type { Tone } from "@/lib/status";
-
-const TONE_COLOR: Record<Tone, string> = {
-  green: "agri",
-  blue: "blue",
-  yellow: "yellow",
-  orange: "orange",
-  red: "red",
-  gray: "gray",
-};
 
 export function StatusBadge({
   label,
   tone,
-  size = "sm",
-  variant = "light",
 }: {
   label: string;
   tone: Tone;
   size?: string;
   variant?: "light" | "filled" | "outline";
 }) {
-  return (
-    <Badge color={TONE_COLOR[tone]} variant={variant} size={size} radius="sm">
-      {label}
-    </Badge>
-  );
+  return <ToneBadge tone={tone}>{label}</ToneBadge>;
 }

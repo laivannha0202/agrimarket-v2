@@ -1,243 +1,205 @@
 "use client";
 
 /**
- * Order history.
+ * Order history — the web twin of the Mobile orders screen.
  *
- * Status tabs map 1:1 to the backend `OrderStatus` enum — no invented states.
+ * The status filter is a *server* filter (`GET /orders/me?status=`), so every
+ * chip hits the backend and the list never claims to show "all" while hiding
+ * rows it already has. That also means the empty state has to distinguish
+ * "you have no orders" from "no order matches this status".
  *
- * `GET /orders/me` filters by `status` in SQL and paginates on the server, so
- * each tab shows that tab's own `meta.total` and page count. Nothing is filtered
- * on the client: the page you see is the page the server returned.
+ * Paging is "Xem thêm": the first page is the mobile app's own 20 newest
+ * orders, and the customer pulls older ones in when they want them — the
+ * count line states exactly how many of the total are on screen, and nothing
+ * is filtered or reordered on the client.
  *
  * Order cards always render the order's own snapshot fields
  * (`productNameSnapshot`, `unitPriceSnapshot`) — never the current product
  * price.
  */
 
-import {
-  Badge,
-  Box,
-  Breadcrumbs,
-  Button,
-  Card,
-  Container,
-  Divider,
-  Group,
-  Pagination,
-  Stack,
-  Tabs,
-  Text,
-  Title,
-} from "@mantine/core";
-import { IconPackage } from "@tabler/icons-react";
+import { Button, Container, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconBuildingStore, IconClock, IconCube } from "@tabler/icons-react";
 import Link from "next/link";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { formatDate, formatMoney, formatQuantity } from "@/lib/format";
-import { orderStatusMeta, paymentMethodLabel, paymentStatusMeta } from "@/lib/status";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import { orderStatusMeta } from "@/lib/status";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { EmptyState, ErrorState, ListSkeleton } from "@/components/common/States";
+import { EmptyState, ErrorState } from "@/components/common/States";
+import { AppCard, FilterChip, GhostButton, LoadingView, PageTitle } from "@/components/ui/kit";
 import { layout } from "@/theme";
 import type { Order, OrderStatus } from "@/lib/api/types";
 
-const PAGE_SIZE = 10;
+/** Mobile fetches the 20 newest orders; the web keeps the same page size. */
+const PAGE_SIZE = 20;
 
-/** `status: null` means "every status" — the backend then skips the filter. */
-const TABS: Array<{ value: string; label: string; status: OrderStatus | null }> = [
-  { value: "all", label: "Tất cả", status: null },
-  { value: "pending", label: "Chờ xác nhận", status: "PENDING_CONFIRMATION" },
-  { value: "confirmed", label: "Đã xác nhận", status: "CONFIRMED" },
-  { value: "preparing", label: "Đang chuẩn bị", status: "PREPARING" },
-  { value: "ready", label: "Chờ giao", status: "READY_TO_SHIP" },
-  { value: "shipping", label: "Đang giao", status: "SHIPPING" },
-  { value: "delivered", label: "Đã giao", status: "DELIVERED" },
-  { value: "cancelled", label: "Đã hủy", status: "CANCELLED" },
+/**
+ * The Mobile filter row, verbatim: six chips, `""` meaning "every status".
+ * The backend skips the filter when no status is sent.
+ */
+const FILTERS: Array<{ value: "" | OrderStatus; label: string }> = [
+  { value: "", label: "Tất cả" },
+  { value: "PENDING_CONFIRMATION", label: orderStatusMeta("PENDING_CONFIRMATION").label },
+  { value: "CONFIRMED", label: orderStatusMeta("CONFIRMED").label },
+  { value: "SHIPPING", label: orderStatusMeta("SHIPPING").label },
+  { value: "DELIVERED", label: orderStatusMeta("DELIVERED").label },
+  { value: "CANCELLED", label: orderStatusMeta("CANCELLED").label },
 ];
 
 function OrderCard({ order }: { order: Order }) {
+  const meta = orderStatusMeta(order.status);
   const items = order.partnerOrders.flatMap((partnerOrder) => partnerOrder.items);
-  const itemCount = items.length;
-  const payment = order.payments[0];
-  const statusMeta = orderStatusMeta(order.status);
+  const firstItem = items[0];
+  const supplierCount = order.partnerOrders.length;
 
   return (
-    <Card
-      component={Link}
-      href={`/don-hang/${order.id}`}
-      padding="md"
-      radius="md"
-      withBorder
-    >
-      <Stack gap="sm">
-        <Group justify="space-between" wrap="wrap" gap="xs">
-          <Group gap="sm" wrap="wrap">
-            <Text size="sm" fw={700}>
-              {order.code}
-            </Text>
-            <Text size="xs" c="dimmed">
-              {formatDate(order.createdAt)}
-            </Text>
-          </Group>
-          <StatusBadge label={statusMeta.label} tone={statusMeta.tone} />
+    <AppCard component={Link} href={`/don-hang/${order.id}`} className="agri-press">
+      <Group justify="space-between" align="center" gap={8} wrap="nowrap">
+        <Text fz={14} fw={700} c="var(--agri-text-strong)" truncate style={{ flex: 1 }}>
+          {order.code}
+        </Text>
+        <StatusBadge label={meta.label} tone={meta.tone} />
+      </Group>
+
+      <Group gap={5} align="center" mt={6} wrap="nowrap">
+        <IconClock size={14} color="var(--agri-muted-soft)" aria-hidden />
+        <Text fz={12.5} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+          {formatDateTime(order.createdAt)}
+        </Text>
+      </Group>
+
+      {/* Real line items only — when the backend returns none we say so
+          instead of printing a placeholder count. */}
+      {firstItem ? (
+        <Group gap={5} align="center" mt={4} wrap="nowrap">
+          <IconCube size={14} color="var(--agri-muted-soft)" aria-hidden />
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" truncate style={{ flex: 1 }}>
+            {firstItem.productNameSnapshot}
+            {items.length > 1 ? ` và ${items.length - 1} sản phẩm khác` : ""}
+          </Text>
         </Group>
+      ) : null}
 
-        <Divider />
-
-        <Stack gap={4}>
-          {items.slice(0, 3).map((item) => (
-            <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
-              <Text size="sm" lineClamp={1} style={{ flex: 1, minWidth: 0 }}>
-                {item.productNameSnapshot} × {formatQuantity(item.quantity)}
-              </Text>
-              <Text size="sm" c="dimmed" style={{ flexShrink: 0 }}>
-                {formatMoney(item.subtotal)}
-              </Text>
-            </Group>
-          ))}
-          {itemCount > 3 ? (
-            <Text size="xs" c="dimmed">
-              và {itemCount - 3} sản phẩm khác
-            </Text>
-          ) : null}
-        </Stack>
-
-        <Divider />
-
-        <Group justify="space-between" wrap="wrap" gap="xs">
-          <Group gap="xs" wrap="wrap">
-            {order.partnerOrders.length > 1 ? (
-              <Badge variant="light" color="blue" size="sm" radius="sm">
-                {order.partnerOrders.length} kiện từ {order.partnerOrders.length} đối tác
-              </Badge>
-            ) : null}
-            {payment ? (
-              <>
-                <Badge variant="light" color="gray" size="sm" radius="sm">
-                  {paymentMethodLabel(payment.method)}
-                </Badge>
-                <StatusBadge
-                  label={paymentStatusMeta(payment.status).label}
-                  tone={paymentStatusMeta(payment.status).tone}
-                  size="xs"
-                />
-              </>
-            ) : null}
-          </Group>
-          <Group gap="xs" align="baseline">
-            <Text size="xs" c="dimmed">
-              Tổng tiền
-            </Text>
-            <Text size="sm" fw={700} c="agri.9">
-              {formatMoney(order.grandTotal)}
-            </Text>
-          </Group>
+      {supplierCount > 0 ? (
+        <Group gap={5} align="center" mt={4} wrap="nowrap">
+          <IconBuildingStore size={14} color="var(--agri-muted-soft)" aria-hidden />
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+            {supplierCount} nhà cung cấp
+          </Text>
         </Group>
-      </Stack>
-    </Card>
+      ) : null}
+
+      <Group
+        justify="space-between"
+        align="center"
+        gap={8}
+        mt={8}
+        pt={8}
+        style={{ borderTop: "1px solid var(--agri-border)" }}
+      >
+        <Text fz={13} c="var(--agri-muted)">
+          Tổng cộng
+        </Text>
+        <Text fz={15} fw={700} c="var(--agri-primary)">
+          {formatMoney(order.grandTotal)}
+        </Text>
+      </Group>
+    </AppCard>
   );
 }
 
 export function OrderListView() {
-  const [activeTab, setActiveTab] = useState("all");
-  const [page, setPage] = useState(1);
+  const [status, setStatus] = useState<"" | OrderStatus>("");
 
-  const tab = TABS.find((t) => t.value === activeTab) ?? TABS[0];
-  const status = tab.status ?? undefined;
-
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.orders.list({ page, limit: PAGE_SIZE, status }),
-    queryFn: () => resources.listMyOrders({ page, limit: PAGE_SIZE, status }),
+  const list = useInfiniteQuery({
+    queryKey: queryKeys.orders.infinite(status || undefined, PAGE_SIZE),
+    queryFn: ({ pageParam }) =>
+      resources.listMyOrders({
+        page: pageParam,
+        limit: PAGE_SIZE,
+        status: status || undefined,
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
 
-  const orders = data?.data ?? [];
-  const total = data?.meta.total ?? 0;
-  const totalPages = data?.meta.totalPages ?? 1;
+  const orders = list.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = list.data?.pages[0]?.meta.total ?? 0;
+  const hasFilter = status !== "";
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Breadcrumbs separator="/" visibleFrom="sm">
-          <Text component={Link} href="/" size="sm" c="dimmed">
-            Trang chủ
-          </Text>
-          <Text size="sm">Đơn hàng</Text>
-        </Breadcrumbs>
+    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
+      <PageTitle>Đơn hàng của tôi</PageTitle>
 
-        <Stack gap={4}>
-          <Title order={2}>Đơn hàng của tôi</Title>
-          <Text size="sm" c="dimmed">
-            Theo dõi trạng thái đơn hàng, xem nguồn gốc lô hàng và yêu cầu trả hàng.
-          </Text>
-        </Stack>
+      <Stack gap={12} mt={{ base: 0, md: 12 }}>
+        {/* Status chips: the server filter, exactly the Mobile filter row. */}
+        <Group gap={8} wrap="wrap">
+          {FILTERS.map((filter) => (
+            <FilterChip
+              key={filter.value || "all"}
+              active={status === filter.value}
+              onClick={() => setStatus(filter.value)}
+            >
+              {filter.label}
+            </FilterChip>
+          ))}
+        </Group>
 
-        <Tabs
-          value={activeTab}
-          onChange={(value) => {
-            setActiveTab(value ?? "all");
-            setPage(1);
-          }}
-          variant="outline"
-        >
-          <Tabs.List>
-            {TABS.map((item) => (
-              <Tabs.Tab key={item.value} value={item.value}>
-                {item.label}
-              </Tabs.Tab>
-            ))}
-          </Tabs.List>
-        </Tabs>
-
-        {isError ? (
-          <ErrorState error={error} onRetry={() => refetch()} />
-        ) : isLoading ? (
-          <ListSkeleton rows={4} />
+        {list.isPending ? (
+          <LoadingView label="Đang tải đơn hàng…" />
+        ) : list.isError ? (
+          <ErrorState error={list.error} onRetry={() => list.refetch()} />
         ) : orders.length === 0 ? (
           <EmptyState
-            icon={<IconPackage size={28} />}
-            title={
-              status
-                ? "Không có đơn hàng ở trạng thái này"
-                : "Bạn chưa có đơn hàng"
-            }
+            kind="orders"
+            title={hasFilter ? "Không có đơn ở trạng thái này" : "Chưa có đơn hàng"}
             description={
-              status
-                ? "Chọn tab khác để xem các đơn hàng khác."
-                : "Các đơn hàng bạn đặt sẽ xuất hiện tại đây."
+              hasFilter
+                ? "Bạn không có đơn nào ở trạng thái đã chọn. Chọn trạng thái khác hoặc xem tất cả."
+                : "Bạn chưa có đơn hàng nào. Đơn đã đặt sẽ được theo dõi tại đây."
             }
             action={
-              status ? undefined : (
-                <Button component={Link} href="/san-pham">
-                  Mua nông sản
+              hasFilter ? (
+                <Button radius={8} onClick={() => setStatus("")}>
+                  Xem tất cả
+                </Button>
+              ) : (
+                <Button component={Link} href="/san-pham" radius={8}>
+                  Xem sản phẩm
                 </Button>
               )
             }
           />
         ) : (
-          <Stack gap="md">
-            <Stack gap="sm">
+          <Stack gap={8} align="stretch">
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
               {orders.map((order) => (
                 <OrderCard key={order.id} order={order} />
               ))}
-            </Stack>
+            </SimpleGrid>
 
-            {totalPages > 1 ? (
-              <Box>
-                <Group justify="center">
-                  <Pagination
-                    total={totalPages}
-                    value={page}
-                    onChange={(value) => {
-                      setPage(value);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
-                    }}
-                  />
-                </Group>
-                <Text size="xs" c="dimmed" ta="center" mt="xs">
-                  Trang {page}/{totalPages} · {total} đơn hàng
-                </Text>
-              </Box>
+            {list.hasNextPage ? (
+              <GhostButton
+                radius={8}
+                size="md"
+                loading={list.isFetchingNextPage}
+                onClick={() => list.fetchNextPage()}
+                mx="auto"
+                w="fit-content"
+                styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+              >
+                Xem thêm
+              </GhostButton>
+            ) : null}
+
+            {orders.length > 0 && total > orders.length ? (
+              <Text fz={12} c="var(--agri-muted)" ta="center">
+                Hiển thị {orders.length}/{total} đơn hàng gần nhất.
+              </Text>
             ) : null}
           </Stack>
         )}

@@ -10,12 +10,13 @@
  * or issued the certification itself.
  */
 
-import { Alert, Badge, Card, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { Box, Group, SimpleGrid, Skeleton, Stack, Text } from "@mantine/core";
 import { IconCertificate, IconShieldCheck } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatDate } from "@/lib/format";
+import { AppCard, KVRow, ToneBadge } from "@/components/ui/kit";
 
 export function FarmCertificates({ farmId }: { farmId: number }) {
   const { data, isLoading, isError } = useQuery({
@@ -25,60 +26,59 @@ export function FarmCertificates({ farmId }: { farmId: number }) {
   });
 
   if (isLoading) {
-    return <Card padding="md" radius="md" withBorder h={90} />;
+    return (
+      <Stack gap={8}>
+        <Skeleton height={16} width={160} radius="sm" />
+        <Skeleton height={72} radius={12} />
+      </Stack>
+    );
   }
 
-  if (isError) {
+  if (isError || (data ?? []).length === 0) {
     return (
-      <Alert color="gray" variant="light" icon={<IconCertificate size={16} />}>
-        <Text size="xs">Chưa tải được thông tin chứng nhận của trang trại này.</Text>
-      </Alert>
+      <AppCard padding={12}>
+        <Group gap={8} wrap="nowrap" align="flex-start">
+          <IconCertificate size={16} color="var(--agri-muted)" style={{ marginTop: 2 }} aria-hidden />
+          <Text fz={12.5} c="var(--agri-muted)" style={{ lineHeight: 1.45 }}>
+            {isError
+              ? "Chưa tải được thông tin chứng nhận của trang trại này."
+              : "Trang trại này hiện chưa có chứng nhận nào còn hiệu lực được công khai."}
+          </Text>
+        </Group>
+      </AppCard>
     );
   }
 
   const certificates = data ?? [];
 
-  if (certificates.length === 0) {
-    return (
-      <Alert color="gray" variant="light" icon={<IconCertificate size={16} />}>
-        <Text size="xs">
-          Trang trại này hiện chưa có chứng nhận nào còn hiệu lực được công khai.
-        </Text>
-      </Alert>
-    );
-  }
-
   return (
-    <Stack gap="xs">
+    <Stack gap={8}>
       <Group gap={6}>
-        <IconShieldCheck size={16} color="var(--mantine-color-agri-8)" />
-        <Text size="sm" fw={600}>
+        <Box c="var(--agri-primary)" style={{ display: "inline-flex" }}>
+          <IconShieldCheck size={16} aria-hidden />
+        </Box>
+        <Text fz={13.5} fw={600}>
           Chứng nhận còn hiệu lực
         </Text>
       </Group>
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={8}>
         {certificates.map((certificate) => (
-          <Card key={certificate.id} padding="sm" radius="md" withBorder>
-            <Stack gap={4}>
-              <Group justify="space-between" wrap="nowrap">
-                <Text size="sm" fw={700}>
+          <AppCard key={certificate.id} padding={12}>
+            <Stack gap={6}>
+              <Group justify="space-between" wrap="nowrap" gap="sm">
+                <Text fz={13.5} fw={700} truncate>
                   {certificate.type}
                 </Text>
-                <Badge color="agri" variant="light" size="sm" radius="sm">
-                  Hồ sơ đã đối chiếu
-                </Badge>
+                <ToneBadge tone="green">Hồ sơ đã đối chiếu</ToneBadge>
               </Group>
-              <Text size="xs" c="dimmed">
-                Mã: {certificate.certificateCode}
-              </Text>
-              <Text size="xs" c="dimmed">
-                Đơn vị cấp: {certificate.issuer}
-              </Text>
-              <Text size="xs" c="dimmed">
-                Hiệu lực: {formatDate(certificate.issuedAt)} — {formatDate(certificate.expiresAt)}
-              </Text>
+              <KVRow label="Mã" value={certificate.certificateCode} />
+              <KVRow label="Đơn vị cấp" value={certificate.issuer} />
+              <KVRow
+                label="Hiệu lực"
+                value={`${formatDate(certificate.issuedAt)} — ${formatDate(certificate.expiresAt)}`}
+              />
             </Stack>
-          </Card>
+          </AppCard>
         ))}
       </SimpleGrid>
     </Stack>

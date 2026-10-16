@@ -1,5 +1,7 @@
 # deps
 node_modules/
+node_modules_pnpm_broken/
+node_modules_npm_tmp/
 .pnpm-store/
 
 # builds

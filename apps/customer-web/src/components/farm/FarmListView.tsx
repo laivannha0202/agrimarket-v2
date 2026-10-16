@@ -1,131 +1,205 @@
 "use client";
 
 /**
- * Farm directory: real public farm resource.
+ * Danh sách trang trại — web twin of the Mobile `farms` screen.
  *
- * Client view only — the route's `page.tsx` is a server component so the page
- * can carry its own `<title>`/description (a `"use client"` page cannot export
- * metadata and would inherit the homepage title).
+ * Layout follows the app: a header row (icon tile + title + count), one
+ * horizontal card per farm with a fallback illustration, name, address, partner
+ * chip and area, then a centered note. The list is short enough (one page of
+ * 100) that the app renders it whole, and this screen does the same.
+ *
+ * IMAGE RULE: `Farm` carries no image field in Backend V2 (only code, address,
+ * coordinates, area and description), so there is no "real farm photo" to show.
+ * The kit's `farm_fallback` illustration is used for every card and is
+ * explicitly labelled as an illustration — it is never presented as a photo of
+ * that particular farm, which is why the caption is present rather than implied.
  */
 
-import {
-  Badge,
-  Breadcrumbs,
-  Card,
-  Container,
-  Group,
-  Pagination,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
-import { IconMapPin } from "@tabler/icons-react";
+import { Box, Container, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconBuildingStore, IconChevronRight, IconLeaf, IconMapPin } from "@tabler/icons-react";
 import Link from "next/link";
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { shortPartnerName } from "@/lib/format";
-import { EmptyState, ErrorState, ListSkeleton } from "@/components/common/States";
+import { EmptyState, ErrorState } from "@/components/common/States";
+import { AppCard, LoadingView } from "@/components/ui/kit";
 import { layout } from "@/theme";
 
-const PAGE_SIZE = 12;
-
 export function FarmListView() {
-  const [page, setPage] = useState(1);
-
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: [...queryKeys.farms.list(), page],
+    queryKey: queryKeys.farms.list(),
     queryFn: () => resources.listFarms(undefined, 100),
     staleTime: 5 * 60_000,
   });
 
   const farms = data?.data ?? [];
-  const totalPages = Math.ceil(farms.length / PAGE_SIZE);
-  const pageItems = farms.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Breadcrumbs separator="/" visibleFrom="sm">
-          <Text component={Link} href="/" size="sm" c="dimmed">
+    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
+      <Stack gap={12}>
+        <Group gap={6} wrap="wrap">
+          <Text component={Link} href="/" fz={13} c="var(--agri-muted)" visibleFrom="sm">
             Trang chủ
           </Text>
-          <Text size="sm">Trang trại</Text>
-        </Breadcrumbs>
-
-        <Stack gap={4}>
-          <Title order={2}>Trang trại &amp; vùng trồng</Title>
-          <Text size="sm" c="dimmed">
-            Các trang trại liên kết đang cung cấp nông sản cho AgriMarket.
+          <Text fz={13} c="var(--agri-muted-soft)" visibleFrom="sm">
+            /
           </Text>
-        </Stack>
+          <Text fz={13} c="var(--agri-text)" visibleFrom="sm">
+            Trang trại
+          </Text>
+        </Group>
+
+        {/* Header row (Mobile `headRow`) */}
+        <Group gap={8} align="center" wrap="nowrap" mb={4}>
+          <Box
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 8,
+              background: "var(--agri-primary-soft)",
+              display: "grid",
+              placeItems: "center",
+              flexShrink: 0,
+            }}
+          >
+            <IconLeaf size={18} color="var(--agri-primary)" aria-hidden />
+          </Box>
+          <Stack gap={1} style={{ flex: 1 }}>
+            <Text fz={16} fw={700} c="var(--agri-text-strong)">
+              Trang trại đối tác
+            </Text>
+            <Text fz={12.5} c="var(--agri-muted)">
+              {data?.meta.total ?? farms.length} trang trại đang hoạt động
+            </Text>
+          </Stack>
+        </Group>
 
         {isError ? (
           <ErrorState error={error} onRetry={() => refetch()} />
         ) : isLoading ? (
-          <ListSkeleton rows={6} />
+          <LoadingView label="Đang tải trang trại…" />
         ) : farms.length === 0 ? (
           <EmptyState
+            kind="search"
             title="Chưa có trang trại"
-            description="Danh sách trang trại sẽ hiển thị khi có dữ liệu."
+            description="Hệ thống chưa ghi nhận trang trại nào."
           />
         ) : (
-          <Stack gap="lg">
-            <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-              {pageItems.map((farm) => (
-                <Card
-                  key={farm.id}
-                  component={Link}
-                  href={`/trang-trai/${farm.id}`}
-                  padding="md"
-                  radius="md"
-                  withBorder
-                >
-                  <Stack gap="xs">
-                    <Text fw={700} lineClamp={1}>
+          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing={8}>
+            {farms.map((farm) => (
+              <AppCard
+                key={farm.id}
+                component={Link}
+                href={`/trang-trai/${farm.id}`}
+                padding={8}
+                className="agri-press"
+                aria-label={`Trang trại ${farm.name}`}
+              >
+                <Group align="center" gap={12} wrap="nowrap">
+                  <Box
+                    style={{
+                      width: 88,
+                      height: 88,
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      background: "var(--agri-primary-soft)",
+                      position: "relative",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/design/farm/farm_fallback_1000x600.png"
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      className="agri-media"
+                    />
+                    <Box
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: "rgba(15,18,15,0.55)",
+                        padding: "2px 0",
+                        textAlign: "center",
+                      }}
+                    >
+                      <Text c="#ffffff" fz={9} fw={600}>
+                        Hình minh hoạ
+                      </Text>
+                    </Box>
+                  </Box>
+
+                  <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
+                    <Text fz={15} fw={700} lh="20px" c="var(--agri-text)" lineClamp={2}>
                       {farm.name}
                     </Text>
-                    <Group gap={6} wrap="nowrap" align="flex-start">
+                    <Group gap={4} align="flex-start" wrap="nowrap">
                       <IconMapPin
-                        size={15}
-                        color="#868e96"
-                        style={{ marginTop: 2, flexShrink: 0 }}
+                        size={13}
+                        color="var(--agri-muted-soft)"
+                        style={{ flexShrink: 0, marginTop: 2 }}
+                        aria-hidden
                       />
-                      <Text size="sm" c="dimmed" lineClamp={2}>
+                      <Text fz={12} lh="17px" c="var(--agri-muted)" lineClamp={2} style={{ flex: 1 }}>
                         {farm.address}
                       </Text>
                     </Group>
-                    <Group gap="xs">
-                      <Badge variant="light" color="agri" size="sm" radius="sm">
-                        {shortPartnerName(farm.partner.name)}
-                      </Badge>
+                    <Group gap={8} align="center" wrap="nowrap" mt={2}>
+                      <Box
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 3,
+                          background: "var(--agri-primary-soft)",
+                          borderRadius: 999,
+                          padding: "2px 7px",
+                          maxWidth: "100%",
+                          minWidth: 0,
+                        }}
+                      >
+                        <IconBuildingStore
+                          size={12}
+                          color="var(--agri-primary)"
+                          style={{ flexShrink: 0 }}
+                          aria-hidden
+                        />
+                        <Text
+                          fz={11}
+                          fw={600}
+                          c="var(--agri-primary-dark)"
+                          truncate
+                          style={{ minWidth: 0 }}
+                        >
+                          {farm.partner.name}
+                        </Text>
+                      </Box>
                       {farm.areaHa ? (
-                        <Text size="xs" c="dimmed">
-                          {Number(farm.areaHa).toLocaleString("vi-VN")} ha
+                        <Text fz={11.5} fw={600} c="var(--agri-muted-soft)" style={{ flexShrink: 0 }}>
+                          {farm.areaHa} ha
                         </Text>
                       ) : null}
                     </Group>
                   </Stack>
-                </Card>
-              ))}
-            </SimpleGrid>
 
-            {totalPages > 1 ? (
-              <Group justify="center">
-                <Pagination
-                  total={totalPages}
-                  value={page}
-                  onChange={(value) => {
-                    setPage(value);
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                />
-              </Group>
-            ) : null}
-          </Stack>
+                  <IconChevronRight
+                    size={16}
+                    color="var(--agri-muted-soft)"
+                    style={{ flexShrink: 0 }}
+                    aria-hidden
+                  />
+                </Group>
+              </AppCard>
+            ))}
+          </SimpleGrid>
         )}
+
+        <Text fz={12} lh="17px" c="var(--agri-muted)" ta="center" mt={4}>
+          Chứng nhận còn hiệu lực được hiển thị trong chi tiết từng trang trại.
+        </Text>
       </Stack>
     </Container>
   );

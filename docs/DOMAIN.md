@@ -11,7 +11,7 @@
 
 ## 2. Stack đã chốt
 - Node.js 24 LTS (`v24.21.0` verified)
-- pnpm 12 (`v12.9.1` verified, dùng `packageManager: pnpm@12.9.1`)
+- npm (đi kèm Node.js, npm workspaces khai báo trong `package.json`)
 - NestJS 12 (ESM, `type: module`)
 - Prisma 7 (`7.10.0`) + MySQL 8.4 (`8.4.11` verified) + `@prisma/adapter-mariadb`
 - Next.js App Router (chưa tạo)
@@ -33,7 +33,7 @@ agrimarket/
 ├── packages/                 # (trống, dùng sau cho shared types/utils)
 ├── docs/
 │   └── DOMAIN.md             # file này
-├── pnpm-workspace.yaml
+├── package-lock.json
 └── package.json
 ```
 
@@ -113,8 +113,8 @@ Commission
 - `FlashSale`: khung giờ sale (slot, stock giới hạn, giá flash).
 
 ## 5. Quy tắc khóa Giai đoạn 1
-- [x] Môi trường: Node 24, pnpm 12, Git, MySQL 8.4 đã verify.
-- [x] pnpm workspace `apps/*`, `packages/*`.
+- [x] Môi trường: Node 24, npm, Git, MySQL 8.4 đã verify.
+- [x] npm workspaces `apps/*`, `packages/*`.
 - [x] NestJS API scaffold ESM, `--skip-git --no-observe`.
 - [x] Package rename `@agrimarket/api`, `private: true`.
 - [x] Prisma 7 + adapter-mariadb + dotenv, `prisma init --datasource-provider mysql`.

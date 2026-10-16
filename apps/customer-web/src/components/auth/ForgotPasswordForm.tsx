@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Forgot password.
+ * Quên mật khẩu — web twin of the Mobile forgot-password screen.
  *
  * The response never reveals whether the address is registered — that is the
  * backend's anti-enumeration design (`AuthService.forgotPassword` returns the
@@ -12,20 +12,27 @@
  * transport (no SMTP configured) no e-mail actually leaves the server, so the
  * screen says so instead of claiming a message was sent. That distinction is
  * the whole reason the field exists.
+ *
+ * The second card is the Mobile "Đã có liên kết trong email?" block: the link
+ * may not open the browser by itself, so the code can be pasted on the reset
+ * screen instead.
  */
 
 import {
-  Alert,
   Button,
-  Card,
   Container,
-  Divider,
+  Group,
   Stack,
   Text,
   TextInput,
-  Title,
 } from "@mantine/core";
-import { IconAlertCircle, IconInfoCircle, IconMailForward } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconCircleCheck,
+  IconInfoCircle,
+  IconKey,
+  IconMail,
+} from "@tabler/icons-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -33,12 +40,30 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
+import { AppCard, GhostButton } from "@/components/ui/kit";
 
 const forgotSchema = z.object({
   email: z.string().trim().toLowerCase().email("Email chưa hợp lệ"),
 });
 
 type ForgotFormValues = z.infer<typeof forgotSchema>;
+
+/** Muted inline error row (Mobile `errorRow`). */
+function ErrorRow({ message }: { message: string }) {
+  return (
+    <Group gap={6} align="flex-start" wrap="nowrap" mt={10}>
+      <IconAlertCircle
+        size={15}
+        color="var(--agri-danger)"
+        style={{ flexShrink: 0, marginTop: 2 }}
+        aria-hidden
+      />
+      <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+        {message}
+      </Text>
+    </Group>
+  );
+}
 
 export function ForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null);
@@ -70,74 +95,126 @@ export function ForgotPasswordForm() {
   };
 
   return (
-    <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-      <Card padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Stack gap={4} align="center">
-            <IconMailForward size={30} color="var(--mantine-color-agri-8)" />
-            <Title order={2} fz={24}>
+    <Container size={460} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 56 }}>
+      <Stack gap={16}>
+        <AppCard padding={16}>
+          <Group gap={8} align="center" wrap="nowrap">
+            <IconMail size={20} color="var(--agri-primary)" aria-hidden />
+            <Text fz={16} fw={700} c="var(--agri-text-strong)">
               Quên mật khẩu
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Nhập email đăng nhập, hệ thống sẽ gửi liên kết đặt lại mật khẩu.
             </Text>
-          </Stack>
-
-          <Divider />
+          </Group>
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" mt={6}>
+            Nhập email đăng nhập, hệ thống sẽ gửi liên kết đặt lại mật khẩu. Liên kết chỉ dùng
+            được một lần và hết hạn sau 60 phút.
+          </Text>
 
           {sentTo ? (
-            <Alert
-              color={realDelivery ? "agri" : "orange"}
-              variant="light"
-              icon={<IconInfoCircle size={16} />}
-              title={realDelivery ? "Đã gửi liên kết" : "Chưa cấu hình gửi email"}
+            <Group
+              gap={6}
+              align="flex-start"
+              wrap="nowrap"
+              mt={10}
+              style={{
+                background: realDelivery ? "var(--agri-primary-soft)" : "var(--agri-warning-soft)",
+                border: `1px solid ${realDelivery ? "var(--agri-primary-border)" : "var(--agri-warning)"}`,
+                borderRadius: 8,
+                padding: 8,
+              }}
             >
-              <Stack gap={6}>
-                <Text size="sm">
-                  Nếu email <strong>{sentTo}</strong> có tài khoản AgriMarket, một liên kết đặt
-                  lại mật khẩu đã được tạo. Liên kết chỉ dùng được một lần và hết hạn sau 60 phút.
+              {realDelivery ? (
+                <IconCircleCheck
+                  size={17}
+                  color="var(--agri-primary)"
+                  style={{ flexShrink: 0, marginTop: 1 }}
+                  aria-hidden
+                />
+              ) : (
+                <IconInfoCircle
+                  size={17}
+                  color="var(--agri-warning)"
+                  style={{ flexShrink: 0, marginTop: 1 }}
+                  aria-hidden
+                />
+              )}
+              <Stack gap={2} style={{ flex: 1 }}>
+                <Text
+                  fz={13.5}
+                  fw={700}
+                  c={realDelivery ? "var(--agri-primary)" : "var(--agri-warning)"}
+                >
+                  {realDelivery ? "Đã gửi liên kết" : "Chưa cấu hình gửi email"}
+                </Text>
+                <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+                  Nếu email {sentTo} có tài khoản AgriMarket, một liên kết đặt lại mật khẩu đã
+                  được tạo.
                 </Text>
                 {realDelivery ? null : (
-                  <Text size="sm">
-                    Máy chủ hiện chưa cấu hình SMTP nên email <strong>chưa được gửi thật</strong>.
-                    Vui lòng liên hệ AgriMarket để được hỗ trợ đặt lại mật khẩu.
+                  <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+                    Máy chủ hiện chưa cấu hình SMTP nên email chưa được gửi thật. Vui lòng liên
+                    hệ AgriMarket để được hỗ trợ đặt lại mật khẩu.
                   </Text>
                 )}
               </Stack>
-            </Alert>
-          ) : null}
-
-          {error ? (
-            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-              <Text size="sm">{error}</Text>
-            </Alert>
+            </Group>
           ) : null}
 
           <form onSubmit={handleSubmit(submit)}>
-            <Stack gap="md">
-              <TextInput
-                label="Email"
-                placeholder="khachhang@agrimarket.vn"
-                leftSection={<IconMailForward size={16} />}
-                type="email"
-                autoComplete="email"
-                error={errors.email?.message}
-                required
-                size="md"
-                {...register("email")}
-              />
-              <Button type="submit" size="md" fullWidth loading={isSubmitting}>
-                Gửi liên kết đặt lại
-              </Button>
-            </Stack>
-          </form>
+            <TextInput
+              mt={12}
+              label="Email"
+              placeholder="khachhang@agrimarket.vn"
+              leftSection={<IconMail size={16} aria-hidden />}
+              type="email"
+              autoComplete="email"
+              error={errors.email?.message}
+              required
+              size="md"
+              {...register("email")}
+            />
 
-          <Divider />
-          <Button component={Link} href="/dang-nhap" variant="subtle" size="sm" fullWidth>
+            {error ? <ErrorRow message={error} /> : null}
+
+            <Button
+              type="submit"
+              radius={8}
+              mt={16}
+              fullWidth
+              loading={isSubmitting}
+              styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+            >
+              {isSubmitting ? "Đang gửi…" : "Gửi liên kết đặt lại"}
+            </Button>
+          </form>
+        </AppCard>
+
+        <AppCard padding={16}>
+          <Text fz={16} fw={700} c="var(--agri-text-strong)">
+            Đã có liên kết trong email?
+          </Text>
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" mt={6}>
+            Mở liên kết trong email để đặt mật khẩu mới. Nếu liên kết không tự mở, hãy dán mã
+            trong email vào trang đặt lại mật khẩu.
+          </Text>
+          <GhostButton
+            component={Link}
+            href="/dat-lai-mat-khau"
+            radius={8}
+            mt={12}
+            fullWidth
+            leftSection={<IconKey size={15} aria-hidden />}
+            styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+          >
+            Nhập mã đặt lại
+          </GhostButton>
+        </AppCard>
+
+        <Group justify="center">
+          <Text component={Link} href="/dang-nhap" fz={13} fw={600} c="var(--agri-muted)">
             Quay lại đăng nhập
-          </Button>
-        </Stack>
-      </Card>
+          </Text>
+        </Group>
+      </Stack>
     </Container>
   );
 }

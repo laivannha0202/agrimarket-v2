@@ -18,7 +18,7 @@ import {
  * HTTP end-to-end tests.
  *
  * They run against an isolated database given by TEST_DATABASE_URL and are
- * skipped entirely when that variable is not configured, so `pnpm test:e2e`
+ * skipped entirely when that variable is not configured, so `npm run test:e2e`
  * never touches the development database and never hardcodes credentials.
  *
  * The suite provisions its own tagged fixtures and removes them afterwards, so

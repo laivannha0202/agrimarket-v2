@@ -1,46 +1,30 @@
 "use client";
 
 /**
- * Trace detail.
+ * Chi tiết truy xuất — web twin of the Mobile `trace/[code]` screen.
  *
- * One screen serves all three entry points: a manually typed code, a QR link
- * from a printed label, and the trace link on a purchased order item.
+ * One screen serves all three entry points: a manually typed code, a pasted
+ * trace link, and the trace link on a purchased order item.
+ *
+ * The code is normalised with the shared `parseTraceCode` before the lookup
+ * runs (the backend matches exactly), so a hand-typed lowercase or a full URL
+ * works and a malformed value gets its own screen instead of an API error.
  *
  * Only public, backend-provided fields are rendered. Internal UUIDs, bank
  * accounts, audit records and non-public events are never exposed (the backend
  * already filters `isPublic`, and this component adds no extra data of its own).
  */
 
+import { Box, Container, Group, SimpleGrid, Stack, Text } from "@mantine/core";
 import {
-  Alert,
-  Badge,
-  Box,
-  Breadcrumbs,
-  Button,
-  Card,
-  Container,
-  Divider,
-  Group,
-  SimpleGrid,
-  Stack,
-  Table,
-  Tabs,
-  Text,
-  ThemeIcon,
-  Timeline,
-  Title,
-} from "@mantine/core";
-import {
-  IconAlertTriangle,
+  IconBasket,
   IconBuildingStore,
   IconCalendarStats,
   IconCertificate,
-  IconCheck,
+  IconCircleCheck,
+  IconCircleX,
   IconLeaf,
-  IconMapPin,
-  IconPackage,
   IconShieldCheck,
-  IconX,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -48,23 +32,60 @@ import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatDate, formatDateTime, formatQuantity } from "@/lib/format";
-import { farmingEventLabel, lotStatusMeta, traceEventLabel } from "@/lib/status";
+import {
+  farmingEventLabel,
+  lotStatusMeta,
+  seasonStatusLabel,
+  traceEventLabel,
+} from "@/lib/status";
+import { parseTraceCode } from "@/lib/trace-code";
 import { ProductImage } from "@/components/common/ProductImage";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { ErrorState, NotFoundState, DetailSkeleton } from "@/components/common/States";
+import { ErrorState, NotFoundState } from "@/components/common/States";
+import { AppCard, GhostButton, KVRow, LoadingView, ToneBadge } from "@/components/ui/kit";
 import { layout } from "@/theme";
 
+const QC_CHECKS: {
+  key: "appearancePassed" | "freshnessPassed" | "packagingPassed" | "damagePassed";
+  label: string;
+}[] = [
+  { key: "appearancePassed", label: "Ngoại quan" },
+  { key: "freshnessPassed", label: "Độ tươi" },
+  { key: "packagingPassed", label: "Bao bì" },
+  { key: "damagePassed", label: "Không hư hỏng" },
+];
+
 export function TraceDetail({ traceCode }: { traceCode: string }) {
+  const parsedCode = parseTraceCode(traceCode);
+  const queryCode = parsedCode ?? traceCode;
+
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.trace.detail(traceCode),
-    queryFn: () => resources.getTrace(traceCode),
+    queryKey: queryKeys.trace.detail(queryCode),
+    queryFn: () => resources.getTrace(queryCode),
+    enabled: parsedCode !== null,
     retry: false,
   });
 
+  if (!parsedCode) {
+    return (
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 40 }}>
+        <NotFoundState
+          title="Mã truy xuất không hợp lệ"
+          description="Vui lòng kiểm tra lại mã in trên tem. Mã có dạng TRC-000001-XXXX."
+          action={
+            <GhostButton component={Link} href="/truy-xuat" radius={8}>
+              Nhập mã khác
+            </GhostButton>
+          }
+        />
+      </Container>
+    );
+  }
+
   if (isLoading) {
     return (
-      <Container size={layout.containerSize} py="xl">
-        <DetailSkeleton />
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 40 }}>
+        <LoadingView label="Đang tra cứu hồ sơ lô hàng…" />
       </Container>
     );
   }
@@ -72,19 +93,24 @@ export function TraceDetail({ traceCode }: { traceCode: string }) {
   if (isError) {
     const notFound = error instanceof ApiError && error.status === 404;
     return (
-      <Container size={layout.containerSize} py="xl">
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 40 }}>
         {notFound ? (
           <NotFoundState
             title="Không tìm thấy thông tin truy xuất"
             description="Mã truy xuất không tồn tại hoặc đã bị thu hồi. Vui lòng kiểm tra lại mã in trên tem."
             action={
-              <Button component={Link} href="/truy-xuat" variant="default">
+              <GhostButton component={Link} href="/truy-xuat" radius={8}>
                 Nhập mã khác
-              </Button>
+              </GhostButton>
             }
           />
         ) : (
-          <ErrorState error={error} onRetry={() => refetch()} />
+          <Stack gap={12}>
+            <ErrorState error={error} onRetry={() => refetch()} />
+            <GhostButton component={Link} href="/truy-xuat" radius={8}>
+              Nhập mã khác
+            </GhostButton>
+          </Stack>
         )}
       </Container>
     );
@@ -93,368 +119,291 @@ export function TraceDetail({ traceCode }: { traceCode: string }) {
   if (!data) return null;
 
   const { lot, product, partner, farm, season, harvest, qualityControl, certificates } = data;
-  const isRecalled = lot.status === "RECALLED";
-  const isExpired = lot.isExpired;
   const lotMeta = lotStatusMeta(lot.status);
+  const events = [...data.traceEvents].sort(
+    (a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
+  );
+  const farming = [...data.farmingEvents].sort(
+    (a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
+  );
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Breadcrumbs separator="/" visibleFrom="sm">
-          <Text component={Link} href="/" size="sm" c="dimmed">
-            Trang chủ
-          </Text>
-          <Text component={Link} href="/truy-xuat" size="sm" c="dimmed">
-            Truy xuất nguồn gốc
-          </Text>
-          <Text size="sm">{lot.traceCode}</Text>
-        </Breadcrumbs>
+    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
+      <Stack gap={12}>
+        <BreadcrumbsRow traceCode={lot.traceCode} />
 
-        {isRecalled ? (
-          <Alert
-            color="red"
-            variant="filled"
-            icon={<IconAlertTriangle size={20} />}
-            title="Lô hàng này đã bị thu hồi"
-          >
-            <Text size="sm">
-              Lô {lot.code} đã được đánh dấu thu hồi và không còn được bán. Nếu bạn đã mua
-              sản phẩm thuộc lô này, vui lòng liên hệ bộ phận chăm sóc khách hàng hoặc tạo
-              khiếu nại trong chi tiết đơn hàng.
-            </Text>
-          </Alert>
-        ) : isExpired ? (
-          <Alert
-            color="orange"
-            variant="light"
-            icon={<IconAlertTriangle size={20} />}
-            title="Lô hàng đã hết hạn sử dụng"
-          >
-            <Text size="sm">
-              Lô {lot.code} đã quá hạn sử dụng ghi trên tem ({formatDate(lot.expiresAt)}) và
-              không còn được phân bổ để bán.
-            </Text>
-          </Alert>
-        ) : null}
-
-        {/* Product header */}
-        <Card padding="lg" radius="md" withBorder>
-          <Group align="flex-start" gap="lg" wrap="wrap">
-            <Box w={120} style={{ flexShrink: 0 }}>
-              <ProductImage
-                src={product.images[0] ?? null}
-                alt={product.name}
-                ratio={1}
-                radius={8}
-                fallbackLabel={product.name}
-              />
+        {/* Hero: the real product photo when the backend has one; `ProductImage`
+            falls back to the same neutral leaf placeholder the app shows. */}
+        <AppCard padding={12}>
+          <Group align="flex-start" gap={12} wrap="nowrap">
+            <Box w={88} style={{ flexShrink: 0 }}>
+              <ProductImage src={product.images[0] ?? null} alt={product.name} ratio={1} radius={8} />
             </Box>
-
-            <Stack gap="xs" style={{ flex: 1, minWidth: 240 }}>
-              <Group gap="sm" wrap="wrap">
-                <Title order={2} fz={{ base: 22, sm: 28 }}>
-                  {product.name}
-                </Title>
-                <StatusBadge label={lotMeta.label} tone={lotMeta.tone} />
-              </Group>
-              <Text size="sm" c="dimmed">
+            <Stack gap={2} justify="center" style={{ flex: 1 }}>
+              <Text fz={16} fw={700} lh="21px" c="var(--agri-text-strong)" lineClamp={2}>
+                {product.name}
+              </Text>
+              <Text fz={12.5} c="var(--agri-muted)">
                 {product.category}
               </Text>
-              {product.description ? (
-                <Text size="sm" c="dimmed">
-                  {product.description}
-                </Text>
-              ) : null}
-              <Group gap="xs" wrap="wrap">
-                <Badge variant="light" color="gray" radius="sm">
-                  Mã lô: {lot.code}
-                </Badge>
-                <Badge variant="light" color="gray" radius="sm">
-                  Mã truy xuất: {lot.traceCode}
-                </Badge>
+              <Group gap={6} wrap="wrap" mt={2}>
+                <StatusBadge label={lotMeta.label} tone={lotMeta.tone} />
+                {lot.isExpired ? <ToneBadge tone="red">Quá hạn</ToneBadge> : null}
+                <ToneBadge tone="gray">Hạng {lot.grade}</ToneBadge>
               </Group>
-              {!isRecalled ? (
-                <Button
-                  component={Link}
-                  href={`/san-pham?search=${encodeURIComponent(product.name)}`}
-                  variant="light"
-                  size="xs"
-                  w="fit-content"
-                >
-                  Tìm sản phẩm này
-                </Button>
-              ) : null}
             </Stack>
           </Group>
-        </Card>
+        </AppCard>
+
+        {/* Lot identity + expiry */}
+        <AppCard padding={12}>
+          <SectionTitle>Thông tin lô</SectionTitle>
+          <Stack gap={4}>
+            <KVRow label="Mã lô" value={lot.code} />
+            <KVRow label="Mã truy xuất" value={lot.traceCode} />
+            <KVRow label="Đóng gói" value={formatDate(lot.packedAt)} />
+            <KVRow
+              label="Hạn dùng"
+              value={formatDate(lot.expiresAt)}
+              valueColor={lot.isExpired ? "var(--agri-danger)" : undefined}
+            />
+            <KVRow label="Còn lại" value={formatQuantity(lot.remainingQuantity, lot.unit)} />
+          </Stack>
+        </AppCard>
 
         {/* Origin chain */}
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-          <InfoCard
-            icon={<IconLeaf size={18} color="var(--mantine-color-agri-8)" />}
-            title="Vụ mùa"
-          >
-            <InfoRow label="Cây trồng" value={season.cropName} />
-            {season.variety ? <InfoRow label="Giống" value={season.variety} /> : null}
-            <InfoRow label="Ngày trồng" value={formatDate(season.plantingDate)} />
-            <InfoRow label="Dự kiến thu hoạch" value={formatDate(season.expectedHarvestDate)} />
-          </InfoCard>
+        <AppCard padding={12}>
+          <SectionTitle>Nguồn gốc</SectionTitle>
 
-          <InfoCard
-            icon={<IconCalendarStats size={18} color="var(--mantine-color-agri-8)" />}
-            title="Thu hoạch"
-          >
-            <InfoRow label="Ngày thu hoạch" value={formatDate(harvest.harvestDate)} />
-            <InfoRow
-              label="Sản lượng"
-              value={formatQuantity(harvest.quantity, harvest.unit)}
-            />
-            <InfoRow label="Phân loại" value={harvest.grade} />
-            {lot.packedAt ? (
-              <InfoRow label="Ngày đóng gói" value={formatDate(lot.packedAt)} />
-            ) : null}
-            <InfoRow label="Hạn sử dụng" value={formatDate(lot.expiresAt)} />
-          </InfoCard>
-
-          <InfoCard
-            icon={<IconMapPin size={18} color="var(--mantine-color-agri-8)" />}
-            title="Trang trại"
-          >
-            <InfoRow label="Tên" value={farm.name} />
-            <InfoRow label="Địa chỉ" value={farm.address} />
+          <IconRow icon={<IconLeaf size={18} color="var(--agri-primary)" />} title={farm.name}>
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              {farm.address}
+            </Text>
             {farm.areaHa ? (
-              <InfoRow label="Diện tích" value={`${Number(farm.areaHa).toLocaleString("vi-VN")} ha`} />
+              <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+                Diện tích {formatQuantity(farm.areaHa, "ha")}
+              </Text>
             ) : null}
-            {farm.description ? <InfoRow label="Mô tả" value={farm.description} /> : null}
-          </InfoCard>
+          </IconRow>
 
-          <InfoCard
-            icon={<IconBuildingStore size={18} color="var(--mantine-color-agri-8)" />}
-            title="Đối tác cung cấp"
+          <IconRow
+            icon={<IconBuildingStore size={18} color="var(--agri-primary)" />}
+            title={partner.name}
           >
-            <InfoRow label="Tên" value={partner.name} />
-            <InfoRow label="Người đại diện" value={partner.representativeName} />
-          </InfoCard>
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              Đại diện: {partner.representativeName}
+            </Text>
+          </IconRow>
 
-          <InfoCard
-            icon={<IconShieldCheck size={18} color="var(--mantine-color-agri-8)" />}
-            title="Kiểm định chất lượng"
+          <IconRow
+            icon={<IconCalendarStats size={18} color="var(--agri-primary)" />}
+            title={`${season.cropName}${season.variety ? ` · ${season.variety}` : ""}`}
           >
-            {qualityControl ? (
-              <>
-                <Group gap="xs" mb={6}>
-                  <Badge
-                    color={qualityControl.result === "PASS" ? "agri" : "red"}
-                    variant="light"
-                    radius="sm"
-                  >
-                    {qualityControl.result === "PASS" ? "Đạt yêu cầu" : "Không đạt"}
-                  </Badge>
-                  <Text size="xs" c="dimmed">
-                    {formatDateTime(qualityControl.inspectedAt)}
-                  </Text>
-                </Group>
-                <CheckRow label="Ngoại hình" ok={qualityControl.appearancePassed} />
-                <CheckRow label="Độ tươi" ok={qualityControl.freshnessPassed} />
-                <CheckRow label="Đóng gói" ok={qualityControl.packagingPassed} />
-                <CheckRow label="Không tổn thương" ok={qualityControl.damagePassed} />
-              </>
-            ) : (
-              <Text size="sm" c="dimmed">
-                Lô hàng chưa có kết quả kiểm định được công khai.
-              </Text>
-            )}
-          </InfoCard>
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              Gieo {formatDate(season.plantingDate)} · Dự kiến thu{" "}
+              {formatDate(season.expectedHarvestDate)}
+            </Text>
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              Trạng thái vụ: {seasonStatusLabel(season.status)}
+            </Text>
+          </IconRow>
 
-          <InfoCard
-            icon={<IconCertificate size={18} color="var(--mantine-color-agri-8)" />}
-            title="Chứng nhận còn hiệu lực"
+          <IconRow
+            icon={<IconBasket size={18} color="var(--agri-primary)" />}
+            title={`Thu hoạch ${formatDate(harvest.harvestDate)}`}
           >
-            {certificates.length === 0 ? (
-              <Text size="sm" c="dimmed">
-                Trang trại chưa có chứng nhận nào còn hiệu lực.
-              </Text>
-            ) : (
-              <Stack gap="sm">
-                {certificates.map((certificate) => (
-                  <Stack key={certificate.certificateCode} gap={2}>
-                    <Group gap="xs">
-                      <Text size="sm" fw={700}>
-                        {certificate.type}
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              {formatQuantity(harvest.quantity, harvest.unit)} · Hạng {harvest.grade}
+            </Text>
+          </IconRow>
+        </AppCard>
+
+        {/* Quality control */}
+        <AppCard padding={12}>
+          <SectionTitle>Kiểm định chất lượng</SectionTitle>
+          {qualityControl ? (
+            <>
+              <Group justify="space-between" align="center" gap={8} mb={8}>
+                <ToneBadge tone={qualityControl.result === "PASS" ? "green" : "red"}>
+                  {qualityControl.result === "PASS" ? "Đạt" : "Không đạt"}
+                </ToneBadge>
+                <Text fz={12.5} c="var(--agri-muted)">
+                  {formatDateTime(qualityControl.inspectedAt)}
+                </Text>
+              </Group>
+              <SimpleGrid cols={2} spacing={8} verticalSpacing={8}>
+                {QC_CHECKS.map((check) => {
+                  const ok = qualityControl[check.key];
+                  return (
+                    <Group key={check.key} gap={6} wrap="nowrap">
+                      {ok ? (
+                        <IconCircleCheck
+                          size={16}
+                          color="var(--agri-primary)"
+                          style={{ flexShrink: 0 }}
+                          aria-hidden
+                        />
+                      ) : (
+                        <IconCircleX
+                          size={16}
+                          color="var(--agri-danger)"
+                          style={{ flexShrink: 0 }}
+                          aria-hidden
+                        />
+                      )}
+                      <Text fz={13} c="var(--agri-text)">
+                        {check.label}
                       </Text>
-                      {/* "Hồ sơ đã đối chiếu" is what the system actually
-                          checked (the certificate record exists, is active,
-                          within validity and carries a document). It must not
-                          claim a site audit that never happened. */}
-                      <Badge color="agri" variant="light" size="xs" radius="sm">
-                        Hồ sơ đã đối chiếu
-                      </Badge>
                     </Group>
-                    <Text size="xs" c="dimmed">
-                      Mã: {certificate.certificateCode}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      Đơn vị cấp: {certificate.issuer}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      Hiệu lực: {formatDate(certificate.issuedAt)} —{" "}
-                      {formatDate(certificate.expiresAt)}
-                    </Text>
-                  </Stack>
-                ))}
-              </Stack>
-            )}
-          </InfoCard>
-        </SimpleGrid>
+                  );
+                })}
+              </SimpleGrid>
+            </>
+          ) : (
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              Lô hàng chưa có kết quả kiểm định.
+            </Text>
+          )}
+        </AppCard>
 
-        {/* Timeline + farming events + lot detail */}
-        <Tabs defaultValue="timeline" variant="outline">
-          <Tabs.List>
-            <Tabs.Tab value="timeline">Hành trình lô hàng</Tabs.Tab>
-            <Tabs.Tab value="farming">Nhật ký canh tác</Tabs.Tab>
-            <Tabs.Tab value="lot">Thông tin lô</Tabs.Tab>
-          </Tabs.List>
-
-          <Tabs.Panel value="timeline" pt="md">
-            <Card padding="lg" radius="md" withBorder>
-              {data.traceEvents.length === 0 ? (
-                <Text size="sm" c="dimmed">
-                  Lô hàng chưa có sự kiện truy xuất nào được công khai.
-                </Text>
-              ) : (
-                <Timeline active={data.traceEvents.length - 1} bulletSize={26} lineWidth={2}>
-                  {data.traceEvents.map((event, index) => (
-                    <Timeline.Item
-                      key={`${event.type}-${event.occurredAt}-${index}`}
-                      bullet={<IconPackage size={13} />}
-                      title={traceEventLabel(event.type)}
-                    >
-                      <Stack gap={2}>
-                        <Text size="xs" c="dimmed">
-                          {formatDateTime(event.occurredAt)}
-                          {event.location ? ` · ${event.location}` : ""}
-                        </Text>
-                        {event.description ? (
-                          <Text size="sm">{event.description}</Text>
-                        ) : null}
-                      </Stack>
-                    </Timeline.Item>
-                  ))}
-                </Timeline>
-              )}
-            </Card>
-          </Tabs.Panel>
-
-          <Tabs.Panel value="farming" pt="md">
-            <Card padding="lg" radius="md" withBorder>
-              {data.farmingEvents.length === 0 ? (
-                <Text size="sm" c="dimmed">
-                  Vụ mùa này chưa có nhật ký canh tác được công khai.
-                </Text>
-              ) : (
-                <Stack gap="sm">
-                  {data.farmingEvents.map((event, index) => (
-                    <Box key={`${event.type}-${event.occurredAt}-${index}`}>
-                      <Group justify="space-between" wrap="wrap" gap="xs">
-                        <Text size="sm" fw={600}>
-                          {farmingEventLabel(event.type)}
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          {formatDate(event.occurredAt)}
-                        </Text>
-                      </Group>
-                      <Text size="sm" c="dimmed">
-                        {event.content}
-                      </Text>
-                      {index < data.farmingEvents.length - 1 ? <Divider mt="sm" /> : null}
-                    </Box>
-                  ))}
+        {/* Certificates */}
+        {certificates.length > 0 ? (
+          <AppCard padding={12}>
+            <SectionTitle>Chứng nhận ({certificates.length})</SectionTitle>
+            {certificates.map((certificate) => (
+              <Group key={certificate.certificateCode} gap={8} align="flex-start" wrap="nowrap" py={6}>
+                <Box style={iconBoxStyle}>
+                  <IconCertificate size={18} color="var(--agri-primary)" aria-hidden />
+                </Box>
+                <Stack gap={1} style={{ flex: 1 }}>
+                  <Group gap={6} wrap="wrap">
+                    <Text fz={14} fw={600} lh="19px" c="var(--agri-text)">
+                      {certificate.type}
+                    </Text>
+                    {/* "Hồ sơ đã đối chiếu" is what the system actually checked
+                        (the certificate record exists, is active, within
+                        validity and carries a document). It must not claim a
+                        site audit that never happened. */}
+                    <ToneBadge tone="green">Hồ sơ đã đối chiếu</ToneBadge>
+                  </Group>
+                  <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+                    {certificate.certificateCode} · {certificate.issuer}
+                  </Text>
+                  <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+                    Cấp {formatDate(certificate.issuedAt)} · Hết hạn{" "}
+                    {formatDate(certificate.expiresAt)}
+                  </Text>
                 </Stack>
-              )}
-            </Card>
-          </Tabs.Panel>
+              </Group>
+            ))}
+          </AppCard>
+        ) : null}
 
-          <Tabs.Panel value="lot" pt="md">
-            <Card padding="lg" radius="md" withBorder>
-              <Table verticalSpacing="xs">
-                <Table.Tbody>
-                  <Table.Tr>
-                    <Table.Td w={200}>
-                      <Text size="sm" c="dimmed">
-                        Mã lô
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{lot.code}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  <Table.Tr>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
-                        Mã truy xuất
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{lot.traceCode}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  <Table.Tr>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
-                        Phân loại
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{lot.grade}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  <Table.Tr>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
-                        Số lượng lô
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{formatQuantity(lot.quantity, lot.unit)}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  <Table.Tr>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
-                        Hạn sử dụng
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{formatDate(lot.expiresAt)}</Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  <Table.Tr>
-                    <Table.Td>
-                      <Text size="sm" c="dimmed">
-                        Trạng thái lô
-                      </Text>
-                    </Table.Td>
-                    <Table.Td>
-                      <StatusBadge label={lotMeta.label} tone={lotMeta.tone} size="sm" />
-                    </Table.Td>
-                  </Table.Tr>
-                </Table.Tbody>
-              </Table>
-            </Card>
-          </Tabs.Panel>
-        </Tabs>
+        {/* Farming events */}
+        {farming.length > 0 ? (
+          <AppCard padding={12}>
+            <SectionTitle>Quá trình canh tác ({farming.length})</SectionTitle>
+            {farming.map((event, index) => (
+              <TimelineRow
+                key={`${event.type}-${index}`}
+                title={farmingEventLabel(event.type)}
+                meta={formatDate(event.occurredAt)}
+                description={event.content}
+                showLine={index < farming.length - 1}
+              />
+            ))}
+          </AppCard>
+        ) : null}
 
-        <Group justify="center">
-          <Button component={Link} href="/truy-xuat" variant="subtle" size="sm">
-            Tra cứu mã khác
-          </Button>
-        </Group>
+        {/* Trace events */}
+        <AppCard padding={12}>
+          <SectionTitle>Hành trình lô hàng</SectionTitle>
+          {events.length === 0 ? (
+            <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+              Chưa có sự kiện hành trình.
+            </Text>
+          ) : (
+            events.map((event, index) => (
+              <TimelineRow
+                key={`${event.type}-${index}`}
+                primary
+                title={traceEventLabel(event.type)}
+                meta={`${formatDateTime(event.occurredAt)}${event.location ? ` · ${event.location}` : ""}`}
+                description={event.description ?? undefined}
+                showLine={index < events.length - 1}
+              />
+            ))
+          )}
+        </AppCard>
+
+        {product.description ? (
+          <AppCard padding={12}>
+            <SectionTitle>Giới thiệu sản phẩm</SectionTitle>
+            <Text fz={13} lh="19px" c="var(--agri-text)">
+              {product.description}
+            </Text>
+          </AppCard>
+        ) : null}
+
+        <AppCard
+          padding={12}
+          style={{ background: "var(--agri-primary-soft)", borderColor: "var(--agri-primary-border)" }}
+        >
+          <Group gap={8} align="flex-start" wrap="nowrap">
+            <IconShieldCheck size={18} color="var(--agri-primary)" style={{ flexShrink: 0 }} aria-hidden />
+            <Text fz={12} lh="18px" c="var(--agri-text)" style={{ flex: 1 }}>
+              Hồ sơ truy xuất do AgriMarket cung cấp theo dữ liệu ghi nhận của đơn vị sản xuất.
+              AgriMarket không tự xác minh ngoài thực địa.
+            </Text>
+          </Group>
+        </AppCard>
       </Stack>
     </Container>
   );
 }
 
-function InfoCard({
+/** Desktop-only breadcrumb trail; the phone uses the app bar's back button. */
+function BreadcrumbsRow({ traceCode }: { traceCode: string }) {
+  return (
+    <Group gap={6} visibleFrom="sm" wrap="wrap">
+      <Text component={Link} href="/" fz={13} c="var(--agri-muted)">
+        Trang chủ
+      </Text>
+      <Text fz={13} c="var(--agri-muted-soft)">
+        /
+      </Text>
+      <Text component={Link} href="/truy-xuat" fz={13} c="var(--agri-muted)">
+        Truy xuất nguồn gốc
+      </Text>
+      <Text fz={13} c="var(--agri-muted-soft)">
+        /
+      </Text>
+      <Text fz={13} c="var(--agri-text)">
+        {traceCode}
+      </Text>
+    </Group>
+  );
+}
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <Text fz={15} fw={700} c="var(--agri-text-strong)" mb={8}>
+      {children}
+    </Text>
+  );
+}
+
+const iconBoxStyle: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 8,
+  background: "var(--agri-primary-soft)",
+  display: "grid",
+  placeItems: "center",
+  flexShrink: 0,
+};
+
+function IconRow({
   icon,
   title,
   children,
@@ -464,44 +413,66 @@ function InfoCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card padding="lg" radius="md" withBorder h="100%">
-      <Stack gap="xs">
-        <Group gap="sm">
-          <ThemeIcon size={32} radius="md" variant="light" color="agri">
-            {icon}
-          </ThemeIcon>
-          <Text fw={700}>{title}</Text>
-        </Group>
-        <Stack gap={6}>{children}</Stack>
+    <Group gap={8} align="flex-start" wrap="nowrap" py={6}>
+      <Box style={iconBoxStyle}>{icon}</Box>
+      <Stack gap={1} style={{ flex: 1 }}>
+        <Text fz={14} fw={600} lh="19px" c="var(--agri-text)">
+          {title}
+        </Text>
+        {children}
       </Stack>
-    </Card>
-  );
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <Group gap="xs" wrap="wrap">
-      <Text size="xs" c="dimmed" w={110} style={{ flexShrink: 0 }}>
-        {label}
-      </Text>
-      <Text size="sm" style={{ flex: 1, minWidth: 120 }}>
-        {value}
-      </Text>
     </Group>
   );
 }
 
-function CheckRow({ label, ok }: { label: string; ok: boolean }) {
+/** Dot-and-rail timeline row (Mobile `timelineRow`). */
+function TimelineRow({
+  title,
+  meta,
+  description,
+  primary = false,
+  showLine,
+}: {
+  title: string;
+  meta: string;
+  description?: string;
+  primary?: boolean;
+  showLine: boolean;
+}) {
   return (
-    <Group gap={8}>
-      {ok ? (
-        <IconCheck size={15} color="var(--mantine-color-agri-8)" />
-      ) : (
-        <IconX size={15} color="var(--mantine-color-red-6)" />
-      )}
-      <Text size="sm" c={ok ? undefined : "red.7"}>
-        {label}: {ok ? "Đạt" : "Không đạt"}
-      </Text>
+    <Group gap={8} align="stretch" wrap="nowrap">
+      <Stack
+        align="center"
+        gap={0}
+        w={14}
+        style={{ paddingTop: 5, flexShrink: 0 }}
+      >
+        <Box
+          style={{
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            background: primary ? "var(--agri-primary)" : "var(--agri-border-strong)",
+            flexShrink: 0,
+          }}
+        />
+        {showLine ? (
+          <Box style={{ flex: 1, width: 2, background: "var(--agri-border)", marginTop: 2 }} />
+        ) : null}
+      </Stack>
+      <Stack gap={1} pb={12} style={{ flex: 1 }}>
+        <Text fz={14} fw={600} lh="19px" c="var(--agri-text)">
+          {title}
+        </Text>
+        <Text fz={12.5} lh="18px" c="var(--agri-muted)">
+          {meta}
+        </Text>
+        {description ? (
+          <Text fz={13} lh="19px" c="var(--agri-text)">
+            {description}
+          </Text>
+        ) : null}
+      </Stack>
     </Group>
   );
 }

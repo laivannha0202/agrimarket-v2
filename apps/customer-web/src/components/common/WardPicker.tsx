@@ -150,7 +150,7 @@ export function WardPicker({
         }
       />
       {wardsQuery.isError ? (
-        <Text size="xs" c="dimmed">
+        <Text size="xs" c="var(--agri-muted)">
           Danh mục xã/phường chưa tải được. Vui lòng kiểm tra kết nối và thử lại.
         </Text>
       ) : null}

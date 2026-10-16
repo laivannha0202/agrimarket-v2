@@ -19,6 +19,8 @@ import type {
   CheckoutPreview,
   Complaint,
   ComplaintStatus,
+  EligibleReturnItem,
+  EligibleReviewItem,
   Farm,
   FlashSale,
   ForgotPasswordResponse,
@@ -222,11 +224,24 @@ export const resources = {
     api.patch<AuthUser>("/customers/me", payload),
 
   // ----- Returns (CUSTOMER) -------------------------------------------------
-  createReturn: (payload: { orderItemId: number; quantity: number; reason: string }) =>
-    api.post<ReturnRequest>("/returns", payload),
+  createReturn: (payload: {
+    orderItemId: number;
+    quantity: number;
+    reason: string;
+    /** Evidence photo ids from `POST /evidence` (max 5). */
+    evidenceIds?: number[];
+  }) => api.post<ReturnRequest>("/returns", payload),
 
   listMyReturns: (params: { page?: number; limit?: number; status?: ReturnRequestStatus } = {}) =>
     api.get<Paginated<ReturnRequest>>("/returns/me", params),
+
+  /**
+   * Items still returnable, with the quantity the backend will accept
+   * (`returnableQuantity` = purchased minus everything tied up in active
+   * requests). Server-side so the form can never promise the same unit twice.
+   */
+  listReturnableItems: (params: { page?: number; limit?: number } = {}) =>
+    api.get<Paginated<EligibleReturnItem>>("/returns/me/eligible-items", params),
 
   getMyReturn: (id: number) => api.get<ReturnRequest>(`/returns/me/${id}`),
 
@@ -236,6 +251,8 @@ export const resources = {
     orderItemId?: number;
     type: string;
     content: string;
+    /** Evidence photo ids from `POST /evidence` (max 5). */
+    evidenceIds?: number[];
   }) => api.post<Complaint>("/complaints", payload),
 
   listMyComplaints: (params: { page?: number; limit?: number; status?: ComplaintStatus } = {}) =>
@@ -244,12 +261,39 @@ export const resources = {
   getMyComplaint: (id: number) => api.get<Complaint>(`/complaints/me/${id}`),
 
   // ----- Reviews (CUSTOMER) ------------------------------------------------
-  createReview: (payload: { orderItemId: number; rating: number; content?: string }) =>
-    api.post<Review>("/reviews", payload),
+  createReview: (payload: {
+    orderItemId: number;
+    rating: number;
+    content?: string;
+    /** Evidence photo ids from `POST /evidence` (max 5). */
+    evidenceIds?: number[];
+  }) => api.post<Review>("/reviews", payload),
 
   /** Own reviews (any status); carries `orderItemId` to detect reviewed items. */
   listMyReviews: (params: { page?: number; limit?: number } = {}) =>
     api.get<Paginated<MyReview>>("/reviews/me", params),
+
+  /**
+   * Items the customer may still review. Eligibility (DELIVERED order, own
+   * item, not already reviewed) is decided by the backend, so the picker can
+   * only ever offer something the create call will accept.
+   */
+  listReviewableItems: (params: { page?: number; limit?: number } = {}) =>
+    api.get<Paginated<EligibleReviewItem>>("/reviews/me/eligible-items", params),
+
+  // ----- Evidence (CUSTOMER) -------------------------------------------------
+  /**
+   * Upload one evidence photo, unbound, and return its id.
+   *
+   * The id is passed as `evidenceIds` when creating a review, complaint or
+   * return — the two steps are adjacent on purpose, so a submit failure never
+   * leaves a half-created request with missing photos.
+   */
+  uploadEvidence: (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return api.post<{ id: number }>("/evidence", formData);
+  },
 };
 
 export interface CheckoutPayload {

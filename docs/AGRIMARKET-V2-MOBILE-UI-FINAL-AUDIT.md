@@ -254,9 +254,9 @@ Không có chỗ nào mobile tự tính giá/tồn/kho/khuyến mãi; tổng ti�
 
 | Hạng mục | Lệnh | Kết quả | Exit |
 |---|---|---|---|
-| Typecheck | `pnpm --filter @agrimarket/mobile typecheck` | `tsc --noEmit` không lỗi | **0** |
-| Lint | `pnpm --filter @agrimarket/mobile lint` | `eslint .` không lỗi, **0 warning** | **0** |
-| Unit | `pnpm --filter @agrimarket/mobile test` | **46 passed / 8 files** (889 ms) | **0** |
+| Typecheck | `npm run typecheck --workspace @agrimarket/mobile` | `tsc --noEmit` không lỗi | **0** |
+| Lint | `npm run lint --workspace @agrimarket/mobile` | `eslint .` không lỗi, **0 warning** | **0** |
+| Unit | `npm run test --workspace @agrimarket/mobile` | **46 passed / 8 files** (889 ms) | **0** |
 | Integration (LAN) | `EXPO_PUBLIC_API_BASE_URL=http://192.168.100.155:3000/api/v1` + `AGRIMARKET_TEST_EMAIL/PASSWORD` → `test:integration` | **pass=14 fail=0** | **0** |
 | Bundle Android | `GET /.expo/.virtual-metro-entry.bundle?platform=android&dev=true&minify=false` | **200**, `7,760,500` bytes | — |
 
@@ -321,7 +321,7 @@ Kiểm tra thực tế qua đúng IP LAN mà điện thoại sẽ dùng:
 
 ### D5. Sửa cấu hình lint cho `scripts/**` (phát hiện trong phiên này)
 
-`pnpm lint` đột ngột fail `no-undef: 'Buffer' is not defined` ở `scripts/shot.mjs`.
+`npm run lint` đột ngột fail `no-undef: 'Buffer' is not defined` ở `scripts/shot.mjs`.
 **Nguyên nhân:** `eslint-config-expo/flat` chỉ khai báo **globals.browser**
 (`flat/default.js`), **không** khai báo globals của Node. Mọi script `.mjs` dùng
 built-in Node (`Buffer`, `process`, …) đều bị báo `no-undef` — đây là **lỗ hổng
@@ -331,7 +331,7 @@ cấu hình**, không phải lỗi code.
 khai báo đúng các global Node cần dùng. Không tắt rule, không `eslint-disable`,
 không đổi rule nào cho `app/` hay `src/`.
 
-⇒ `pnpm lint` trở lại **exit 0, 0 error, 0 warning** trên toàn bộ `apps/mobile`.
+⇒ `npm run lint` trở lại **exit 0, 0 error, 0 warning** trên toàn bộ `apps/mobile`.
 
 ---
 
@@ -368,7 +368,7 @@ Trong lúc phiên này chạy, các file sau **xuất hiện mà không phải d
 `scripts/tabbar-deep-probe.mjs`; đồng thời một Metro server do người khác chạy
 (`expo start --lan --clear --port 8081`, pid 24620) cũng xuất hiện.
 Tôi **không** tạo, không sửa nội dung các probe đó, và **không** xóa chúng.
-Chính `scripts/shot.mjs` là file làm `pnpm lint` fail (dẫn tới §D5).
+Chính `scripts/shot.mjs` là file làm `npm run lint` fail (dẫn tới §D5).
 
 `git status` ngoài `apps/mobile` là **di sản phiên trước**, timestamp **08:16–08:18**
 (trước phiên này), **giữ nguyên không xóa**:
@@ -424,7 +424,7 @@ hiển thị đúng trên màn hình điện thoại. Chỉ ảnh chụp từ th
 **Đề nghị người dùng làm:**
 
 1. Điện thoại Android + máy tính **cùng một Wi-Fi**.
-2. Mở **Expo Go** → quét QR trong terminal đang chạy `pnpm dev:mobile`.
+2. Mở **Expo Go** → quét QR trong terminal đang chạy `npm run dev:mobile`.
    Nếu QR không hiện, mở Expo Go → *Enter URL manually* →
    `exp://192.168.100.155:8081`
 3. Chụp màn hình gửi lại **5 màn hình**:

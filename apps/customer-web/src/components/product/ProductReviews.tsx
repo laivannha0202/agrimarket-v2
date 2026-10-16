@@ -8,7 +8,7 @@
  * ones. Ratings are never filtered, sorted away or suppressed.
  */
 
-import { Card, Divider, Group, Pagination, Rating, Skeleton, Stack, Text } from "@mantine/core";
+import { Divider, Group, Pagination, Rating, Skeleton, Stack, Text } from "@mantine/core";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { resources } from "@/lib/api/resources";
@@ -16,6 +16,7 @@ import { queryKeys } from "@/lib/api/query-keys";
 import { formatDate } from "@/lib/format";
 import { EmptyState, ErrorState } from "@/components/common/States";
 import { EvidenceGallery } from "@/components/common/EvidenceGallery";
+import { AppCard } from "@/components/ui/kit";
 
 export function ProductReviews({ productId }: { productId: number }) {
   const [page, setPage] = useState(1);
@@ -28,9 +29,9 @@ export function ProductReviews({ productId }: { productId: number }) {
 
   if (isLoading) {
     return (
-      <Stack gap="sm">
+      <Stack gap={8}>
         {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} height={80} radius="md" />
+          <Skeleton key={i} height={72} radius={12} />
         ))}
       </Stack>
     );
@@ -47,6 +48,7 @@ export function ProductReviews({ productId }: { productId: number }) {
   if (reviews.length === 0) {
     return (
       <EmptyState
+        kind="search"
         title="Chưa có đánh giá"
         description="Sản phẩm này chưa có đánh giá nào được công khai."
       />
@@ -54,34 +56,38 @@ export function ProductReviews({ productId }: { productId: number }) {
   }
 
   return (
-    <Stack gap="md">
-      <Group justify="space-between">
-        <Text fw={600}>{total} đánh giá</Text>
-      </Group>
+    <Stack gap={10}>
+      <Text fz={13.5} fw={700} c="var(--agri-muted)">
+        {total} đánh giá
+      </Text>
 
-      <Stack gap="sm">
+      <Stack gap={8}>
         {reviews.map((review) => (
-          <Card key={review.id} padding="md" radius="md" withBorder>
+          <AppCard key={review.id} padding={12}>
             <Stack gap={6}>
-              <Group justify="space-between" wrap="nowrap">
-                <Group gap="sm">
-                  <Text size="sm" fw={600}>
+              <Group justify="space-between" wrap="nowrap" gap="sm">
+                <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+                  <Text fz={13} fw={600} truncate>
                     {review.customer.fullName}
                   </Text>
                   <Rating value={review.rating} readOnly size="sm" />
                 </Group>
-                <Text size="xs" c="dimmed">
+                <Text fz={12} c="var(--agri-muted)" style={{ flexShrink: 0 }}>
                   {formatDate(review.createdAt)}
                 </Text>
               </Group>
-              {review.content ? <Text size="sm">{review.content}</Text> : null}
+              {review.content ? (
+                <Text fz={13} c="var(--agri-muted)" style={{ lineHeight: 1.45 }}>
+                  {review.content}
+                </Text>
+              ) : null}
               {/**
                * Only APPROVED reviews reach this feed (the API filters by
                * status), so any photo shown here is already public by policy.
                */}
               <EvidenceGallery images={review.evidence} label="Ảnh từ người mua" />
             </Stack>
-          </Card>
+          </AppCard>
         ))}
       </Stack>
 
@@ -89,7 +95,7 @@ export function ProductReviews({ productId }: { productId: number }) {
         <>
           <Divider />
           <Group justify="center">
-            <Pagination total={totalPages} value={page} onChange={setPage} />
+            <Pagination size="sm" total={totalPages} value={page} onChange={setPage} />
           </Group>
         </>
       ) : null}

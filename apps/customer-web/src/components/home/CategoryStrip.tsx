@@ -1,49 +1,46 @@
 "use client";
 
 /**
- * Category strip.
+ * Category strip (home page).
  *
  * Categories come straight from `GET /categories` (name + slug only — the
  * backend has no category image, so none is invented).
  *
- * ICON RULE
+ * GLYPH RULE
  *
- * The glyph is chosen by the category's SLUG, never by its position in the
- * array. An index-based assignment (`ICONS[i % ICONS.length]`) is a claim about
- * the data: the moment an admin adds or reorders a category, every chip would
- * silently display a different category's picture.
- *
- * A slug without a deliberately chosen glyph gets ONE shared default glyph, so
- * every category still renders an icon and no category is ever shown with
- * another category's picture. (The initial letter is deliberately not used as a
- * fallback: a bare "R" reads as a broken image, not as a category.)
+ * The picture is chosen by the category's SLUG, never by its position in the
+ * array: an index-based assignment would silently show a different category's
+ * picture the moment an admin reorders the list. The four design glyphs shipped
+ * with the Mobile app are used for the four slugs they were drawn for; every
+ * other slug falls back to a shared neutral icon — never to another category's
+ * picture and never to a bare letter.
  */
 
-import { Card, Group, SimpleGrid, Skeleton, Stack, Text, ThemeIcon } from "@mantine/core";
+import { Box, Group, Image, SimpleGrid, Skeleton, Stack, Text, ThemeIcon } from "@mantine/core";
 import {
-  IconApple,
   IconCarrot,
   IconCategory,
   IconLeaf,
-  IconSalad,
   type Icon,
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
+import { AppCard, SectionHeader } from "@/components/ui/kit";
 
-/**
- * Slug -> glyph. The slug is the stable identifier of the real category row, so
- * renaming a category never detaches its glyph, and two categories can never
- * share one.
- */
+/** Slug -> bundled design glyph (same files the Mobile app ships). */
+const CATEGORY_IMAGES: Record<string, string> = {
+  "rau-an-la": "/design/categories/category_rau_la_256.png",
+  "trai-cay": "/design/categories/category_trai_cay_256.png",
+  "cu-qua": "/design/categories/category_cu_qua_256.png",
+  "gao-ngu-coc": "/design/categories/category_nau_san_256.png",
+};
+
+/** Slug -> neutral line icon, used when the slug has no design glyph. */
 const CATEGORY_ICONS: Record<string, Icon> = {
-  "rau-an-la": IconSalad,
   "rau-an-qua": IconCarrot,
-  "cu-qua": IconCarrot,
-  "trai-cay": IconApple,
-  "gao-ngu-coc": IconLeaf,
+  "thit-trung": IconLeaf,
 };
 
 /** The one glyph every category without a mapped slug shares. */
@@ -53,6 +50,11 @@ export const DEFAULT_CATEGORY_ICON: Icon = IconCategory;
 export function categoryIcon(slug: string | null | undefined): Icon {
   if (typeof slug !== "string") return DEFAULT_CATEGORY_ICON;
   return CATEGORY_ICONS[slug.trim().toLowerCase()] ?? DEFAULT_CATEGORY_ICON;
+}
+
+function categoryImage(slug: string | null | undefined): string | null {
+  if (typeof slug !== "string") return null;
+  return CATEGORY_IMAGES[slug.trim().toLowerCase()] ?? null;
 }
 
 export function CategoryStrip() {
@@ -66,11 +68,14 @@ export function CategoryStrip() {
 
   if (isLoading) {
     return (
-      <SimpleGrid cols={{ base: 2, xs: 3, sm: 4, md: 5 }} spacing="sm">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} height={68} radius="md" />
-        ))}
-      </SimpleGrid>
+      <Stack gap={0}>
+        <SectionHeader title="Danh mục" href="/san-pham" />
+        <SimpleGrid cols={{ base: 2, xs: 3, sm: 4, md: 5 }} spacing={8}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} height={62} radius={12} />
+          ))}
+        </SimpleGrid>
+      </Stack>
     );
   }
 
@@ -78,31 +83,46 @@ export function CategoryStrip() {
   if (categories.length === 0) return null;
 
   return (
-    <SimpleGrid cols={{ base: 2, xs: 3, sm: 4, md: 5 }} spacing="sm">
-      {categories.map((category) => {
-        const Icon = categoryIcon(category.slug);
-        return (
-          <Card
-            key={category.id}
-            component={Link}
-            href={`/danh-muc/${category.slug}`}
-            padding="sm"
-            radius="md"
-            withBorder
-          >
-            <Group gap="sm" wrap="nowrap">
-              <ThemeIcon size={34} radius="md" variant="light" color="agri">
-                <Icon size={18} aria-hidden />
-              </ThemeIcon>
-              <Stack gap={0}>
-                <Text size="sm" fw={600} lineClamp={2}>
-                  {category.name}
-                </Text>
-              </Stack>
-            </Group>
-          </Card>
-        );
-      })}
-    </SimpleGrid>
+    <Stack gap={0}>
+      <SectionHeader title="Danh mục" href="/san-pham" />
+      <SimpleGrid cols={{ base: 2, xs: 3, sm: 4, md: 5 }} spacing={8}>
+        {categories.map((category) => {
+          const art = categoryImage(category.slug);
+          const Icon = categoryIcon(category.slug);
+          return (
+            <AppCard
+              key={category.id}
+              component={Link}
+              href={`/danh-muc/${category.slug}`}
+              padding={10}
+              style={{ display: "flex", alignItems: "center" }}
+            >
+              <Group gap={10} wrap="nowrap" align="center" w="100%">
+                {art ? (
+                  <Image
+                    src={art}
+                    alt=""
+                    aria-hidden
+                    w={40}
+                    h={40}
+                    radius={999}
+                    style={{ flexShrink: 0 }}
+                  />
+                ) : (
+                  <ThemeIcon size={40} radius={999} variant="light" color="agri" style={{ flexShrink: 0 }}>
+                    <Icon size={20} aria-hidden />
+                  </ThemeIcon>
+                )}
+                <Box style={{ flex: 1, minWidth: 0 }}>
+                  <Text fz={13} fw={600} lineClamp={2} lh={1.3}>
+                    {category.name}
+                  </Text>
+                </Box>
+              </Group>
+            </AppCard>
+          );
+        })}
+      </SimpleGrid>
+    </Stack>
   );
 }

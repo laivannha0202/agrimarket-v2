@@ -15,14 +15,14 @@ full reference.
 ## Requirements
 
 - Node.js >= 20 (developed on 24.x)
-- pnpm 12
+- npm (đi kèm Node.js)
 - A reachable MySQL 8.4 instance
 
 ## Setup
 
 ```bash
 # from the repository root
-pnpm install
+npm install
 
 # 1. Create the databases (needs a privileged MySQL user)
 mysql -u <user> -p < scripts/sql/create-databases.sql
@@ -32,9 +32,9 @@ cp apps/api/.env.example apps/api/.env
 #   then set DATABASE_URL, TEST_DATABASE_URL and a strong JWT_SECRET
 
 # 3. Generate the Prisma client, apply the migration and load demo data
-pnpm --filter @agrimarket/api db:generate
-pnpm --filter @agrimarket/api db:deploy
-pnpm --filter @agrimarket/api db:seed
+npm run db:generate --workspace @agrimarket/api
+npm run db:deploy --workspace @agrimarket/api
+npm run db:seed --workspace @agrimarket/api
 ```
 
 `db:deploy` applies the committed migration in `prisma/migrations/` without
@@ -43,8 +43,8 @@ prompting; use `db:migrate` during local schema development.
 ## Run
 
 ```bash
-pnpm --filter @agrimarket/api dev     # watch mode
-pnpm --filter @agrimarket/api start   # one-off
+npm run dev --workspace @agrimarket/api     # watch mode
+npm run start --workspace @agrimarket/api   # one-off
 ```
 
 The server listens on `PORT` (default `3000`):
@@ -56,10 +56,10 @@ The server listens on `PORT` (default `3000`):
 ## Tests
 
 ```bash
-pnpm --filter @agrimarket/api test        # unit / business rules (no DB needed)
-pnpm --filter @agrimarket/api typecheck
-pnpm --filter @agrimarket/api lint
-pnpm --filter @agrimarket/api test:e2e    # HTTP e2e; needs TEST_DATABASE_URL
+npm run test --workspace @agrimarket/api        # unit / business rules (no DB needed)
+npm run typecheck --workspace @agrimarket/api
+npm run lint --workspace @agrimarket/api
+npm run test:e2e --workspace @agrimarket/api    # HTTP e2e; needs TEST_DATABASE_URL
 ```
 
 The e2e suite is skipped automatically when `TEST_DATABASE_URL` is unset, so it

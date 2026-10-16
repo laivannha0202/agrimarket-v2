@@ -1,15 +1,16 @@
 "use client";
 
 /**
- * Homepage.
+ * Homepage — laid out exactly like the Mobile home tab:
+ * brand hero -> categories -> Flash Sale -> featured products -> discounted
+ * products -> farms -> traceability CTA.
  *
- * Deliberately short: hero -> categories -> flash sale -> discounted products
- * -> featured products -> farms -> traceability CTA. Every product, price,
- * promotion and farm below the hero comes from the API. When an endpoint fails
- * the section shows an error state; nothing is back-filled with fake data.
+ * Every product, price, promotion and farm below the hero comes from the API.
+ * When an endpoint fails the section shows an error state; nothing is
+ * back-filled with fake data.
  *
  * The flash-sale block is the first place products appear, so the ids it shows
- * are collected here and handed to the two sections underneath: no product is
+ * are collected here and handed to the sections underneath: no product is
  * listed twice on the same page.
  */
 
@@ -40,12 +41,12 @@ export default function HomePage() {
   return (
     <>
       <Hero />
-      <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }}>
-        <Stack gap={40} py={{ base: 24, sm: 36 }}>
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }}>
+        <Stack gap={18} py={{ base: 14, sm: 24 }}>
           <CategoryStrip />
           <FlashSaleSection />
-          <DiscountedProductsSection flashSaleProductIds={flashSaleProductIds} />
           <FeaturedProductsSection flashSaleProductIds={flashSaleProductIds} />
+          <DiscountedProductsSection flashSaleProductIds={flashSaleProductIds} />
           <FarmsSection />
         </Stack>
       </Container>

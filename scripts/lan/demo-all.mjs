@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * `pnpm demo:all` — API + Admin Web + Customer Web + Expo Go on one LAN IP.
+ * `npm run demo:all` — API + Admin Web + Customer Web + Expo Go on one LAN IP.
  *
  * Same discovery/readiness/env rules as demo:mobile, plus:
  * - starts Admin Web (3001) and Customer Web (3002) bound to 0.0.0.0 so other
@@ -12,7 +12,7 @@
  * Ctrl+C stops every child this script started.
  *
  * Usage:
- *   pnpm demo:all [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api]
+ *   npm run demo:all [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api]
  */
 
 import { spawn } from "node:child_process";
@@ -38,7 +38,7 @@ const ADMIN_PORT = Number(args.adminPort ?? 3001);
 const CUSTOMER_PORT = Number(args.customerPort ?? 3002);
 
 if (args.help || args.h) {
-  console.log(`Usage: pnpm demo:all [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api]\n\nStarts API + Admin Web + Customer Web + Expo Go on the discovered LAN IP.`);
+  console.log(`Usage: npm run demo:all [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api]\n\nStarts API + Admin Web + Customer Web + Expo Go on the discovered LAN IP.`);
   process.exit(0);
 }
 
@@ -114,15 +114,15 @@ try {
   if (ready.ok) {
     log(`API already healthy at ${apiBaseUrl} — reusing.`);
   } else if (!portOpen && wantStartApi) {
-    log('Starting backend "pnpm dev:api"...');
-    spawnNamed("api", "pnpm", ["dev:api"], { stdio: "inherit", shell: true });
+    log('Starting backend "npm run dev:api"...');
+    spawnNamed("api", "npm", ["run", "dev:api"], { stdio: "inherit", shell: true });
     const healthy = await waitFor(async () => (await checkApiReadiness({ lanIp: lan.ip, port })).ok, {
       label: "API readiness",
     });
     if (!healthy) throw new Error("Backend did not become healthy. Check MySQL + apps/api/.env.");
     ready = await checkApiReadiness({ lanIp: lan.ip, port });
   } else if (!portOpen) {
-    throw new Error('Backend is down and --no-start-api was given. Run "pnpm dev:api" first.');
+    throw new Error('Backend is down and --no-start-api was given. Run "npm run dev:api" first.');
   } else {
     const owner = getWindowsPortOwner(port);
     if (owner?.listening && !owner.isAgrimarket) {
@@ -147,18 +147,18 @@ try {
   // ---- Mobile env ----
   const envPath = "apps/mobile/.env";
   const res = syncEnvVar(envPath, "EXPO_PUBLIC_API_BASE_URL", apiBaseUrl, [
-    "# Local-only config (git-ignored). Managed by `pnpm demo:all` — do not commit.",
+    "# Local-only config (git-ignored). Managed by `npm run demo:all` — do not commit.",
   ]);
   log(`apps/mobile/.env: ${res.action} EXPO_PUBLIC_API_BASE_URL=${apiBaseUrl}`);
 
   // ---- Admin + Customer ----
   if (await ensurePortFreeOrOurs(ADMIN_PORT, "Admin Web")) {
     log(`Starting Admin Web on :${ADMIN_PORT}...`);
-    spawnNamed("admin", "pnpm", ["dev:admin"], { stdio: "inherit", shell: true });
+    spawnNamed("admin", "npm", ["run", "dev:admin"], { stdio: "inherit", shell: true });
   }
   if (await ensurePortFreeOrOurs(CUSTOMER_PORT, "Customer Web")) {
     log(`Starting Customer Web on :${CUSTOMER_PORT}...`);
-    spawnNamed("customer", "pnpm", ["dev:customer"], { stdio: "inherit", shell: true });
+    spawnNamed("customer", "npm", ["run", "dev:customer"], { stdio: "inherit", shell: true });
   }
 
   // ---- Expo ----
@@ -168,7 +168,7 @@ try {
   log(`Starting Expo (LAN) with EXPO_PUBLIC_API_BASE_URL=${apiBaseUrl}`);
   log(`LAN URLs: API http://${lan.ip}:${port}/api/v1 · Admin http://${lan.ip}:${ADMIN_PORT} · Customer http://${lan.ip}:${CUSTOMER_PORT}`);
   log("On this PC the webs keep using http://localhost:3000/api/v1. Only phones/other LAN devices use the LAN IP.");
-  spawnNamed("expo", "pnpm", ["--filter", "@agrimarket/mobile", "exec", "expo", "start", "--lan"], {
+  spawnNamed("expo", "npm", ["run", "dev:lan", "--workspace", "@agrimarket/mobile"], {
     stdio: "inherit",
     shell: true,
     env: { ...process.env, EXPO_PUBLIC_API_BASE_URL: apiBaseUrl },

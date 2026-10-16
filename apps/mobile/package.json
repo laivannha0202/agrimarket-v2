@@ -17,14 +17,14 @@
     "@expo/vector-icons": "^15.1.1",
     "@react-native-community/netinfo": "12.0.1",
     "@tanstack/react-query": "5.104.1",
-    "expo": "~57.0.27",
+    "expo": "~57.0.28",
     "expo-camera": "~57.0.6",
     "expo-constants": "~57.0.21",
     "expo-font": "~57.0.4",
     "expo-image-manipulator": "~57.0.21",
     "expo-image-picker": "~57.0.20",
     "expo-linking": "~57.0.12",
-    "expo-router": "~57.0.25",
+    "expo-router": "~57.0.26",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
@@ -43,5 +43,5 @@
     "typescript": "~6.0.3",
     "vitest": "^4.1.2"
   },
-  "packageManager": "pnpm@12.9.1"
+  "packageManager": "npm@11.20.0"
 }

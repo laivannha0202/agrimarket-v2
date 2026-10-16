@@ -3,9 +3,9 @@
 QA working notes. Final report → `docs/AGRIMARKET-V2-CUSTOMER-WEB-FINAL-ACCEPTANCE.md`.
 
 ## Environment
-- API `:3000` (global prefix `/api/v1`), Customer Web `:3002` (`pnpm dev:customer`)
+- API `:3000` (global prefix `/api/v1`), Customer Web `:3002` (`npm run dev:customer`)
 - Browser session: logged in as the seeded demo customer `mai.pham@agrimarket.vn`
-  (seed password `Agri@12345` — public demo credential from `pnpm db:seed`, see root README)
+  (seed password `Agri@12345` — public demo credential from `npm run db:seed`, see root README)
 - localStorage: `agri.customer.token`, `agri.customer.user`
 
 ## Confirmed good (live, with real API data)
@@ -35,14 +35,14 @@ QA working notes. Final report → `docs/AGRIMARKET-V2-CUSTOMER-WEB-FINAL-ACCEPT
   20.000 = 44.000, no "−0 ₫").
 
 ## Quality gates
-- `apps/customer-web` → `pnpm typecheck` ✅ (tsc --noEmit, no output)
-- `apps/customer-web` → `pnpm lint` ✅ (eslint, no output)
-- `apps/customer-web` → `pnpm build` ✅ Next.js 16.4.0 (Turbopack) — 28 routes, compiled in 5.8s
+- `apps/customer-web` → `npm run typecheck` ✅ (tsc --noEmit, no output)
+- `apps/customer-web` → `npm run lint` ✅ (eslint, no output)
+- `apps/customer-web` → `npm run build` ✅ Next.js 16.4.0 (Turbopack) — 28 routes, compiled in 5.8s
 - `apps/customer-web/qa/vouchers-parity.ts` ✅ **PASS — 0 differences across 22 checks**
   Differential run of Web's `lib/vouchers.ts` against Mobile's (Web is a port): all 16 eligibility cases,
   both group orderings and all 4 label formats identical. Run with:
   `cd apps/mobile && node_modules\.bin\tsx.cmd ..\customer-web\qa\vouchers-parity.ts`
-- `apps/api` → `pnpm test:e2e` ✅ **11 files / 325 tests passed, exit 0** (69s)
+- `apps/api` → `npm run test:e2e` ✅ **11 files / 325 tests passed, exit 0** (69s)
   Runs against `TEST_DATABASE_URL` (`agrimarket_v2_test`); each spec repoints `DATABASE_URL` before the module
   compiles, seeds `e2e*` fixtures, and asserts zero leftovers. DEV DB (`agrimarket_v2`) untouched.
   Covers business rules: checkout hardening, FEFO/inventory, delivery+return, refund, settlement,
@@ -76,7 +76,7 @@ QA working notes. Final report → `docs/AGRIMARKET-V2-CUSTOMER-WEB-FINAL-ACCEPT
 ## Verified after the fixes
 - `/trang-trai`: title "Trang trại | AgriMarket", h2 "Trang trại & vùng trồng", 4 farm cards, icon 200
 - `/thanh-toan` (empty cart): headings = H2 "Thanh toán" + H4 "Giỏ hàng đang trống"
-- `pnpm lint` clean after moving the parity script's `any` casts to real types
+- `npm run lint` clean after moving the parity script's `any` casts to real types
 - Rebuild after fixes 5–7: ✅ 29 routes (incl. `/icon.svg`), TypeScript clean
   (parity script now uses the real `Voucher` shape: `discountType: "PERCENT" | "FIXED"`, string decimals)
 
@@ -93,7 +93,7 @@ QA working notes. Final report → `docs/AGRIMARKET-V2-CUSTOMER-WEB-FINAL-ACCEPT
 ## Still to do
 - ~~Responsive 320/375/390/430/768/1024/1280/1440~~ done
 - ~~Orders/returns/complaints/reviews/vouchers pages with real data~~ done
-- ~~Business acceptance on TEST DB only~~ done (`pnpm --filter @agrimarket/api test:e2e` → 11/325 pass)
+- ~~Business acceptance on TEST DB only~~ done (`npm run test:e2e --workspace @agrimarket/api` → 11/325 pass)
 - ~~Quality gates: typecheck, lint, build, unit tests~~ done (all green, incl. API unit 28/369, Mobile 18/174)
 - ~~Final report~~ done → `docs/AGRIMARKET-V2-CUSTOMER-WEB-FINAL-ACCEPTANCE.md`
 

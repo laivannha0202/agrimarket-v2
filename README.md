@@ -40,7 +40,7 @@ Cài đủ các thứ sau **trước khi** bắt đầu:
 | Thành phần | Phiên bản                        | Ghi chú                                              |
 | ---------- | -------------------------------- | ---------------------------------------------------- |
 | Node.js    | **>= 20** (khuyến nghị 24.x)     | Kiểm tra: `node -v`                                  |
-| pnpm       | **12** (`packageManager: pnpm@12.9.1`) | `corepack enable` hoặc `npm i -g pnpm@12`      |
+| npm        | đi kèm Node.js (khuyến nghị >= 10) | Không cần cài thêm — kiểm tra: `npm -v`              |
 | MySQL      | **8.4** (utf8mb4)                | Phải đang chạy, có tài khoản tạo được database       |
 | Git        | bất kỳ                            | Để clone repo                                        |
 | Điện thoại Android + app **Expo Go** | chỉ cần khi chạy mobile | Tải trên CH Play; điện thoại + PC **cùng một Wi-Fi** |
@@ -57,14 +57,8 @@ Cài đủ các thứ sau **trước khi** bắt đầu:
 # Kiểm tra Node (phải >= 20)
 node -v
 
-# Bật corepack để dùng đúng pnpm 12
-corepack enable
-
-# Hoặc cài pnpm thủ công nếu corepack không có
-npm install -g pnpm@12
-
-# Kiểm tra
-pnpm -v
+# Kiểm tra npm (đi kèm Node.js — không cần cài thêm)
+npm -v
 ```
 
 MySQL 8.4: cài đặt và đảm bảo **service đang chạy**, nhớ mật khẩu `root`:
@@ -85,11 +79,12 @@ cd agrimarket-v2
 Chạy **từ thư mục gốc repo** (một lệnh cài cho cả 4 app):
 
 ```bash
-pnpm install
+npm install
 ```
 
-> Lần đầu có thể mất vài phút. Nếu pnpm hỏi duyệt build script (`prisma`, `esbuild`…),
-> chọn **Yes** — repo đã cấu hình sẵn `allowBuilds` trong `pnpm-workspace.yaml`.
+> Lần đầu có thể mất vài phút. Với npm 11.20+, nếu thấy cảnh báo `install-scripts`
+> cho `prisma`, `esbuild`…, chạy `npm install-scripts approve prisma @prisma/engines esbuild unrs-resolver`
+> rồi `npm rebuild` để hoàn tất (repo dùng npm workspaces, khai báo trong `package.json`).
 
 ### Bước 4 — Tạo database MySQL
 
@@ -163,16 +158,16 @@ Chạy lần lượt 3 lệnh từ thư mục gốc:
 
 ```bash
 # 1. Sinh Prisma client từ schema
-pnpm db:generate
+npm run db:generate
 
 # 2. Áp migration có sẵn lên database (không hỏi gì)
-pnpm db:deploy
+npm run db:deploy
 
 # 3. Nạp dữ liệu demo (users, farms, sản phẩm, lô, đơn, tài chính…)
-pnpm db:seed
+npm run db:seed
 ```
 
-`pnpm db:seed` sẽ **xoá sạch dữ liệu cũ** trong `agrimarket_v2` rồi tạo lại từ đầu — chỉ dùng cho môi trường học/dev.
+`npm run db:seed` sẽ **xoá sạch dữ liệu cũ** trong `agrimarket_v2` rồi tạo lại từ đầu — chỉ dùng cho môi trường học/dev.
 
 Khi thành công, màn hình in ra:
 
@@ -189,7 +184,7 @@ Seed complete.
 Mở **terminal 1** tại thư mục gốc repo:
 
 ```bash
-pnpm dev:api
+npm run dev:api
 ```
 
 Chờ đến khi thấy log kiểu `Nest application successfully started`. Kiểm tra:
@@ -205,7 +200,7 @@ Chờ đến khi thấy log kiểu `Nest application successfully started`. Ki�
 Mở **terminal 2** (giữ terminal 1 nguyên vẹn):
 
 ```bash
-pnpm dev:admin
+npm run dev:admin
 ```
 
 Mở trình duyệt: <http://localhost:3001> → đăng nhập bằng tài khoản **Admin**:
@@ -223,7 +218,7 @@ Trả hàng – Khiếu nại, Đối tác, Trang trại, Voucher, Flash Sale, T
 Mở **terminal 3**:
 
 ```bash
-pnpm dev:customer
+npm run dev:customer
 ```
 
 Mở trình duyệt: <http://localhost:3002> → đăng nhập bằng tài khoản **Khách hàng**:
@@ -261,7 +256,7 @@ adapter Wi-Fi (dạng `192.168.x.x`).
 Từ thư mục gốc repo, mở **terminal 4**:
 
 ```bash
-pnpm demo:mobile
+npm run demo:mobile
 ```
 
 Lệnh này tự tìm IP LAN hiện tại, kiểm tra API `:3000` khỏe mới chạy tiếp,
@@ -270,16 +265,16 @@ vào `apps/mobile/.env` (file git-ignored, không commit), rồi khởi động
 Expo LAN mode (`expo start --lan`) và hiện QR. Đổi Wi-Fi/hotspot → dừng
 (Ctrl+C) và chạy lại lệnh, không sửa IP tay.
 
-- Nhiều card mạng / IP không chắc: `pnpm demo:mobile --lan-ip=10.0.0.5`
-  (hoặc `AGRIMARKET_LAN_IP=10.0.0.5 pnpm demo:mobile`).
-- Chỉ chẩn đoán, không khởi động: `pnpm lan:diagnose`.
-- Chạy cả 4 app một lệnh: `pnpm demo:all` (API + Admin `:3001` +
+- Nhiều card mạng / IP không chắc: `npm run demo:mobile -- --lan-ip=10.0.0.5`
+  (hoặc `AGRIMARKET_LAN_IP=10.0.0.5 npm run demo:mobile`).
+- Chỉ chẩn đoán, không khởi động: `npm run lan:diagnose`.
+- Chạy cả 4 app một lệnh: `npm run demo:all` (API + Admin `:3001` +
   Customer `:3002` + Expo Go).
-- Cách cũ vẫn dùng được: `pnpm dev:mobile` (nhưng phải tự sửa IP trong
+- Cách cũ vẫn dùng được: `npm run dev:mobile` (nhưng phải tự sửa IP trong
   `apps/mobile/.env` mỗi lần đổi mạng).
 
 Một mã QR hiện ra trong terminal. Mở app **Expo Go** trên điện thoại → quét QR.
-Nếu mạng chặn LAN, thử `pnpm --filter @agrimarket/mobile dev:tunnel`
+Nếu mạng chặn LAN, thử `npm run dev:tunnel --workspace @agrimarket/mobile`
 (lưu ý: tunnel chỉ áp dụng cho Expo dev server — API URL vẫn phải là địa chỉ LAN).
 
 > Phân biệt 2 URL: **Metro URL** (`http://<IP>:8081`, QR trỏ tới đây — nơi tải
@@ -303,7 +298,7 @@ Nếu mạng chặn LAN, thử `pnpm --filter @agrimarket/mobile dev:tunnel`
 
 ## 3. Tài khoản demo
 
-Sau khi chạy `pnpm db:seed`, dùng các tài khoản sau:
+Sau khi chạy `npm run db:seed`, dùng các tài khoản sau:
 
 | Vai trò    | Email                       | Mật khẩu      | Dùng ở đâu               |
 | ---------- | --------------------------- | ------------- | ------------------------ |
@@ -348,30 +343,30 @@ Tất cả lệnh chạy **từ thư mục gốc repo**:
 
 | Lệnh               | Tác dụng                                        |
 | ------------------ | ----------------------------------------------- |
-| `pnpm dev:api`     | Chạy backend API (cổng 3000, watch mode)        |
-| `pnpm dev:admin`   | Chạy Admin Web (cổng 3001)                      |
-| `pnpm dev:customer`| Chạy Customer Web (cổng 3002)                   |
-| `pnpm dev:mobile`  | Chạy Expo cho mobile (Expo Go)                  |
+| `npm run dev:api`     | Chạy backend API (cổng 3000, watch mode)        |
+| `npm run dev:admin`   | Chạy Admin Web (cổng 3001)                      |
+| `npm run dev:customer`| Chạy Customer Web (cổng 3002)                   |
+| `npm run dev:mobile`  | Chạy Expo cho mobile (Expo Go)                  |
 
 ### Database
 
 | Lệnh                | Tác dụng                                                     |
 | ------------------- | ------------------------------------------------------------ |
-| `pnpm db:generate`  | Sinh Prisma client từ `schema.prisma` (chạy sau khi pull code mới) |
-| `pnpm db:deploy`    | Áp migration có sẵn lên DB (không hỏi, dùng khi mới clone)   |
-| `pnpm db:migrate`   | Tạo migration mới khi sửa schema (chỉ khi phát triển)        |
-| `pnpm db:seed`      | Nạp lại dữ liệu demo (**xoá sạch dữ liệu hiện có**)          |
-| `pnpm --filter @agrimarket/api db:studio` | Mở Prisma Studio xem/sửa dữ liệu trực quan |
+| `npm run db:generate`  | Sinh Prisma client từ `schema.prisma` (chạy sau khi pull code mới) |
+| `npm run db:deploy`    | Áp migration có sẵn lên DB (không hỏi, dùng khi mới clone)   |
+| `npm run db:migrate`   | Tạo migration mới khi sửa schema (chỉ khi phát triển)        |
+| `npm run db:seed`      | Nạp lại dữ liệu demo (**xoá sạch dữ liệu hiện có**)          |
+| `npm run db:studio --workspace @agrimarket/api` | Mở Prisma Studio xem/sửa dữ liệu trực quan |
 
 ### Build & kiểm tra chất lượng
 
 | Lệnh            | Tác dụng                                     |
 | --------------- | -------------------------------------------- |
-| `pnpm build`    | Build cả 4 app                               |
-| `pnpm lint`     | Chạy lint toàn bộ                            |
-| `pnpm typecheck`| Kiểm tra kiểu TypeScript toàn bộ             |
-| `pnpm test`     | Chạy unit test toàn bộ                       |
-| `pnpm test:e2e` | Chạy e2e test API (cần `TEST_DATABASE_URL`)  |
+| `npm run build`    | Build cả 4 app                               |
+| `npm run lint`     | Chạy lint toàn bộ                            |
+| `npm run typecheck`| Kiểm tra kiểu TypeScript toàn bộ             |
+| `npm run test`     | Chạy unit test toàn bộ                       |
+| `npm run test:e2e` | Chạy e2e test API (cần `TEST_DATABASE_URL`)  |
 
 ---
 
@@ -379,11 +374,11 @@ Tất cả lệnh chạy **từ thư mục gốc repo**:
 
 ```bash
 # Unit test toàn repo (không cần database)
-pnpm test
+npm run test
 
 # E2E test của API — CẦN database test riêng (agrimarket_v2_test)
 # Test sẽ xoá dữ liệu trong db test, tuyệt đối không trỏ vào db thật
-pnpm test:e2e
+npm run test:e2e
 ```
 
 Nếu `TEST_DATABASE_URL` chưa cấu hình, bộ e2e **tự bỏ qua** — an toàn, không bao giờ
@@ -392,9 +387,9 @@ Nếu `TEST_DATABASE_URL` chưa cấu hình, bộ e2e **tự bỏ qua** — an t
 Chạy test cho từng app:
 
 ```bash
-pnpm --filter @agrimarket/api test           # backend: business rules + unit
-pnpm --filter @agrimarket/admin-web test     # admin: vitest + testing-library
-pnpm --filter @agrimarket/mobile test        # mobile: api-client, trace-code…
+npm run test --workspace @agrimarket/api           # backend: business rules + unit
+npm run test --workspace @agrimarket/admin-web     # admin: vitest + testing-library
+npm run test --workspace @agrimarket/mobile        # mobile: api-client, trace-code…
 ```
 
 
@@ -418,8 +413,8 @@ agrimarket-v2/
 │       └── app/             # (tabs), product, order, trace, complaint…
 ├── docs/                    # Tài liệu kỹ thuật chi tiết (xem mục 9)
 ├── scripts/                 # sql tạo database + script smoke test
-├── package.json             # lệnh chạy chung (pnpm dev:api, dev:admin…)
-└── pnpm-workspace.yaml      # khai báo workspace monorepo
+├── package.json             # lệnh chạy chung (npm run dev:api, dev:admin…)
+└── package-lock.json        # lockfile npm (workspaces khai báo trong package.json)
 ```
 
 ---
@@ -464,7 +459,7 @@ Hoặc đổi `PORT` trong `apps/api/.env` (nhớ đổi cả URL trong `.env` c
 - Điện thoại và PC phải **cùng một Wi-Fi**.
 - Windows Firewall có thể chặn cổng 3000/8081 — cho phép Node.js qua firewall
   (hoặc tạm tắt firewall để kiểm tra).
-- Sau khi sửa `.env`, phải **khởi động lại Expo** (`Ctrl+C` rồi chạy lại `pnpm dev:mobile`).
+- Sau khi sửa `.env`, phải **khởi động lại Expo** (`Ctrl+C` rồi chạy lại `npm run dev:mobile`).
 - Trên API, nếu ảnh upload không hiển thị trên điện thoại: đặt `PUBLIC_API_BASE_URL`
   trong `apps/api/.env` thành `http://<PC-LAN-IP>:3000`.
 
@@ -473,16 +468,16 @@ Hoặc đổi `PORT` trong `apps/api/.env` (nhớ đổi cả URL trong `.env` c
 App chấp nhận 3 dạng: mã trần `TRC-…`, URL trang truy xuất, hoặc URL có tham số
 `?code=TRC-…`. Dạng khác sẽ báo mã không hợp lệ — đúng thiết kế.
 
-### `pnpm install` lỗi hoặc treo
+### `npm install` lỗi hoặc treo
 
-- Đảm bảo Node >= 20 và pnpm đúng version 12: `pnpm -v`.
+- Đảm bảo Node >= 20 và npm hoạt động: `npm -v`.
 - Xoá `node_modules` rồi cài lại: xoá thư mục `node_modules` ở gốc và trong các app,
-  sau đó chạy lại `pnpm install`.
+  sau đó chạy lại `npm install`.
 
 ### Seed lỗi giữa chừng
 
-`pnpm db:seed` cần database đã có schema. Chạy lại đúng thứ tự:
-`pnpm db:generate` → `pnpm db:deploy` → `pnpm db:seed`.
+`npm run db:seed` cần database đã có schema. Chạy lại đúng thứ tự:
+`npm run db:generate` → `npm run db:deploy` → `npm run db:seed`.
 
 ---
 

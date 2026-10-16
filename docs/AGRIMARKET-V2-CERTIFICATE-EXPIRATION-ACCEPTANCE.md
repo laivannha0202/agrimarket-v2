@@ -60,14 +60,14 @@ Frontend (tối thiểu, giữ layout):
 
 | Lệnh | Kết quả |
 |---|---|
-| `pnpm --filter @agrimarket/api exec tsc --noEmit -p tsconfig.json` | PASS |
-| `pnpm --filter @agrimarket/api exec vitest run` | **383/383 PASS** (29 files, gồm `certificate-validity.spec.ts` 7 tests: VALID/EXPIRED biên inclusive/ngày hết hạn/PENDING/REJECTED/INACTIVE/chưa hiệu lực/thiếu file/`findValidByFarm` loại cert#11-shape/verify giữ audit) |
-| `pnpm --filter @agrimarket/api exec vitest run --config ./vitest.config.e2e.ts` | **331/331 PASS** (11 files; governance +2: expired-VERIFIED giữ cờ nhưng không vào `/valid`, thiếu file không vào `/valid`) |
-| `pnpm --filter @agrimarket/api exec oxlint` | PASS, 5 warning có sẵn |
-| `pnpm --filter @agrimarket/admin-web exec tsc --noEmit` | PASS |
-| `pnpm --filter @agrimarket/admin-web exec vitest run` | **40/40 PASS** |
-| `pnpm --filter @agrimarket/customer-web exec tsc --noEmit` | PASS |
-| `pnpm --filter @agrimarket/mobile exec tsc --noEmit` | PASS |
+| `npm exec --workspace @agrimarket/api -- tsc --noEmit -p tsconfig.json` | PASS |
+| `npm exec --workspace @agrimarket/api -- vitest run` | **383/383 PASS** (29 files, gồm `certificate-validity.spec.ts` 7 tests: VALID/EXPIRED biên inclusive/ngày hết hạn/PENDING/REJECTED/INACTIVE/chưa hiệu lực/thiếu file/`findValidByFarm` loại cert#11-shape/verify giữ audit) |
+| `npm exec --workspace @agrimarket/api -- vitest run --config ./vitest.config.e2e.ts` | **331/331 PASS** (11 files; governance +2: expired-VERIFIED giữ cờ nhưng không vào `/valid`, thiếu file không vào `/valid`) |
+| `npm exec --workspace @agrimarket/api -- oxlint` | PASS, 5 warning có sẵn |
+| `npm exec --workspace @agrimarket/admin-web -- tsc --noEmit` | PASS |
+| `npm exec --workspace @agrimarket/admin-web -- vitest run` | **40/40 PASS** |
+| `npm exec --workspace @agrimarket/customer-web -- tsc --noEmit` | PASS |
+| `npm exec --workspace @agrimarket/mobile -- tsc --noEmit` | PASS |
 
 DEV sau test (SELECT): cert#9/#10/#12 VALID, **cert#11 GlobalGAP GG-HY-2025-003 vẫn VERIFIED/ACTIVE hết hạn 2026-09-07, không fileUrl** — nguyên trạng, chờ duyệt. Không cron, không job nền, không sửa DEV.
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Address book.
+ * Sổ địa chỉ — web twin of the Mobile addresses + address-edit screens.
  *
  * Full CRUD against `/customers/me/addresses`: list, create, edit, delete and
  * "set as default". Every call is scoped to the signed-in customer server-side,
@@ -14,26 +14,30 @@
  * has no district level, and the legacy text of an old address is left alone.
  *
  * The list is ordered with the default address first, so the checkout screen and
- * this screen agree on which address a customer sees first.
+ * this screen agree on which address a customer sees first. Creating and editing
+ * stay in a modal (the app uses a separate screen); the fields, labels and
+ * buttons are word-for-word the app's.
  */
 
 import {
-  Alert,
-  Badge,
   Button,
-  Card,
   Container,
-  Divider,
   Group,
   Modal,
   Stack,
   Text,
   TextInput,
-  Title,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
-import { IconAlertCircle, IconMapPin, IconPencil, IconPlus, IconStar, IconTrash } from "@tabler/icons-react";
-import Link from "next/link";
+import {
+  IconAlertCircle,
+  IconCircleCheck,
+  IconMapPin,
+  IconPencil,
+  IconPlus,
+  IconTrash,
+  IconUser,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notifications } from "@mantine/notifications";
@@ -54,8 +58,121 @@ import {
 import { EmptyState, ErrorState, ListSkeleton } from "@/components/common/States";
 import { WardPicker } from "@/components/common/WardPicker";
 import { AccountNav } from "@/components/account/AccountNav";
+import { AppCard, GhostButton, PageTitle, ToneBadge } from "@/components/ui/kit";
 import { layout } from "@/theme";
 import type { Address } from "@/lib/api/types";
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <Text fz={15} fw={700} c="var(--agri-text-strong)" mb={8}>
+      {children}
+    </Text>
+  );
+}
+
+/** Muted inline error row (Mobile `errorRow`). */
+function ErrorRow({ message }: { message: string }) {
+  return (
+    <Group gap={6} align="flex-start" wrap="nowrap">
+      <IconAlertCircle
+        size={15}
+        color="var(--agri-danger)"
+        style={{ flexShrink: 0, marginTop: 2 }}
+        aria-hidden
+      />
+      <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+        {message}
+      </Text>
+    </Group>
+  );
+}
+
+function AddressCard({
+  address,
+  onEdit,
+  onDelete,
+  onSetDefault,
+  defaultPending,
+}: {
+  address: Address;
+  onEdit: () => void;
+  onDelete: () => void;
+  onSetDefault: () => void;
+  defaultPending: boolean;
+}) {
+  return (
+    <AppCard padding={12}>
+      <Group gap={6} align="center" wrap="nowrap">
+        <IconUser size={15} color="var(--agri-muted-soft)" style={{ flexShrink: 0 }} aria-hidden />
+        <Text fz={14} fw={700} c="var(--agri-text-strong)" truncate style={{ flex: 1 }}>
+          {address.recipientName} · {address.phone}
+        </Text>
+        {address.isDefault ? <ToneBadge tone="green">Mặc định</ToneBadge> : null}
+      </Group>
+
+      <Group gap={6} align="flex-start" wrap="nowrap" mt={4}>
+        <IconMapPin
+          size={15}
+          color="var(--agri-muted-soft)"
+          style={{ flexShrink: 0, marginTop: 2 }}
+          aria-hidden
+        />
+        <Text fz={13} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+          {formatAddressLine(address)}
+        </Text>
+      </Group>
+
+      {address.wardCode ? null : (
+        <Group gap={6} align="flex-start" wrap="nowrap" mt={8}>
+          <ToneBadge tone="gray">Địa chỉ cũ</ToneBadge>
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+            Chưa theo danh mục xã/phường 2025. Sửa và chọn lại xã/phường để dùng địa chỉ đã xác
+            minh.
+          </Text>
+        </Group>
+      )}
+
+      <Group gap={8} mt={12} wrap="nowrap">
+        <GhostButton
+          radius={8}
+          onClick={onEdit}
+          leftSection={<IconPencil size={15} aria-hidden />}
+          styles={{
+            root: { flex: 1, minHeight: 40, borderColor: "var(--agri-border-strong)" },
+            label: { fontSize: 13, fontWeight: 600, color: "var(--agri-text)" },
+          }}
+        >
+          Sửa
+        </GhostButton>
+        {address.isDefault ? null : (
+          <GhostButton
+            radius={8}
+            onClick={onSetDefault}
+            loading={defaultPending}
+            leftSection={<IconCircleCheck size={15} aria-hidden />}
+            styles={{
+              root: { flex: 1, minHeight: 40, borderColor: "var(--agri-border-strong)" },
+              label: { fontSize: 13, fontWeight: 600, color: "var(--agri-text)" },
+            }}
+          >
+            Mặc định
+          </GhostButton>
+        )}
+        <GhostButton
+          radius={8}
+          onClick={onDelete}
+          leftSection={<IconTrash size={15} aria-hidden />}
+          styles={{
+            root: { flex: 1, minHeight: 40, borderColor: "var(--agri-danger)" },
+            label: { fontSize: 13, fontWeight: 600, color: "var(--agri-danger)" },
+          }}
+        >
+          Xóa
+        </GhostButton>
+      </Group>
+    </AppCard>
+  );
+}
 
 export function AddressListView() {
   const queryClient = useQueryClient();
@@ -185,121 +302,57 @@ export function AddressListView() {
   const addresses = data ?? [];
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Stack gap={4}>
-          <Title order={2}>Sổ địa chỉ</Title>
-          <Text size="sm" c="dimmed">
-            Địa chỉ giao hàng dùng khi bạn đặt hàng trên AgriMarket.
-          </Text>
-        </Stack>
+    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
+      <PageTitle>Sổ địa chỉ</PageTitle>
 
-        <Group align="flex-start" gap="lg" wrap="wrap">
-          <AccountNav />
+      <Group align="flex-start" gap={16} wrap="wrap" mt={{ base: 0, md: 12 }}>
+        <AccountNav />
 
-          <Stack gap="md" style={{ flex: 1 }} miw={{ base: 0, md: 300 }}>
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Group justify="space-between" wrap="wrap">
-                  <Group gap="sm">
-                    <IconMapPin size={18} color="var(--mantine-color-agri-8)" />
-                    <Title order={4}>Địa chỉ giao hàng</Title>
-                  </Group>
-                  <Button
-                    variant="light"
-                    size="xs"
-                    leftSection={<IconPlus size={14} />}
-                    onClick={openCreate}
-                  >
-                    Thêm địa chỉ
-                  </Button>
-                </Group>
-                <Divider />
+        <Stack gap={12} style={{ flex: 1 }} miw={{ base: 0, md: 300 }}>
+          <AppCard padding={16}>
+            <Group gap={8} align="center" wrap="nowrap">
+              <IconMapPin size={18} color="var(--agri-primary)" aria-hidden />
+              <SectionTitle>Địa chỉ giao hàng</SectionTitle>
+            </Group>
 
-                {isError ? (
-                  <ErrorState error={error} onRetry={() => refetch()} />
-                ) : isLoading ? (
-                  <ListSkeleton rows={2} />
-                ) : addresses.length === 0 ? (
-                  <EmptyState
-                    icon={<IconMapPin size={28} />}
-                    title="Chưa có địa chỉ giao hàng"
-                    description="Thêm địa chỉ để đặt hàng nhanh hơn ở lần mua tiếp theo."
-                    action={
-                      <Button onClick={openCreate} leftSection={<IconPlus size={16} />}>
-                        Thêm địa chỉ
-                      </Button>
-                    }
+            {isError ? (
+              <ErrorState error={error} onRetry={() => refetch()} />
+            ) : isLoading ? (
+              <ListSkeleton rows={2} />
+            ) : addresses.length === 0 ? (
+              <EmptyState
+                kind="orders"
+                title="Chưa có địa chỉ"
+                description="Thêm địa chỉ giao hàng để đặt hàng nhanh hơn."
+              />
+            ) : (
+              <Stack gap={8}>
+                {addresses.map((address) => (
+                  <AddressCard
+                    key={address.id}
+                    address={address}
+                    onEdit={() => openEdit(address)}
+                    onDelete={() => setDeleteTarget(address)}
+                    onSetDefault={() => setDefault.mutate(address.id)}
+                    defaultPending={setDefault.isPending}
                   />
-                ) : (
-                  <Stack gap="sm">
-                    {addresses.map((address) => (
-                      <Card key={address.id} padding="md" radius="md" withBorder>
-                        <Stack gap={6}>
-                          <Group gap="xs" wrap="wrap">
-                            <Text size="sm" fw={600}>
-                              {address.recipientName}
-                            </Text>
-                            <Text size="sm" c="dimmed">
-                              {address.phone}
-                            </Text>
-                            {address.isDefault ? (
-                              <Badge size="xs" variant="light" color="agri" radius="sm">
-                                Mặc định
-                              </Badge>
-                            ) : null}
-                            {address.wardCode ? null : (
-                              <Badge size="xs" variant="light" color="gray" radius="sm">
-                                Địa chỉ cũ
-                              </Badge>
-                            )}
-                          </Group>
-                          <Text size="sm">{formatAddressLine(address)}</Text>
-
-                          <Group gap="xs" wrap="wrap" mt={4}>
-                            <Button
-                              size="compact-xs"
-                              variant="subtle"
-                              leftSection={<IconPencil size={13} />}
-                              onClick={() => openEdit(address)}
-                            >
-                              Sửa
-                            </Button>
-                            {address.isDefault ? null : (
-                              <Button
-                                size="compact-xs"
-                                variant="subtle"
-                                leftSection={<IconStar size={13} />}
-                                loading={setDefault.isPending}
-                                onClick={() => setDefault.mutate(address.id)}
-                              >
-                                Đặt mặc định
-                              </Button>
-                            )}
-                            <Button
-                              size="compact-xs"
-                              variant="subtle"
-                              color="red"
-                              leftSection={<IconTrash size={13} />}
-                              onClick={() => setDeleteTarget(address)}
-                            >
-                              Xóa
-                            </Button>
-                          </Group>
-                        </Stack>
-                      </Card>
-                    ))}
-                  </Stack>
-                )}
-
-                <Button component={Link} href="/thanh-toan" variant="subtle" size="sm" w="fit-content">
-                  Đi tới thanh toán
-                </Button>
+                ))}
               </Stack>
-            </Card>
-          </Stack>
-        </Group>
-      </Stack>
+            )}
+
+            <Button
+              radius={8}
+              fullWidth
+              mt={12}
+              leftSection={<IconPlus size={16} aria-hidden />}
+              onClick={openCreate}
+              styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+            >
+              Thêm địa chỉ
+            </Button>
+          </AppCard>
+        </Stack>
+      </Group>
 
       <Modal
         opened={modalOpened}
@@ -309,31 +362,33 @@ export function AddressListView() {
         size="md"
       >
         <form onSubmit={handleSubmit((values) => saveAddress.mutate(values))}>
-          <Stack gap="md">
-            {formError ? (
-              <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-                <Text size="sm">{formError}</Text>
-              </Alert>
-            ) : null}
+          <Stack gap={12}>
+            {formError ? <ErrorRow message={formError} /> : null}
 
             {editing && !editing.wardCode ? (
-              <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}>
-                <Text size="sm">
-                  Địa chỉ này được lưu theo mô hình cũ. Chọn lại tỉnh/thành phố và xã/phường
-                  theo danh mục hiện hành để cập nhật.
+              <Group gap={6} align="flex-start" wrap="nowrap">
+                <ToneBadge tone="gray">Địa chỉ cũ</ToneBadge>
+                <Text fz={12.5} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+                  Địa chỉ này được lưu trước khi cập nhật danh mục: {formatAddressLine(editing)}.
+                  Giữ nguyên nếu bạn không muốn đổi, hoặc chọn xã/phường theo danh mục mới ở bên
+                  dưới.
                 </Text>
-              </Alert>
+              </Group>
             ) : null}
 
             <TextInput
-              label="Tên người nhận"
+              label="Người nhận"
+              placeholder="Nguyễn Văn A"
               required
+              size="md"
               error={errors.recipientName?.message}
               {...register("recipientName")}
             />
             <TextInput
-              label="Số điện thoại"
+              label="Điện thoại"
+              placeholder="0912345678"
               required
+              size="md"
               error={errors.phone?.message}
               {...register("phone")}
             />
@@ -352,9 +407,10 @@ export function AddressListView() {
             />
 
             <TextInput
-              label="Thôn / Tổ dân phố"
-              placeholder="Không bắt buộc"
+              label="Thôn / Tổ dân phố (tùy chọn)"
+              placeholder="Ví dụ: Thôn Đông"
               description="Ghi rõ thôn/ấp/tổ dân phố nếu cần, hệ thống chưa có danh mục cấp này."
+              size="md"
               error={errors.village?.message}
               {...register("village")}
             />
@@ -362,14 +418,26 @@ export function AddressListView() {
               label="Địa chỉ chi tiết"
               placeholder="Số nhà, đường"
               required
+              size="md"
               error={errors.detail?.message}
               {...register("detail")}
             />
-            <Group justify="flex-end" gap="sm">
-              <Button variant="default" onClick={modal.close} type="button">
+            <Group justify="flex-end" gap={8}>
+              <Button
+                variant="default"
+                onClick={modal.close}
+                type="button"
+                radius={8}
+                styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+              >
                 Hủy
               </Button>
-              <Button type="submit" loading={saveAddress.isPending}>
+              <Button
+                type="submit"
+                radius={8}
+                loading={saveAddress.isPending}
+                styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+              >
                 Lưu địa chỉ
               </Button>
             </Group>
@@ -384,21 +452,27 @@ export function AddressListView() {
         centered
         size="md"
       >
-        <Stack gap="md">
-          <Text size="sm">
-            Bạn chắc chắn muốn xóa địa chỉ của {deleteTarget?.recipientName}? Hành động này
-            không thể hoàn tác.
+        <Stack gap={12}>
+          <Text fz={13.5} lh="19px" c="var(--agri-text)">
+            Xóa địa chỉ của {deleteTarget?.recipientName}? Thao tác này không thể hoàn tác.
           </Text>
-          <Group justify="flex-end" gap="sm">
-            <Button variant="default" onClick={() => setDeleteTarget(null)}>
-              Giữ lại
+          <Group justify="flex-end" gap={8}>
+            <Button
+              variant="default"
+              onClick={() => setDeleteTarget(null)}
+              radius={8}
+              styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+            >
+              Hủy
             </Button>
             <Button
               color="red"
+              radius={8}
               loading={removeAddress.isPending}
               onClick={() => deleteTarget && removeAddress.mutate(deleteTarget.id)}
+              styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
             >
-              Xóa địa chỉ
+              Xóa
             </Button>
           </Group>
         </Stack>

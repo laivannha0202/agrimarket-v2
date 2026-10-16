@@ -1,36 +1,30 @@
 "use client";
 
 /**
- * Voucher catalogue — the "Mã giảm giá" screen the Mobile app also has.
+ * Mã giảm giá — web twin of the Mobile `vouchers` screen.
  *
- * Read-only by design. The backend exposes `GET /vouchers` (the public
- * catalogue) but no "claim" or "my vouchers" endpoint, so no such action is
- * offered here: the code is chosen at checkout, where it is validated against
- * the real order and the discount is computed by the server.
+ * A read-only catalogue of the vouchers the backend currently serves
+ * (`GET /vouchers`). There is no "claim" or "my voucher" endpoint, so the
+ * screen never offers one: the code is chosen at checkout, where it is
+ * validated against the real order and the discount is computed by the server.
+ *
+ * The list is therefore *informational*: it states each programme's real rules
+ * and whether the code is currently usable at all. It deliberately does not
+ * judge whether a code fits a particular cart — that depends on the order, and
+ * the checkout screen is where the code is picked and the exact saving shown.
  */
 
-import {
-  Box,
-  Breadcrumbs,
-  Button,
-  Card,
-  Container,
-  Divider,
-  Group,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
-import { IconInfoCircle, IconShoppingCart, IconTicket } from "@tabler/icons-react";
+import { Box, Container, Group, SimpleGrid, Stack, Text } from "@mantine/core";
+import { IconChevronRight, IconInfoCircle, IconTicket } from "@tabler/icons-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useNow } from "@/lib/hooks/useNow";
-import { EmptyState, ErrorState, ListSkeleton } from "@/components/common/States";
+import { EmptyState, ErrorState } from "@/components/common/States";
 import { VoucherCard } from "@/components/promotion/VoucherCard";
 import { splitVouchers } from "@/lib/vouchers";
+import { AppCard, LoadingView } from "@/components/ui/kit";
 import { layout } from "@/theme";
 
 export function VoucherListView() {
@@ -57,41 +51,40 @@ export function VoucherListView() {
   });
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Breadcrumbs separator="/" visibleFrom="sm">
-          <Text component={Link} href="/" size="sm" c="dimmed">
+    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
+      <Stack gap={12}>
+        {/* Desktop-only breadcrumb trail; the phone uses the app bar's back button. */}
+        <Group gap={6} visibleFrom="sm" wrap="wrap">
+          <Text component={Link} href="/" fz={13} c="var(--agri-muted)">
             Trang chủ
           </Text>
-          <Text size="sm">Mã giảm giá</Text>
-        </Breadcrumbs>
-
-        <Stack gap={4}>
-          <Title order={2}>Mã giảm giá</Title>
-          <Text size="sm" c="dimmed">
-            Các chương trình giảm giá đang mở trên AgriMarket. Mã được chọn ở bước đặt hàng
-            để hệ thống kiểm tra theo đúng đơn hàng của bạn.
+          <Text fz={13} c="var(--agri-muted-soft)">
+            /
           </Text>
-        </Stack>
+          <Text fz={13} c="var(--agri-text)">
+            Mã giảm giá
+          </Text>
+        </Group>
 
         {isError ? (
           <ErrorState error={error} onRetry={() => refetch()} />
         ) : isLoading ? (
-          <ListSkeleton rows={3} />
+          <LoadingView label="Đang tải mã giảm giá…" />
         ) : vouchers.length === 0 ? (
           <EmptyState
+            kind="search"
             icon={<IconTicket size={28} />}
             title="Chưa có mã giảm giá"
             description="Hiện chưa có chương trình giảm giá nào đang mở. Danh sách sẽ cập nhật khi hệ thống mở chương trình mới."
           />
         ) : (
-          <Stack gap="lg">
+          <Stack gap={12}>
             {eligible.length > 0 ? (
-              <Stack gap="sm">
-                <Text fw={700} size="sm" c="dimmed" tt="uppercase">
+              <Stack gap={8}>
+                <Text fz={13} fw={700} c="var(--agri-muted)">
                   Dùng được
                 </Text>
-                <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8}>
                   {eligible.map((option) => (
                     <VoucherCard key={option.voucher.id} voucher={option.voucher} usable />
                   ))}
@@ -100,56 +93,48 @@ export function VoucherListView() {
             ) : null}
 
             {ineligible.length > 0 ? (
-              <Stack gap="sm">
-                <Text fw={700} size="sm" c="dimmed" tt="uppercase">
+              <Stack gap={8}>
+                <Text fz={13} fw={700} c="var(--agri-muted)">
                   Chưa dùng được
                 </Text>
-                <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+                <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8}>
                   {ineligible.map((option) => (
-                    <Stack key={option.voucher.id} gap={4}>
-                      <VoucherCard voucher={option.voucher} usable={false} />
-                      {option.reason ? (
-                        <Text size="xs" c="red.7">
-                          {option.reason}
-                        </Text>
-                      ) : null}
-                    </Stack>
+                    <VoucherCard
+                      key={option.voucher.id}
+                      voucher={option.voucher}
+                      usable={false}
+                      reason={option.reason}
+                    />
                   ))}
                 </SimpleGrid>
               </Stack>
             ) : null}
 
-            <Divider />
-
-            <Card padding="md" radius="md" withBorder>
-              <Group justify="space-between" wrap="wrap" gap="md">
-                <Group gap="sm" wrap="nowrap" align="flex-start">
-                  <IconInfoCircle size={18} color="var(--mantine-color-agri-8)" />
-                  <Box>
-                    <Text size="sm" fw={600}>
-                      Chọn mã ở bước đặt hàng
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      Hệ thống tính số tiền giảm dựa trên đơn hàng thực tế của bạn.
-                    </Text>
-                  </Box>
-                </Group>
-                <Group gap="sm">
-                  <Button
-                    component={Link}
-                    href="/gio-hang"
-                    variant="default"
-                    size="sm"
-                    leftSection={<IconShoppingCart size={16} />}
-                  >
-                    Xem giỏ hàng
-                  </Button>
-                  <Button component={Link} href="/thanh-toan" size="sm">
-                    Tới đặt hàng
-                  </Button>
-                </Group>
+            {/* Mobile `pickRow`: the checkout screen is where a code is applied. */}
+            <AppCard
+              component={Link}
+              href="/thanh-toan"
+              padding={12}
+              className="agri-press"
+              style={{ borderColor: "var(--agri-primary-border)" }}
+            >
+              <Group gap={8} align="center" wrap="nowrap">
+                <IconTicket size={17} color="var(--agri-primary)" aria-hidden />
+                <Text fz={14} fw={700} c="var(--agri-primary-dark)" style={{ flex: 1 }}>
+                  Chọn mã ở bước đặt hàng
+                </Text>
+                <IconChevronRight size={15} color="var(--agri-primary)" aria-hidden />
               </Group>
-            </Card>
+            </AppCard>
+
+            <Group gap={6} align="flex-start" wrap="nowrap" px={4}>
+              <Box style={{ flexShrink: 0, marginTop: 1, display: "inline-flex" }}>
+                <IconInfoCircle size={15} color="var(--agri-info)" aria-hidden />
+              </Box>
+              <Text fz={12} lh="18px" c="var(--agri-muted)" style={{ flex: 1 }}>
+                Hệ thống tính số tiền giảm dựa trên đơn hàng thực tế của bạn.
+              </Text>
+            </Group>
           </Stack>
         )}
       </Stack>

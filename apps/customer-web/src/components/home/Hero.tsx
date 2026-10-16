@@ -3,92 +3,76 @@
 /**
  * Hero banner.
  *
- * The backend has no banner-management API, so this is deliberately static
- * BRAND content only (headline + traceability CTA). No product, price or
- * promotion is fabricated here — those all come from the API below it.
+ * The Mobile home hero: the brand illustration (`hero_nong_san_no_text`) with
+ * static BRAND copy on top. The backend has no banner-management API, so this
+ * is deliberately brand content only — no product, price or promotion is
+ * fabricated here; those all come from the API in the sections below.
  */
 
-import { Badge, Box, Button, Container, Group, Stack, Text, Title } from "@mantine/core";
-import { IconArrowRight, IconQrcode } from "@tabler/icons-react";
+import { Box, Button, Container, Image, Text } from "@mantine/core";
+import { IconArrowRight } from "@tabler/icons-react";
 import Link from "next/link";
 import { layout } from "@/theme";
 
 export function Hero() {
   return (
-    <Box
-      style={{
-        background: "#ffffff",
-        borderBottom: "1px solid var(--agri-border)",
-      }}
-    >
-      <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }}>
-        <Group
-          justify="space-between"
-          align="center"
-          gap="xl"
-          py={{ base: 28, sm: 40 }}
-          wrap="wrap"
+    <Box pt={{ base: 12, sm: 20 }}>
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }}>
+        <Box
+          mih={{ base: 158, sm: 200 }}
+          style={{
+            position: "relative",
+            borderRadius: 16,
+            overflow: "hidden",
+            border: "1px solid var(--agri-border)",
+            background: "var(--agri-primary-soft)",
+          }}
         >
-          <Stack gap="md" maw={560}>
-            <Badge variant="light" color="agri" size="md" radius="sm" w="fit-content">
-              Nông sản theo mùa
-            </Badge>
-            <Title order={1} fz={{ base: 28, sm: 38 }} lh={1.2}>
-              Nông sản sạch từ hợp tác xã, rõ nguồn gốc đến từng lô hàng
-            </Title>
-            <Text c="dimmed" size="md">
-              Mỗi lô hàng đều có mã truy xuất: bạn xem được vụ mùa, trang trại, kết quả
-              kiểm định chất lượng và chứng nhận còn hiệu lực.
-            </Text>
-            <Group gap="sm" wrap="wrap">
-              <Button
-                component={Link}
-                href="/san-pham"
-                size="md"
-                rightSection={<IconArrowRight size={18} />}
-              >
-                Mua nông sản
-              </Button>
-              <Button
-                component={Link}
-                href="/truy-xuat"
-                size="md"
-                variant="default"
-                leftSection={<IconQrcode size={18} />}
-              >
-                Truy xuất nguồn gốc
-              </Button>
-            </Group>
-          </Stack>
-
-          <Box
-            w={{ base: "100%", sm: 320 }}
-            p="lg"
+          <Image
+            src="/design/home/hero_nong_san_no_text_1200x480.png"
+            alt=""
+            aria-hidden
             style={{
-              borderRadius: 12,
-              border: "1px solid var(--agri-border)",
-              background: "var(--mantine-color-agri-0)",
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
             }}
+          />
+          <Box
+            style={{ position: "relative", padding: "20px 18px", maxWidth: 360 }}
           >
-            <Stack gap="sm">
-              <IconQrcode size={30} color="var(--mantine-color-agri-8)" />
-              <Text fw={700}>Tem truy xuất trên mỗi lô hàng</Text>
-              <Text size="sm" c="dimmed">
-                Nhập mã in trên tem để xem toàn bộ hành trình của sản phẩm, từ thu hoạch
-                đến khi nhập kho.
-              </Text>
-              <Button
-                component={Link}
-                href="/truy-xuat"
-                variant="light"
-                size="sm"
-                w="fit-content"
-              >
-                Nhập mã truy xuất
-              </Button>
-            </Stack>
+            <Text
+              fz={{ base: 23, sm: 28 }}
+              fw={700}
+              c="#095c2c"
+              lh={1.22}
+              style={{ textShadow: "0 1px 1px rgba(255,255,255,0.5)" }}
+            >
+              Nông sản sạch
+            </Text>
+            <Text
+              fz={{ base: 23, sm: 28 }}
+              fw={700}
+              c="#095c2c"
+              lh={1.22}
+              style={{ textShadow: "0 1px 1px rgba(255,255,255,0.5)" }}
+            >
+              Từ nông trại Việt
+            </Text>
+            <Button
+              component={Link}
+              href="/san-pham"
+              mt={14}
+              radius={999}
+              size="sm"
+              rightSection={<IconArrowRight size={16} />}
+            >
+              Khám phá ngay
+            </Button>
           </Box>
-        </Group>
+        </Box>
       </Container>
     </Box>
   );

@@ -39,8 +39,8 @@ when unset. That guard was verified, not assumed.
 
 | Command | Result |
 |---|---|
-| `pnpm --filter @agrimarket/api test` | **27 files passed, 333 tests passed, 0 failed, 0 skipped** |
-| `pnpm --filter @agrimarket/api typecheck` | exit 0 |
+| `npm run test --workspace @agrimarket/api` | **27 files passed, 333 tests passed, 0 failed, 0 skipped** |
+| `npm run typecheck --workspace @agrimarket/api` | exit 0 |
 
 ### Root causes reproduced (not guessed)
 
@@ -291,9 +291,9 @@ had to change, section 5 records exactly what changed and why.
 
 | Suite | Command | Result |
 |---|---|---|
-| API unit | `pnpm --filter @agrimarket/api test` | **28 files, 356 passed, 0 failed** (baseline was 27 / 333) |
-| API e2e | `pnpm --filter @agrimarket/api test:e2e` | **11 files, 322 passed, 0 failed** |
-| Mobile unit | `pnpm --filter @agrimarket/mobile test` | **12 files, 108 passed, 0 failed** |
+| API unit | `npm run test --workspace @agrimarket/api` | **28 files, 356 passed, 0 failed** (baseline was 27 / 333) |
+| API e2e | `npm run test:e2e --workspace @agrimarket/api` | **11 files, 322 passed, 0 failed** |
+| Mobile unit | `npm run test --workspace @agrimarket/mobile` | **12 files, 108 passed, 0 failed** |
 | API typecheck | `tsc --noEmit -p tsconfig.json` | exit 0 |
 | Customer Web typecheck | `tsc --noEmit` | exit 0 |
 | Admin Web typecheck | `tsc --noEmit` | exit 0 |
@@ -505,10 +505,10 @@ From the repository root:
 
 ```bash
 # API on the LAN (Expo Go needs a reachable host, not localhost)
-pnpm --filter @agrimarket/api dev
+npm run dev --workspace @agrimarket/api
 
 # Mobile, LAN mode
-pnpm --filter @agrimarket/mobile dev:lan
+npm run dev:lan --workspace @agrimarket/mobile
 ```
 
 `apps/mobile/.env` must point `EXPO_PUBLIC_API_BASE_URL` at the machine's LAN IP
@@ -518,9 +518,9 @@ screen when it is wrong.
 Tests:
 
 ```bash
-pnpm --filter @agrimarket/api test        # unit
-pnpm --filter @agrimarket/api test:e2e    # e2e (needs TEST_DATABASE_URL)
-pnpm --filter @agrimarket/mobile test     # mobile unit
+npm run test --workspace @agrimarket/api        # unit
+npm run test:e2e --workspace @agrimarket/api    # e2e (needs TEST_DATABASE_URL)
+npm run test --workspace @agrimarket/mobile     # mobile unit
 ```
 
 `TEST_DATABASE_URL` must be set in `apps/api/.env`; without it the e2e suites

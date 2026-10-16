@@ -6,7 +6,7 @@
  * needs `allowPublicKeyRetrieval=true` (MySQL 8.4 `caching_sha2_password`
  * after a server restart, no TLS on localhost).
  *
- *   cd apps/api && pnpm exec tsx qa-db-conn-probe.mjs
+ *   cd apps/api && npm exec -- tsx qa-db-conn-probe.mjs
  *
  * Never writes. Safe to delete.
  */

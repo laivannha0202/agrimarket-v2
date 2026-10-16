@@ -279,10 +279,10 @@ App **không bịa** 104 xã/phường và **không** dựng dropdown giả. Mà
 
 | Kiểm tra | Kết quả |
 |---|---|
-| `pnpm --filter @agrimarket/mobile typecheck` | **exit 0** — 0 lỗi TS |
-| `pnpm --filter @agrimarket/mobile lint` | **exit 0** — 0 error, 0 warning |
-| `pnpm --filter @agrimarket/mobile test` | **78 passed / 78**, 11 file |
-| `pnpm --filter @agrimarket/mobile test:integration` | **pass=14 fail=0** (chỉ đọc) |
+| `npm run typecheck --workspace @agrimarket/mobile` | **exit 0** — 0 lỗi TS |
+| `npm run lint --workspace @agrimarket/mobile` | **exit 0** — 0 error, 0 warning |
+| `npm run test --workspace @agrimarket/mobile` | **78 passed / 78**, 11 file |
+| `npm run test:integration --workspace @agrimarket/mobile` | **pass=14 fail=0** (chỉ đọc) |
 | Screen sweep 21 route @ 400×866 | **tất cả `ok`** — không trang trắng, không tràn ngang, **không lỗi console** |
 | `node scripts/dead-route-audit.mjs` | **PASS** — 19/19 đích điều hướng phân giải được, 0 nút chết |
 
@@ -561,13 +561,13 @@ List of devices attached
 
 ```bash
 # 1. Backend
-pnpm --filter @agrimarket/api start:dev        # http://localhost:3000
+npm run start:dev --workspace @agrimarket/api        # http://localhost:3000
 
 # 2. Kiểm tra LAN IP còn đúng không (nếu IP đổi thì sửa apps/mobile/.env)
 ipconfig                                        # IPv4 trên card Wi-Fi
 
 # 3. Metro (LAN)
-pnpm --filter @agrimarket/mobile dev:lan       # quét QR bằng Expo Go
+npm run dev:lan --workspace @agrimarket/mobile       # quét QR bằng Expo Go
 
 # 4. Trên điện thoại: mở Expo Go, quét QR
 #    apps/mobile/.env đang đặt:

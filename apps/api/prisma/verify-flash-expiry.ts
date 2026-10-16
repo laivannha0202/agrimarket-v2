@@ -14,7 +14,7 @@
  * Everything it writes is removed at the end, and it refuses to run against a
  * database whose name does not end in `_test`.
  *
- * Run: pnpm --filter @agrimarket/api exec tsx prisma/verify-flash-expiry.ts
+ * Run: npm exec --workspace @agrimarket/api -- tsx prisma/verify-flash-expiry.ts
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';

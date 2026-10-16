@@ -78,45 +78,62 @@ export function useEvidenceImages(images: EvidenceImage[] | undefined): Record<n
 export interface EvidenceGalleryProps {
   images: EvidenceImage[] | undefined;
   label?: string;
+  /**
+   * Fixed thumbnail size. When set the photos are drawn as one compact
+   * horizontal row (Mobile review list) instead of the default grid.
+   */
+  thumbSize?: number;
 }
 
-export function EvidenceGallery({ images, label = "Ảnh minh chứng" }: EvidenceGalleryProps) {
+export function EvidenceGallery({
+  images,
+  label = "Ảnh minh chứng",
+  thumbSize,
+}: EvidenceGalleryProps) {
   const urls = useEvidenceImages(images);
   if (!images || images.length === 0) return null;
 
+  const thumbs = images.map((img) => {
+    const url = urls[img.id];
+    return (
+      <Box
+        key={img.id}
+        w={thumbSize}
+        h={thumbSize}
+        style={{
+          ...(thumbSize ? null : { aspectRatio: "1 / 1" }),
+          borderRadius: 8,
+          overflow: "hidden",
+          border: "1px solid var(--agri-border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--agri-page)",
+        }}
+      >
+        {url ? (
+          <Image src={url} alt="Ảnh minh chứng" fit="cover" w="100%" h="100%" />
+        ) : (
+          <IconPhotoOff size={16} color="var(--agri-muted-soft)" />
+        )}
+      </Box>
+    );
+  });
+
   return (
     <Box>
-      <Text size="sm" c="dimmed" mb={6}>
+      <Text fz={12.5} c="var(--agri-muted)" mb={6}>
         {label} ({images.length})
       </Text>
-      <SimpleGrid cols={{ base: 3, sm: 4 }} spacing="sm">
-        {images.map((img) => {
-          const url = urls[img.id];
-          return (
-            <Box
-              key={img.id}
-              style={{
-                aspectRatio: "1 / 1",
-                borderRadius: 8,
-                overflow: "hidden",
-                border: "1px solid var(--mantine-color-gray-3)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "var(--mantine-color-gray-0)",
-              }}
-            >
-              {url ? (
-                <Image src={url} alt="Ảnh minh chứng" fit="cover" w="100%" h="100%" />
-              ) : (
-                <Group gap={4} wrap="nowrap">
-                  <IconPhotoOff size={16} color="var(--mantine-color-gray-5)" />
-                </Group>
-              )}
-            </Box>
-          );
-        })}
-      </SimpleGrid>
+      {thumbSize ? (
+        <Group gap={8} wrap="wrap">
+          {thumbs}
+        </Group>
+      ) : (
+        <SimpleGrid cols={{ base: 3, sm: 4 }} spacing={8}>
+          {thumbs}
+        </SimpleGrid>
+      )}
     </Box>
   );
 }

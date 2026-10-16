@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Current flash sale.
+ * Current flash sale (home page).
  *
  * Everything rendered comes from `GET /flash-sales`: name, flash price, quota,
  * sold quantity and end time. The countdown only runs when the backend actually
@@ -14,46 +14,43 @@
  * flash-sale block displays and keep the sections below it free of duplicates.
  */
 
-import {
-  Badge,
-  Box,
-  Button,
-  Card,
-  Group,
-  Progress,
-  SimpleGrid,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Box, Group, ScrollArea, Stack, Text } from "@mantine/core";
 import { IconBolt } from "@tabler/icons-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { formatDate, formatMoney, formatRemaining, variantSpecLabel } from "@/lib/format";
+import { discountPercent, formatDate, formatMoney, formatRemaining, variantSpecLabel } from "@/lib/format";
 import { useNow } from "@/lib/hooks/useNow";
 import { ProductImage } from "@/components/common/ProductImage";
+import { AppCard, GhostButton } from "@/components/ui/kit";
 import { primaryImageUrl, useCartProducts } from "@/lib/hooks/useCartProducts";
 import type { FlashSale } from "@/lib/api/types";
 
-function Countdown({ endsAt, now }: { endsAt: string; now: number }) {
-  if (now === 0) {
-    // Server / hydration render: the clock is not known yet.
-    return (
-      <Badge color="red" variant="light" size="lg" radius="sm">
-        Đang diễn ra
-      </Badge>
-    );
-  }
-
-  const text = formatRemaining(endsAt, now);
-  if (!text) return null;
+/** Red countdown pill, like the Mobile flash-sale header. */
+function CountdownPill({ endsAt, now }: { endsAt: string; now: number }) {
+  const text = now === 0 ? null : formatRemaining(endsAt, now);
 
   return (
-    <Badge color="red" variant="filled" size="lg" radius="sm">
-      Kết thúc sau {text}
-    </Badge>
+    <Box
+      component="span"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        background: "var(--agri-danger)",
+        color: "#ffffff",
+        borderRadius: 999,
+        padding: "3px 10px",
+        fontSize: 12,
+        fontWeight: 700,
+        lineHeight: "18px",
+        flexShrink: 0,
+      }}
+    >
+      <IconBolt size={13} />
+      {text ? `Kết thúc sau ${text}` : "Đang diễn ra"}
+    </Box>
   );
 }
 
@@ -100,116 +97,132 @@ export function FlashSaleSection() {
   if (active.length === 0) return null;
 
   return (
-    <Stack gap="md">
-      <Group justify="space-between" align="center" wrap="wrap">
-        <Group gap="sm">
-          <IconBolt size={24} color="var(--mantine-color-red-6)" />
-          <Title order={3}>Flash Sale</Title>
+    <Stack gap={8}>
+      <Group justify="space-between" align="center" wrap="nowrap" gap="sm" mt={4} mb={0}>
+        <Group gap={8} wrap="nowrap" align="center">
+          <IconBolt size={20} color="var(--agri-danger)" />
+          <Text fz={16} fw={700} c="var(--agri-text-strong)">
+            Flash Sale
+          </Text>
         </Group>
-        {active[0] ? <Countdown endsAt={active[0].endsAt} now={now} /> : null}
+        {active[0] ? <CountdownPill endsAt={active[0].endsAt} now={now} /> : null}
       </Group>
 
-      {active.map((sale) => (
-        <Card key={sale.id} padding="md" radius="md" withBorder>
-          <Stack gap="md">
-            <Group justify="space-between" wrap="wrap" gap="xs">
-              <Text fw={700}>{sale.name}</Text>
-              <Text size="xs" c="dimmed">
-                {formatDate(sale.startsAt)} — {formatDate(sale.endsAt)}
-              </Text>
-            </Group>
+      {active.map((sale) => {
+        const remainingTotal = sale.items.reduce(
+          (sum, item) => sum + Math.max(0, item.quota - item.soldQuantity),
+          0,
+        );
 
-            <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-              {sale.items.map((item) => {
-                const remaining = Math.max(0, item.quota - item.soldQuantity);
-                const soldPercent =
-                  item.quota > 0 ? Math.min(100, (item.soldQuantity / item.quota) * 100) : 0;
-                const basePrice = Number(item.productVariant.basePrice);
-                const flashPrice = Number(item.flashPrice);
-                const product = productsById.get(item.productVariant.productId);
+        return (
+          <AppCard key={sale.id}>
+            <Stack gap={10}>
+              <Group justify="space-between" wrap="nowrap" gap="sm">
+                <Text fz={14.5} fw={700} truncate>
+                  {sale.name}
+                </Text>
+                <Text fz={12} c="var(--agri-muted)" style={{ flexShrink: 0 }}>
+                  {formatDate(sale.startsAt)} — {formatDate(sale.endsAt)}
+                </Text>
+              </Group>
 
-                return (
-                  <Card
-                    key={item.id}
-                    component={Link}
-                    href={`/san-pham/${item.productVariant.productId}`}
-                    padding="sm"
-                    radius="md"
-                    withBorder
-                  >
-                    <Group gap="sm" wrap="nowrap" align="flex-start">
-                      <Box w={64} style={{ flexShrink: 0 }}>
-                        <ProductImage
-                          src={primaryImageUrl(product)}
-                          alt={product?.name ?? item.productVariant.name}
-                          ratio={1}
-                          fallbackLabel={product?.name ?? item.productVariant.name}
-                          sizes="64px"
-                        />
-                      </Box>
-                      <Stack gap={4} style={{ flex: 1, minWidth: 0 }}>
-                        <Text size="sm" fw={600} className="agri-clamp-2">
-                          {product?.name ?? item.productVariant.name}
+              <ScrollArea type="never">
+                <Group gap={10} wrap="nowrap" align="flex-start">
+                  {sale.items.map((item) => {
+                    const remaining = Math.max(0, item.quota - item.soldQuantity);
+                    const basePrice = Number(item.productVariant.basePrice);
+                    const flashPrice = Number(item.flashPrice);
+                    const percent = discountPercent(basePrice, flashPrice);
+                    const product = productsById.get(item.productVariant.productId);
+                    const name = product?.name ?? item.productVariant.name;
+
+                    return (
+                      <Box
+                        key={item.id}
+                        component={Link}
+                        href={`/san-pham/${item.productVariant.productId}`}
+                        style={{ width: 142, flexShrink: 0 }}
+                      >
+                        <Box style={{ position: "relative", borderRadius: 8, overflow: "hidden" }}>
+                          <ProductImage
+                            src={primaryImageUrl(product)}
+                            alt={name}
+                            ratio={1}
+                            radius={8}
+                            sizes="142px"
+                          />
+                          {percent !== null && percent > 0 ? (
+                            <Box
+                              component="span"
+                              style={{
+                                position: "absolute",
+                                top: 6,
+                                left: 6,
+                                background: "var(--agri-danger)",
+                                color: "#fff",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                borderRadius: 999,
+                                padding: "2px 7px",
+                                lineHeight: "15px",
+                              }}
+                            >
+                              -{percent}%
+                            </Box>
+                          ) : null}
+                          {remaining === 0 ? (
+                            <Box
+                              style={{
+                                position: "absolute",
+                                inset: 0,
+                                background: "rgba(15, 18, 15, 0.45)",
+                                display: "grid",
+                                placeItems: "center",
+                              }}
+                            >
+                              <Text fz={12} fw={700} c="white">
+                                Hết suất
+                              </Text>
+                            </Box>
+                          ) : null}
+                        </Box>
+
+                        <Text fz={13} fw={600} mt={6} lineClamp={2} lh="18px" h={36}>
+                          {name}
                         </Text>
-                        <Text size="xs" c="dimmed">
+                        <Text fz={12} c="var(--agri-muted)" lineClamp={1}>
                           {variantSpecLabel(item.productVariant)}
                         </Text>
-                        <Group gap={8} align="baseline">
-                          <Text fw={700} c="red.7">
+                        <Group gap={6} align="baseline" wrap="nowrap" mt={2}>
+                          <Text fz={14} fw={700} c="red.7" style={{ whiteSpace: "nowrap" }}>
                             {formatMoney(flashPrice)}
                           </Text>
                           {flashPrice < basePrice ? (
-                            <Text size="xs" c="dimmed" td="line-through">
+                            <Text fz={11.5} c="var(--agri-muted)" td="line-through" style={{ whiteSpace: "nowrap" }}>
                               {formatMoney(basePrice)}
                             </Text>
                           ) : null}
                         </Group>
+                      </Box>
+                    );
+                  })}
+                </Group>
+              </ScrollArea>
 
-                        <Box>
-                          <Progress value={soldPercent} size="sm" radius="xl" color="red" />
-                          <Group justify="space-between" mt={4}>
-                            <Text size="xs" c="dimmed">
-                              Đã bán {item.soldQuantity}
-                            </Text>
-                            <Text size="xs" fw={600} c={remaining > 0 ? "red.7" : "dimmed"}>
-                              {remaining > 0 ? `Còn ${remaining}` : "Hết suất"}
-                            </Text>
-                          </Group>
-                        </Box>
-
-                        <Text size="xs" c="dimmed">
-                          Tối đa {item.perCustomerLimit} sản phẩm mỗi khách
-                        </Text>
-                      </Stack>
-                    </Group>
-                  </Card>
-                );
-              })}
-            </SimpleGrid>
-          </Stack>
-        </Card>
-      ))}
+              <Group justify="space-between" align="center" wrap="nowrap" gap="sm">
+                <Text fz={12.5} c="var(--agri-muted)">
+                  {remainingTotal > 0 ? `${remainingTotal} suất còn lại` : "Đã hết suất ưu đãi"}
+                </Text>
+                <GhostButton component={Link} href="/san-pham" size="compact-sm" radius={8}>
+                  Xem ưu đãi
+                </GhostButton>
+              </Group>
+            </Stack>
+          </AppCard>
+        );
+      })}
     </Stack>
   );
 }
 
-export function SectionHeader({
-  title,
-  href,
-  linkLabel = "Xem tất cả",
-}: {
-  title: string;
-  href?: string;
-  linkLabel?: string;
-}) {
-  return (
-    <Group justify="space-between" align="center" wrap="wrap">
-      <Title order={3}>{title}</Title>
-      {href ? (
-        <Button component={Link} href={href} variant="subtle" size="sm">
-          {linkLabel}
-        </Button>
-      ) : null}
-    </Group>
-  );
-}
+export { SectionHeader } from "@/components/ui/kit";

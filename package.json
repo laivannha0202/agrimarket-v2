@@ -2,26 +2,36 @@
   "name": "agrimarket",
   "version": "1.0.0",
   "private": true,
-  "packageManager": "pnpm@12.9.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "packageManager": "npm@11.20.0",
   "scripts": {
-    "dev:api": "pnpm --filter @agrimarket/api dev",
-    "dev:admin": "pnpm --filter @agrimarket/admin-web dev",
-    "dev:customer": "pnpm --filter @agrimarket/customer-web dev",
-    "dev:mobile": "pnpm --filter @agrimarket/mobile dev",
+    "dev:api": "npm run dev --workspace @agrimarket/api",
+    "dev:admin": "npm run dev --workspace @agrimarket/admin-web",
+    "dev:customer": "npm run dev --workspace @agrimarket/customer-web",
+    "dev:mobile": "npm run dev --workspace @agrimarket/mobile",
     "demo:mobile": "node scripts/lan/demo-mobile.mjs",
     "demo:all": "node scripts/lan/demo-all.mjs",
     "lan:diagnose": "node scripts/lan/diagnose.mjs",
     "lan:test": "node --test scripts/lan/lib.test.mjs",
-    "start:api": "pnpm --filter @agrimarket/api start",
-    "start:api": "pnpm --filter @agrimarket/api start",
-    "build": "pnpm -r build",
-    "lint": "pnpm -r lint",
-    "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
-    "test:e2e": "pnpm --filter @agrimarket/api test:e2e",
-    "db:generate": "pnpm --filter @agrimarket/api db:generate",
-    "db:migrate": "pnpm --filter @agrimarket/api db:migrate",
-    "db:deploy": "pnpm --filter @agrimarket/api db:deploy",
-    "db:seed": "pnpm --filter @agrimarket/api db:seed"
+    "start:api": "npm run start --workspace @agrimarket/api",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test:e2e --workspace @agrimarket/api",
+    "db:generate": "npm run db:generate --workspace @agrimarket/api",
+    "db:migrate": "npm run db:migrate --workspace @agrimarket/api",
+    "db:deploy": "npm run db:deploy --workspace @agrimarket/api",
+    "db:seed": "npm run db:seed --workspace @agrimarket/api"
+  },
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "esbuild@0.28.2": true,
+    "unrs-resolver@1.12.2": true,
+    "@scarf/scarf": false
   }
 }

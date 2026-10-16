@@ -7,9 +7,9 @@ shipping fee, totals, order state).
 
 ## Requirements
 
-- Node 20+, pnpm 12, Expo Go app on an Android phone.
+- Node 20+, npm (đi kèm Node.js), Expo Go app on an Android phone.
 - Phone + dev machine on the same Wi-Fi.
-- Backend API V2 running (`pnpm dev:api` from the repo root, default port 3000).
+- Backend API V2 running (`npm run dev:api` from the repo root, default port 3000).
 
 ## Configure the API address (once, single source)
 
@@ -39,12 +39,12 @@ to the same LAN address.
 ## Run with Expo Go
 
 ```bash
-pnpm dev:mobile
-# or: cd apps/mobile && pnpm dev:lan
+npm run dev:mobile
+# or: cd apps/mobile && npm run dev:lan
 ```
 
 Scan the QR with **Expo Go** (Android). Prefer `--lan` (default); use
-`pnpm dev:tunnel` only when LAN is blocked. (Note: `--tunnel` only tunnels
+`npm run dev:tunnel` only when LAN is blocked. (Note: `--tunnel` only tunnels
 the Expo dev server — the API address above must still be the phone-reachable
 LAN URL.)
 
@@ -53,16 +53,16 @@ No EAS Build, no prebuild, no APK/AAB — Expo Go only.
 ## Checks
 
 ```bash
-pnpm --filter @agrimarket/mobile typecheck
-pnpm --filter @agrimarket/mobile lint
-pnpm --filter @agrimarket/mobile test
+npm run typecheck --workspace @agrimarket/mobile
+npm run lint --workspace @agrimarket/mobile
+npm run test --workspace @agrimarket/mobile
 ```
 
 Integration against the real API (read-only by default):
 
 ```bash
-pnpm --filter @agrimarket/mobile test:integration
-AGRIMARKET_TEST_EMAIL=<customer> AGRIMARKET_TEST_PASSWORD=<pw> pnpm --filter @agrimarket/mobile test:integration
+npm run test:integration --workspace @agrimarket/mobile
+AGRIMARKET_TEST_EMAIL=<customer> AGRIMARKET_TEST_PASSWORD=<pw> npm run test:integration --workspace @agrimarket/mobile
 ```
 
 Write flow on the TEST instance only (never DEV):
@@ -76,7 +76,7 @@ PORT=3100 DATABASE_URL="mysql://agrimarket:agrimarket_local@127.0.0.1:3306/agrim
 # cancel → return/complaint/review → cleanup
 EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:3100/api/v1 AGRIMARKET_TEST_API=1 \
   AGRIMARKET_TEST_EMAIL=<seed customer> AGRIMARKET_TEST_PASSWORD=<pw> \
-  pnpm --filter @agrimarket/mobile test:write
+  npm run test:write --workspace @agrimarket/mobile
 ```
 
 ## Scope notes (backend V2 is the contract)

@@ -51,7 +51,7 @@ export class ProductVariantDto {
 }
 
 export class ProductImageDto {
-  @ApiProperty({ example: 'https://cdn.agrimarket.vn/products/ca-chua-bi.jpg' })
+  @ApiProperty({ example: 'http://localhost:3000/uploads/products/ca-chua-bi-do-1.webp' })
   @IsString()
   url!: string;
 

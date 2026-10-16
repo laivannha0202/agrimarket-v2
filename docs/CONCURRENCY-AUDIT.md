@@ -123,7 +123,7 @@ report *"Database schema is up to date!"* (4 migrations).
 The concurrency scenarios were originally explored in throwaway `scratch-*.mts`
 harnesses (since removed). They have been **promoted into the official suite** —
 `test/concurrency.e2e-spec.ts` (fixtures in `test/helpers/concurrency-fixtures.ts`) —
-so the guarantees are now enforced by `pnpm test:e2e`, not by a manual script.
+so the guarantees are now enforced by `npm run test:e2e`, not by a manual script.
 The suite drives the **real** service methods against real MySQL and asserts
 directly in the DB (order rows, allocation rows, `on_hand`, `reserved`,
 `blocked`, voucher redemptions, flash `sold_quantity`, payments). Rounds default
@@ -152,7 +152,7 @@ never touched. It is skipped when `TEST_DATABASE_URL` is unset.
 | 15 | stale `expectedGrandTotal` → 409, no order, no reservation | **PASS** |
 
 **Total failures: 0.** (15 tests, 3 files, 187 assertions-run green in the full
-`pnpm test:e2e` run; scenario rows 10 and 15 are the two hardening cases added
+`npm run test:e2e` run; scenario rows 10 and 15 are the two hardening cases added
 after the initial audit.)
 
 ### 3.3 Oversell / over-quota proof (direct DB)
@@ -169,16 +169,16 @@ after the initial audit.)
 
 | Check | Command | Result |
 |---|---|---|
-| API unit | `pnpm test` | **178 passed / 178** (14 files), 0 failed |
-| API E2E | `pnpm test:e2e` | **187 passed / 187** (3 files), **skipped = 0** |
+| API unit | `npm run test` | **178 passed / 178** (14 files), 0 failed |
+| API E2E | `npm run test:e2e` | **187 passed / 187** (3 files), **skipped = 0** |
 | API lint | `oxlint --type-aware src/ test/ prisma/` | exit 0 |
 | API typecheck | `tsc --noEmit -p tsconfig.json` | `src/` + `test/` = **0 errors** |
-| Admin lint | `pnpm --filter @agrimarket/admin-web lint` | clean |
-| Admin typecheck | `pnpm --filter @agrimarket/admin-web typecheck` | clean |
-| Admin build | `pnpm --filter @agrimarket/admin-web build` | success |
-| Customer lint | `pnpm --filter @agrimarket/customer-web lint` | clean |
-| Customer typecheck | `pnpm --filter @agrimarket/customer-web typecheck` | clean |
-| Customer build | `pnpm --filter @agrimarket/customer-web build` | success |
+| Admin lint | `npm run lint --workspace @agrimarket/admin-web` | clean |
+| Admin typecheck | `npm run typecheck --workspace @agrimarket/admin-web` | clean |
+| Admin build | `npm run build --workspace @agrimarket/admin-web` | success |
+| Customer lint | `npm run lint --workspace @agrimarket/customer-web` | clean |
+| Customer typecheck | `npm run typecheck --workspace @agrimarket/customer-web` | clean |
+| Customer build | `npm run build --workspace @agrimarket/customer-web` | success |
 
 > All throwaway `scratch-*.mts` / `probe-*.mts` audit artifacts were removed once
 > their scenarios were promoted into `test/concurrency.e2e-spec.ts`; the tree now

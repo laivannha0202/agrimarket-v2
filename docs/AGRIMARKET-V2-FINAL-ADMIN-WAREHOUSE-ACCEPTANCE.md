@@ -152,17 +152,17 @@ sót có bằng chứng** thuộc phạm vi đợt này (guard ngừng kho + s�
 
 | Lệnh | Kết quả |
 |---|---|
-| `pnpm --filter @agrimarket/api typecheck` | PASS (exit 0) |
-| `pnpm --filter @agrimarket/api lint` | PASS (exit 0; chỉ warnings có sẵn + 1 warning sort-compare ở file E2E mới) |
-| `pnpm --filter @agrimarket/api test` (unit) | **406/406 PASS** (31 files) — gồm 20 tests mới (guard kho + nháp) |
-| `pnpm --filter @agrimarket/api test:e2e` | **339/339 PASS** (12 files) trên MySQL thật `agrimarket_v2_test` — gồm 8 E2E mới (A–I, L) |
-| `pnpm --filter @agrimarket/api build` | PASS |
-| `pnpm --filter @agrimarket/admin-web typecheck` | PASS |
-| `pnpm --filter @agrimarket/admin-web lint` | PASS |
-| `pnpm --filter @agrimarket/admin-web test` | **40/40 PASS** (7 files) |
-| `pnpm --filter @agrimarket/admin-web build` | PASS (27 routes, gồm `/warehouses` mới) |
-| `pnpm --filter @agrimarket/customer-web typecheck/lint/build` | PASS / PASS / PASS (không ảnh hưởng contract) |
-| `pnpm --filter @agrimarket/mobile typecheck/lint/test` | PASS / PASS / **174/174 PASS** (18 files) |
+| `npm run typecheck --workspace @agrimarket/api` | PASS (exit 0) |
+| `npm run lint --workspace @agrimarket/api` | PASS (exit 0; chỉ warnings có sẵn + 1 warning sort-compare ở file E2E mới) |
+| `npm run test --workspace @agrimarket/api` (unit) | **406/406 PASS** (31 files) — gồm 20 tests mới (guard kho + nháp) |
+| `npm run test:e2e --workspace @agrimarket/api` | **339/339 PASS** (12 files) trên MySQL thật `agrimarket_v2_test` — gồm 8 E2E mới (A–I, L) |
+| `npm run build --workspace @agrimarket/api` | PASS |
+| `npm run typecheck --workspace @agrimarket/admin-web` | PASS |
+| `npm run lint --workspace @agrimarket/admin-web` | PASS |
+| `npm run test --workspace @agrimarket/admin-web` | **40/40 PASS** (7 files) |
+| `npm run build --workspace @agrimarket/admin-web` | PASS (27 routes, gồm `/warehouses` mới) |
+| `npm run typecheck --workspace @agrimarket/customer-web/lint/build` | PASS / PASS / PASS (không ảnh hưởng contract) |
+| `npm run typecheck --workspace @agrimarket/mobile/lint/test` | PASS / PASS / **174/174 PASS** (18 files) |
 
 Chưa chạy: không có. Blocker môi trường đã xử lý: MySQL restart làm rớt cache
 `caching_sha2_password` của driver mariadb (lỗi `ER_CANNOT_RETRIEVE_RSA_KEY`) —

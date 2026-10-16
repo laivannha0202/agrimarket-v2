@@ -28,7 +28,7 @@ const port = Number(args.port ?? args.apiPort ?? API_DEFAULT_PORT);
 const overrideIp = args.lanIp ?? args.lan ?? undefined;
 
 if (args.help || args.h) {
-  console.log(`Usage: pnpm lan:diagnose [--lan-ip=10.0.0.5] [--port=3000]\n\nRead-only diagnosis: LAN discovery, API readiness, Metro ports, firewall profile, CORS. Changes nothing.`);
+  console.log(`Usage: npm run lan:diagnose [--lan-ip=10.0.0.5] [--port=3000]\n\nRead-only diagnosis: LAN discovery, API readiness, Metro ports, firewall profile, CORS. Changes nothing.`);
   process.exit(0);
 }
 

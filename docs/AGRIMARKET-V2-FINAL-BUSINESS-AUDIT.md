@@ -48,8 +48,8 @@ Also updated in the same round (documentation/consistency):
 
 | Check | Result |
 |---|---|
-| API unit (`pnpm test`, 28 files) | **369/369 pass** (was 361 before this round; +8 new assertions, 0 removed) |
-| API e2e (`pnpm test:e2e`, TEST DB, 11 files) | **325/325 pass** |
+| API unit (`npm run test`, 28 files) | **369/369 pass** (was 361 before this round; +8 new assertions, 0 removed) |
+| API e2e (`npm run test:e2e`, TEST DB, 11 files) | **325/325 pass** |
 | API `typecheck` / `build` / `lint` | clean (lint: 5 pre-existing warnings only) |
 | Admin web `typecheck` / `build` / `lint` / `test` | clean / 26 routes / clean / **40/40 pass** |
 | Customer web `typecheck` / `build` / `lint` | clean / 28 routes / clean |
@@ -92,7 +92,7 @@ New/updated tests pinning the repaired rules:
 
 ## 7. Honest caveats
 
-- The mobile live-integration suite (`apps/mobile/src/lib/__tests__/checkout-live.test.ts`) is **designed** to create a real order against whichever API is reachable, then cancel it. Running `pnpm test` in `apps/mobile` while the DEV API was up therefore created and cancelled `ORD-20261011-0025` and `ORD-20261011-0026` (both CANCELLED, reservations released, 1 cancel movement each — verified read-only). This is the suite's documented behaviour, not a defect introduced by this round; it is recorded here for full transparency.
+- The mobile live-integration suite (`apps/mobile/src/lib/__tests__/checkout-live.test.ts`) is **designed** to create a real order against whichever API is reachable, then cancel it. Running `npm run test` in `apps/mobile` while the DEV API was up therefore created and cancelled `ORD-20261011-0025` and `ORD-20261011-0026` (both CANCELLED, reservations released, 1 cancel movement each — verified read-only). This is the suite's documented behaviour, not a defect introduced by this round; it is recorded here for full transparency.
 - The production admin build used for the browser smoke was served locally on the CORS-allowed origin `http://localhost:3001`; `127.0.0.1` is intentionally not in the API's allow-list.
 - The customer-web trace honesty fix (certificate badge, QC label) was verified by code review and build only — no customer-web server was running on `:3002` during the smoke.
 

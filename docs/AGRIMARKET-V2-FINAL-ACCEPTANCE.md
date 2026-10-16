@@ -99,9 +99,9 @@ Admin mutations clicked in a browser on DEV were limited to open/validate/cancel
 
 | Suite | Command | Result |
 |---|---|---|
-| API unit | `pnpm test` | **250/250** (22 files) |
-| API e2e (TEST MySQL) | `pnpm test:e2e` | **244/244** (8 files, incl. 15 concurrency scenarios, skip=0) |
-| Admin unit | `pnpm --filter admin-web test` | **15/15** (4 files) |
+| API unit | `npm run test` | **250/250** (22 files) |
+| API e2e (TEST MySQL) | `npm run test:e2e` | **244/244** (8 files, incl. 15 concurrency scenarios, skip=0) |
+| Admin unit | `npm run test --workspace admin-web` | **15/15** (4 files) |
 | API typecheck / lint / build | typecheck, lint, build | 0 errors / warnings-only (2 pre-existing) / ok |
 | Admin typecheck / lint / build | same | 0 / 0 / ok (all routes) |
 | Customer typecheck / lint / build | same | 0 / 0 / ok |

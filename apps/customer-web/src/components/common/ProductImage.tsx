@@ -3,14 +3,15 @@
 /**
  * Product image with a clean fallback.
  *
- * The seeded catalog points at `cdn.agrimarket.vn`, which is not reachable in
- * this environment. Rather than showing a broken image, a neutral placeholder
- * with the product's first letter is rendered. Aspect ratio is fixed by the
- * parent so nothing stretches or blurs.
+ * Catalog photos are served by the API from `/uploads/products/` (seeded with
+ * real local files). If the API is unreachable or an upload is missing, a
+ * neutral leaf placeholder is rendered on the brand's soft-green surface — the
+ * same placeholder the Mobile `ProductThumb` shows, never a stock photo. Aspect
+ * ratio is fixed by the parent so nothing stretches or blurs.
  */
 
-import { Box, Center, Text } from "@mantine/core";
-import { IconPhoto } from "@tabler/icons-react";
+import { Box, Center } from "@mantine/core";
+import { IconLeaf } from "@tabler/icons-react";
 import { useState } from "react";
 
 export function ProductImage({
@@ -20,7 +21,6 @@ export function ProductImage({
   radius = 0,
   sizes,
   priority = false,
-  fallbackLabel,
 }: {
   src?: string | null;
   alt: string;
@@ -29,7 +29,6 @@ export function ProductImage({
   radius?: number | string;
   sizes?: string;
   priority?: boolean;
-  fallbackLabel?: string;
 }) {
   const [failed, setFailed] = useState(false);
   const showFallback = !src || failed;
@@ -42,17 +41,12 @@ export function ProductImage({
         aspectRatio: String(ratio),
         overflow: "hidden",
         borderRadius: radius,
-        background: "#f1f3f5",
+        background: "var(--agri-primary-soft)",
       }}
     >
       {showFallback ? (
         <Center h="100%" w="100%">
-          <Box ta="center">
-            <IconPhoto size={26} color="#adb5bd" stroke={1.5} />
-            <Text size="xs" c="dimmed" mt={4} visibleFrom="sm">
-              {fallbackLabel ? fallbackLabel.slice(0, 18) : "Chưa có ảnh"}
-            </Text>
-          </Box>
+          <IconLeaf size={26} stroke={1.5} color="var(--agri-primary-border)" aria-hidden />
         </Center>
       ) : (
         /* eslint-disable-next-line @next/next/no-img-element */

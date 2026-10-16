@@ -98,15 +98,15 @@ Không PASS khi chỉ có UI: mọi PASS đều đi kèm assertion trên API.
 
 | Test | Lệnh | Kết quả |
 |---|---|---|
-| Typecheck (mobile) | `pnpm --filter @agrimarket/mobile typecheck` | PASS exit 0 |
-| Lint (mobile) | `pnpm --filter @agrimarket/mobile lint` | PASS 0 error 0 warning |
-| Unit | `pnpm --filter @agrimarket/mobile test` | **31/31 (7 files)** |
+| Typecheck (mobile) | `npm run typecheck --workspace @agrimarket/mobile` | PASS exit 0 |
+| Lint (mobile) | `npm run lint --workspace @agrimarket/mobile` | PASS 0 error 0 warning |
+| Unit | `npm run test --workspace @agrimarket/mobile` | **31/31 (7 files)** |
 | API integration read-only (DEV) | `... test:integration` (+customer creds) | **14/14** |
 | Write-flow (TEST `:3100`) | `... test:write` | **27/27** |
 | Metro bundle | `expo export --platform android` (bundle check, KHÔNG phải bằng chứng chạy máy) | PASS |
 | Web export | `expo export --platform web` — phát hiện thiếu `react-native-web` khi mở web trên Metro, đã `expo install react-native-web@0.21.4` (tương thích SDK 57, chỉ phục vụ web, không ảnh hưởng Expo Go); sau đó Metro báo lệch `react` 19.2.3 vs `react-dom` 19.3.0 (transitive) nên đã ghim `react-dom@19.2.3` khớp `react`; export lại PASS | PASS |
 | `expo install --check` | — | up to date |
-| Expo dev server `--lan` | `pnpm dev:lan` (Metro `:8081` boot OK, probe 35s rồi dọn cổng để user chạy foreground lấy QR) | BOOT |
+| Expo dev server `--lan` | `npm run dev:lan` (Metro `:8081` boot OK, probe 35s rồi dọn cổng để user chạy foreground lấy QR) | BOOT |
 | Android runtime / camera / UI cầm-tay | — | NOT TESTED (không thiết bị trong môi trường AI) |
 
 TEST residue (by design, TEST là DB scratch): order CANCELLED `ORD-20261010-0486`,
@@ -147,8 +147,8 @@ luồng cầm-tay trên Expo Go Android và camera QR cần người dùng quét
 
 ## H. Handoff Expo Go (người dùng làm, ~5 phút)
 
-1. Trên PC: `pnpm dev:api` (đang chạy, `:3000` 200 OK). Mở terminal mới:
-   `cd apps/mobile && pnpm dev:lan` (đã kiểm chứng boot + Metro bind LAN trong
+1. Trên PC: `npm run dev:api` (đang chạy, `:3000` 200 OK). Mở terminal mới:
+   `cd apps/mobile && npm run dev:lan` (đã kiểm chứng boot + Metro bind LAN trong
    phiên này; tiến trình probe đã dọn để không chiếm cổng `:8081`), xem QR Metro.
 2. Nếu chưa làm: chuyển Wi-Fi sang **Private** (mục E).
 3. Mở **Expo Go** (Android, cùng Wi-Fi), quét QR Metro.

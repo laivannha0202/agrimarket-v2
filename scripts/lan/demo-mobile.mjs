@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * `pnpm demo:mobile` — one-command stable LAN startup for API + Expo Go.
+ * `npm run demo:mobile` — one-command stable LAN startup for API + Expo Go.
  *
  * 1. Discovers the current LAN IPv4 (no cache, no hardcode; --lan-ip override).
- * 2. Checks Backend health (reuses a healthy API, starts `pnpm dev:api` when
+ * 2. Checks Backend health (reuses a healthy API, starts `npm run dev:api` when
  *    the port is free, refuses to kill foreign processes).
  * 3. Writes ONLY EXPO_PUBLIC_API_BASE_URL into apps/mobile/.env (gitignored),
  *    preserving every other line, then launches `expo start --lan` with the
@@ -13,7 +13,7 @@
  * Ctrl+C stops every child this script started (API if it started it + Expo).
  *
  * Usage:
- *   pnpm demo:mobile [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api] [--expo-args="--clear"]
+ *   npm run demo:mobile [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api] [--expo-args="--clear"]
  */
 
 import { spawn } from "node:child_process";
@@ -38,7 +38,7 @@ const wantStartApi = args.startApi !== false && args.noStartApi !== true && args
 const expoExtra = (args.expoArgs ?? "").split(" ").filter(Boolean);
 
 if (args.help || args.h) {
-  console.log(`Usage: pnpm demo:mobile [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api] [--expo-args="--clear"]\n\nDiscovers the LAN IP, ensures the API is healthy, syncs apps/mobile/.env and starts Expo Go (LAN).`);
+  console.log(`Usage: npm run demo:mobile [--lan-ip=10.0.0.5] [--port=3000] [--no-start-api] [--expo-args="--clear"]\n\nDiscovers the LAN IP, ensures the API is healthy, syncs apps/mobile/.env and starts Expo Go (LAN).`);
   process.exit(0);
 }
 
@@ -100,8 +100,8 @@ try {
   if (ready.ok) {
     log(`API already healthy at ${apiBaseUrl} — reusing (no restart).`);
   } else if (!portOpen && wantStartApi) {
-    log(`Port ${port} is free — starting backend with "pnpm dev:api"...`);
-    const apiChild = spawnTracked("pnpm", ["dev:api"], { stdio: "inherit", shell: true });
+    log(`Port ${port} is free — starting backend with "npm run dev:api"...`);
+    const apiChild = spawnTracked("npm", ["run", "dev:api"], { stdio: "inherit", shell: true });
     log(`API starting (pid ${apiChild.pid})...`);
     const healthy = await waitFor(
       async () => (await checkApiReadiness({ lanIp: lan.ip, port })).ok,
@@ -114,7 +114,7 @@ try {
     ready = await checkApiReadiness({ lanIp: lan.ip, port });
     log("Backend is healthy.");
   } else if (!portOpen && !wantStartApi) {
-    throw new Error(`Backend is down and --no-start-api was given. Start it manually with "pnpm dev:api".`);
+    throw new Error(`Backend is down and --no-start-api was given. Start it manually with "npm run dev:api".`);
   } else {
     const owner = getWindowsPortOwner(port);
     for (const c of ready.checks.filter((c) => !c.ok)) log(`CHECK FAIL: ${c.name} — ${c.detail}`);
@@ -132,7 +132,7 @@ try {
   // ---- 3. Expo env (file + process injection) ----
   const envPath = "apps/mobile/.env";
   const res = syncEnvVar(envPath, "EXPO_PUBLIC_API_BASE_URL", apiBaseUrl, [
-    "# Local-only config (git-ignored). Managed by `pnpm demo:mobile` — do not commit.",
+    "# Local-only config (git-ignored). Managed by `npm run demo:mobile` — do not commit.",
     "# Re-generated on every demo start from the current LAN IP; safe to delete.",
   ]);
   log(`apps/mobile/.env: ${res.action} EXPO_PUBLIC_API_BASE_URL=${apiBaseUrl}`);
@@ -149,8 +149,8 @@ try {
   log(`Starting Expo (LAN) with EXPO_PUBLIC_API_BASE_URL=${apiBaseUrl}`);
   log("If the Wi-Fi/hotspot changes later, stop (Ctrl+C) and re-run: the bundle does NOT pick up a new IP by itself.");
   const expoChild = spawnTracked(
-    "pnpm",
-    ["--filter", "@agrimarket/mobile", "exec", "expo", "start", "--lan", ...expoExtra],
+    "npm",
+    ["run", "dev:lan", "--workspace", "@agrimarket/mobile", ...(expoExtra.length ? ["--", ...expoExtra] : [])],
     {
       stdio: "inherit",
       shell: true,

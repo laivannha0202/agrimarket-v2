@@ -21,8 +21,8 @@
 | Tìm IP | `ipconfig` tay, sửa `.env` tay | `scripts/lan/lib.mjs:discoverLan()` — gateway + route metric + outbound UDP, loại loopback/APIPA/VPN-WSL-Docker-Hyper-V-Bluetooth, không cache, không hardcode |
 | Override | không có | `--lan-ip=` hoặc `AGRIMARKET_LAN_IP=` (validate: phải là IPv4 local, cấm loopback/APIPA) |
 | Nhiều interface | đoán bừa | lỗi `AMBIGUOUS_LAN` + yêu cầu override, không đoán |
-| Expo URL | ghi tay, dễ quên restart | `pnpm demo:mobile` sync đúng 1 biến vào `apps/mobile/.env` (giữ nguyên mọi dòng khác) + inject vào process Expo (bundle chắc chắn mới) + cảnh báo Metro cũ |
-| API | `pnpm dev:api` tay, không kiểm tra | readiness probe (MySQL TCP, port owner, `/health`, `/categories`, `/products`, `/wards`, `/docs`, LAN health); reuse khi khỏe; start khi port trống; từ chối kill foreign process |
+| Expo URL | ghi tay, dễ quên restart | `npm run demo:mobile` sync đúng 1 biến vào `apps/mobile/.env` (giữ nguyên mọi dòng khác) + inject vào process Expo (bundle chắc chắn mới) + cảnh báo Metro cũ |
+| API | `npm run dev:api` tay, không kiểm tra | readiness probe (MySQL TCP, port owner, `/health`, `/categories`, `/products`, `/wards`, `/docs`, LAN health); reuse khi khỏe; start khi port trống; từ chối kill foreign process |
 | CORS LAN | sửa tay | `demo:all` báo giá trị cần thêm (không tự sửa); Expo Go native không cần CORS |
 
 ## 3. File đã sửa
@@ -42,22 +42,22 @@
 | Script | Vai trò |
 |---|---|
 | `scripts/lan/lib.mjs` (mới, ~550 dòng, zero-dep) | `discoverLan`, `checkApiReadiness`, `syncEnvVar`, `validateApiBaseUrl`, `getWindowsPortOwner`, `checkTcpOpen` |
-| `scripts/lan/demo-mobile.mjs` (mới) | `pnpm demo:mobile`: IP → readiness → env → Expo LAN |
-| `scripts/lan/demo-all.mjs` (mới) | `pnpm demo:all`: API + Admin 3001 + Customer 3002 + Expo |
-| `scripts/lan/diagnose.mjs` (mới) | `pnpm lan:diagnose`: chẩn đoán read-only |
-| `scripts/lan/lib.test.mjs` (mới, 12 tests) | `pnpm lan:test`: IP validation, URL builder, env surgery, propagation contract |
-| Tái dùng | `pnpm dev:api`, `dev:admin`, `dev:customer`, `expo start --lan`, `test:integration` (read-only) |
+| `scripts/lan/demo-mobile.mjs` (mới) | `npm run demo:mobile`: IP → readiness → env → Expo LAN |
+| `scripts/lan/demo-all.mjs` (mới) | `npm run demo:all`: API + Admin 3001 + Customer 3002 + Expo |
+| `scripts/lan/diagnose.mjs` (mới) | `npm run lan:diagnose`: chẩn đoán read-only |
+| `scripts/lan/lib.test.mjs` (mới, 12 tests) | `npm run lan:test`: IP validation, URL builder, env surgery, propagation contract |
+| Tái dùng | `npm run dev:api`, `dev:admin`, `dev:customer`, `expo start --lan`, `test:integration` (read-only) |
 
 ## 5. Cách chạy một lệnh
 
 ```bash
-pnpm demo:mobile
+npm run demo:mobile
 # Wi-Fi khác / IP không chắc:
-pnpm demo:mobile --lan-ip=10.0.0.5
+npm run demo:mobile --lan-ip=10.0.0.5
 # Chẩn đoán không khởi động:
-pnpm lan:diagnose
+npm run lan:diagnose
 # Cả 4 app:
-pnpm demo:all
+npm run demo:all
 ```
 
 Đổi Wi-Fi/hotspot → Ctrl+C → chạy lại lệnh. Bundle không tự nhận IP mới.
@@ -114,15 +114,15 @@ pnpm demo:all
 
 | Lệnh | Exit | Kết quả |
 |---|---|---|
-| `pnpm lan:test` (`node --test scripts/lan/lib.test.mjs`) | 0 | 12/12 PASS (IPv4, virtual-name, URL build/validate, env surgery, propagation) |
-| `pnpm --filter @agrimarket/mobile typecheck` | 0 | PASS |
-| `pnpm --filter @agrimarket/mobile lint` | 0 | PASS 0 error 0 warning |
-| `pnpm --filter @agrimarket/mobile test` | 0 | 174/174 (18 files) PASS |
-| `pnpm --filter @agrimarket/api typecheck` | 0 | PASS |
-| `pnpm --filter @agrimarket/api test` | 0 | 407/407 (31 files) PASS |
+| `npm run lan:test` (`node --test scripts/lan/lib.test.mjs`) | 0 | 12/12 PASS (IPv4, virtual-name, URL build/validate, env surgery, propagation) |
+| `npm run typecheck --workspace @agrimarket/mobile` | 0 | PASS |
+| `npm run lint --workspace @agrimarket/mobile` | 0 | PASS 0 error 0 warning |
+| `npm run test --workspace @agrimarket/mobile` | 0 | 174/174 (18 files) PASS |
+| `npm run typecheck --workspace @agrimarket/api` | 0 | PASS |
+| `npm run test --workspace @agrimarket/api` | 0 | 407/407 (31 files) PASS |
 | `EXPO_PUBLIC_API_BASE_URL=http://10.218.208.43:3000/api/v1 test:integration` | 0 | 7/7 read-only PASS (trace `TRC-000019-BAPCA`; write SKIP, không ghi DEV) |
-| `pnpm --filter @agrimarket/admin-web typecheck` | 0 | PASS (không đổi config) |
-| `pnpm --filter @agrimarket/customer-web typecheck` | 0 | PASS (không đổi config) |
+| `npm run typecheck --workspace @agrimarket/admin-web` | 0 | PASS (không đổi config) |
+| `npm run typecheck --workspace @agrimarket/customer-web` | 0 | PASS (không đổi config) |
 | `node scripts/lan/diagnose.mjs` | 0 | `DIAGNOSE: OK` (8/8 checks PASS) |
 | Scenario matrix (10 cases, §10 task) | — | 10/10 PASS: wifi, expo-reload, backend-down, port-owner, mysql-phân-biệt, multi-adapter, vpn-loại-trừ, http≠wifi, empty-state, ảnh-lan |
 | Metro boot probe | — | PASS (`packager-status:running` LAN + localhost, đã dọn) |
@@ -132,7 +132,7 @@ pnpm demo:all
 **NOT TESTED** — không có thiết bị trong môi trường này. Handoff (~5 phút,
 điện thoại + PC cùng Wi-Fi `10.218.208.x`):
 
-1. `pnpm demo:mobile` (giữ terminal, lấy QR).
+1. `npm run demo:mobile` (giữ terminal, lấy QR).
 2. Expo Go (Android, cùng Wi-Fi, tắt 5G) → quét QR → Reload.
 3. Kiểm tra: Danh mục → Sản phẩm nổi bật → ảnh → chi tiết → Farms → Trace `TRC-000019-BAPCA`.
 
@@ -167,7 +167,7 @@ không triển khai trong nhiệm vụ này.
 
 - Không `db:seed`, không reset, không sửa `DATABASE_URL`, không động lô/tồn kho/đơn/chứng nhận.
 - `test:integration` chạy read-only (7 GET + preview/auth/write SKIP, không ghi).
-- `pnpm --filter @agrimarket/api test` (407 tests): có 2 WARN `Password recovery mail could not be delivered`
+- `npm run test --workspace @agrimarket/api` (407 tests): có 2 WARN `Password recovery mail could not be delivered`
   + `Evidence sweep failed: db down` — là log của unit test dùng DB mock/không có DB, không phải DEV bị ghi.
 - Không in credential (mọi đọc `.env` đều redact `SECRET|PASSWORD|DATABASE_URL|SMTP|JWT`).
 

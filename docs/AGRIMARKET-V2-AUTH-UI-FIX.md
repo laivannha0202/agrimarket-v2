@@ -191,15 +191,15 @@ Lệnh & kết quả (chạy thật, không giả lập):
 
 | Hạng mục | Lệnh | Kết quả |
 |----------|------|---------|
-| Mobile typecheck | `apps/mobile: pnpm typecheck` | **PASS** (exit 0) |
-| Mobile lint | `apps/mobile: pnpm lint` | **PASS** (0 error/warning) |
-| Mobile unit test | `apps/mobile: pnpm test` | **108 PASS** (12 file; +26 test mới cho `validation.ts`) |
-| API typecheck | `apps/api: pnpm typecheck` | **PASS** |
-| API lint | `apps/api: pnpm lint` | **PASS** (exit 0; chỉ còn warning có từ trước ở file khác) |
-| API unit test | `apps/api: pnpm test` | **333 PASS** (27 file — không đổi so với baseline) |
-| API e2e (DB thật) | `apps/api: pnpm test:e2e` | **295 PASS** (10 file) |
-| Customer Web typecheck | `apps/customer-web: pnpm typecheck` | **PASS** |
-| Customer Web lint | `apps/customer-web: pnpm lint` | **PASS** (exit 0) |
+| Mobile typecheck | `apps/mobile: npm run typecheck` | **PASS** (exit 0) |
+| Mobile lint | `apps/mobile: npm run lint` | **PASS** (0 error/warning) |
+| Mobile unit test | `apps/mobile: npm run test` | **108 PASS** (12 file; +26 test mới cho `validation.ts`) |
+| API typecheck | `apps/api: npm run typecheck` | **PASS** |
+| API lint | `apps/api: npm run lint` | **PASS** (exit 0; chỉ còn warning có từ trước ở file khác) |
+| API unit test | `apps/api: npm run test` | **333 PASS** (27 file — không đổi so với baseline) |
+| API e2e (DB thật) | `apps/api: npm run test:e2e` | **295 PASS** (10 file) |
+| Customer Web typecheck | `apps/customer-web: npm run typecheck` | **PASS** |
+| Customer Web lint | `apps/customer-web: npm run lint` | **PASS** (exit 0) |
 | Metro bundle | `apps/mobile: npx expo export --platform web` | **PASS** (1004 modules, exit 0) |
 
 ### H1. Ma trận kiểm thử (theo yêu cầu §6)
@@ -263,6 +263,6 @@ Lệnh & kết quả (chạy thật, không giả lập):
 - **Không** viết lại Auth Module rộng; **không** đổi UI framework; **không** build APK/AAB; **không** EAS; **không** buộc USB/ADB.
 - **Không** tự commit/push.
 - **Bảo toàn** chức năng địa chỉ 104 xã/phường Hưng Yên: e2e `address-auth.e2e-spec.ts` vẫn **PASS** trong
-  `pnpm test:e2e` (295/295), checkout & địa chỉ **không** bị ảnh hưởng.
+  `npm run test:e2e` (295/295), checkout & địa chỉ **không** bị ảnh hưởng.
 - **Không** thay đổi quy tắc Backend để cho phép dữ liệu sai — mọi sửa đều làm client khớp backend.
 

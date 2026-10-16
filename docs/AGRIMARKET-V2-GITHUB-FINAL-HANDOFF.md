@@ -54,7 +54,7 @@ Không thiếu source đang sử dụng: route/import/API usage đã truy vết 
   - Không hardcoded password, JWT secret, SMTP secret, API key, access/refresh token, private key, production credentials trong bất kỳ file nào được commit.
   - 2 phát hiện duy nhất đều an toàn và đã xử lý:
     1. `apps/api/qa-run-e2e.cmd` chứa `TEST_DATABASE_URL=mysql://agrimarket:agrimarket_local@...` (credential local) → **đã xóa**, script giờ đọc từ `apps/api/.env` (gitignored).
-    2. `apps/customer-web/qa/NOTES.md` chứa `Agri@12345` → đây là **demo credential công khai** do `pnpm db:seed` sinh ra và đã ghi trong root README → giữ lại nhưng ghi rõ nguồn (`public demo credential from pnpm db:seed`).
+    2. `apps/customer-web/qa/NOTES.md` chứa `Agri@12345` → đây là **demo credential công khai** do `npm run db:seed` sinh ra và đã ghi trong root README → giữ lại nhưng ghi rõ nguồn (`public demo credential from npm run db:seed`).
 - **File bị loại khỏi Git:** `apps/api/s.name` (0 byte, không rõ nguồn gốc — giữ tại local, không commit, không xóa); toàn bộ `.env` thật (`apps/api/.env`, `apps/mobile/.env`), `node_modules`, `.next`, `.expo`, `uploads`, `backups`, `.tmp-verify`, `qa/out` đều đã gitignored (xác minh bằng `git check-ignore`).
 - **`.env` được bảo vệ:** chỉ commit `.env.example` với placeholder (`USER:PASSWORD`, `CHANGE_ME`, `YOUR_PC_LAN_IP`); không commit `.env` nào.
 - **Không lộ database credentials:** `DATABASE_URL`/`TEST_DATABASE_URL` thật chỉ nằm trong `apps/api/.env` (gitignored), không xuất hiện trong staged diff.
@@ -68,22 +68,22 @@ Tất cả chạy bằng lệnh thật, trên TEST DB độc lập (`agrimarket_
 
 | Lệnh (từ repo root hoặc filter) | Exit code | Kết quả |
 |---|---|---|
-| `pnpm --filter @agrimarket/api exec tsc --noEmit -p tsconfig.json` | 0 | PASS |
-| `pnpm --filter @agrimarket/api exec oxlint --type-aware src/ test/ prisma/` | 0 | PASS (5 warning có sẵn, không mới) |
-| `pnpm --filter @agrimarket/api exec vitest run` | 0 | **386/386 PASS**, 29 files |
-| `pnpm --filter @agrimarket/api exec vitest run --config ./vitest.config.e2e.ts` | 0 | **331/331 PASS**, 11 files (TEST DB, 64s) |
-| `pnpm --filter @agrimarket/admin-web exec tsc --noEmit -p tsconfig.json` | 0 | PASS |
-| `pnpm --filter @agrimarket/admin-web exec vitest run` | 0 | **40/40 PASS**, 7 files |
-| `pnpm --filter @agrimarket/admin-web exec eslint` (file đổi) | 0 | PASS |
-| `pnpm --filter @agrimarket/admin-web exec next build` | 0 | PASS — 30 routes |
-| `pnpm --filter @agrimarket/customer-web exec tsc --noEmit -p tsconfig.json` | 0 | PASS |
-| `pnpm --filter @agrimarket/customer-web exec eslint` (7 file đổi) | 0 | PASS |
-| `pnpm --filter @agrimarket/customer-web exec next build` | 0 | PASS — 29 routes |
-| `pnpm --filter @agrimarket/mobile exec tsc --noEmit -p tsconfig.json` | 0 | PASS |
-| `pnpm --filter @agrimarket/mobile exec vitest run` | 0 | **174/174 PASS**, 18 files |
+| `npm exec --workspace @agrimarket/api -- tsc --noEmit -p tsconfig.json` | 0 | PASS |
+| `npm exec --workspace @agrimarket/api -- oxlint --type-aware src/ test/ prisma/` | 0 | PASS (5 warning có sẵn, không mới) |
+| `npm exec --workspace @agrimarket/api -- vitest run` | 0 | **386/386 PASS**, 29 files |
+| `npm exec --workspace @agrimarket/api -- vitest run --config ./vitest.config.e2e.ts` | 0 | **331/331 PASS**, 11 files (TEST DB, 64s) |
+| `npm exec --workspace @agrimarket/admin-web -- tsc --noEmit -p tsconfig.json` | 0 | PASS |
+| `npm exec --workspace @agrimarket/admin-web -- vitest run` | 0 | **40/40 PASS**, 7 files |
+| `npm exec --workspace @agrimarket/admin-web -- eslint` (file đổi) | 0 | PASS |
+| `npm exec --workspace @agrimarket/admin-web -- next build` | 0 | PASS — 30 routes |
+| `npm exec --workspace @agrimarket/customer-web -- tsc --noEmit -p tsconfig.json` | 0 | PASS |
+| `npm exec --workspace @agrimarket/customer-web -- eslint` (7 file đổi) | 0 | PASS |
+| `npm exec --workspace @agrimarket/customer-web -- next build` | 0 | PASS — 29 routes |
+| `npm exec --workspace @agrimarket/mobile -- tsc --noEmit -p tsconfig.json` | 0 | PASS |
+| `npm exec --workspace @agrimarket/mobile -- vitest run` | 0 | **174/174 PASS**, 18 files |
 | `qa/vouchers-parity.ts` (sau sửa relative import) | 0 | **PASS — 0 differences across 22 checks** |
-| `pnpm --filter @agrimarket/api exec nest build` | 0 | PASS |
-| `pnpm --filter @agrimarket/customer-web exec vitest run` | N/A | **KHÔNG CHẠY** — package không có test runner (không script test). Ghi trung thực, không bịa PASS (P2-U1). |
+| `npm exec --workspace @agrimarket/api -- nest build` | 0 | PASS |
+| `npm exec --workspace @agrimarket/customer-web -- vitest run` | N/A | **KHÔNG CHẠY** — package không có test runner (không script test). Ghi trung thực, không bịa PASS (P2-U1). |
 
 **Chưa chạy:** test runner Customer Web (không tồn tại); phiên máy thật/browser thật/Expo Go vật lý/SMTP thật (P2-U2).
 
@@ -109,7 +109,7 @@ Tất cả chạy bằng lệnh thật, trên TEST DB độc lập (`agrimarket_
 - **Không ghi DEV:** toàn bộ kiểm thử trong nhiệm vụ này chỉ đọc DEV (`SELECT` qua QA scripts) hoặc ghi TEST DB (`agrimarket_v2_test`, guard tên DB trong fixtures + `TEST_DATABASE_URL`). Không reset/reseed/sửa `agrimarket_v2`. Không tạo dữ liệu demo giả để test PASS.
 - **Dữ liệu DEV chưa phê duyệt (bảo toàn, không tự sửa):** Flash Sale #3 cần đổi tên; farms địa chỉ cũ; address #16; chứng nhận thiếu chứng từ; certificate #11 hết hạn; reservation lịch sử lot #53; lot #44/#53 quá hạn; OUTBOUND lịch sử không đầy đủ (chi tiết trong `docs/AGRIMARKET-V2-FINAL-SYSTEM-ACCEPTANCE.md` §7).
 - **TEST DB sử dụng:** `agrimarket_v2_test` (đã có schema + migrations; E2E 331/331 seed fixtures `e2e*` rồi dọn sạch, assert zero leftovers).
-- **Migration khi clone máy khác:** `pnpm db:generate` → `pnpm db:deploy` → `pnpm db:seed` (theo root README Bước 6); MySQL local không tự đồng bộ qua GitHub — README hướng dẫn tạo database + user + `.env` đầy đủ.
+- **Migration khi clone máy khác:** `npm run db:generate` → `npm run db:deploy` → `npm run db:seed` (theo root README Bước 6); MySQL local không tự đồng bộ qua GitHub — README hướng dẫn tạo database + user + `.env` đầy đủ.
 
 ---
 
@@ -131,11 +131,11 @@ Tất cả chạy bằng lệnh thật, trên TEST DB độc lập (`agrimarket_
 git clone https://github.com/laivannha0202/agrimarket-v2.git
 cd agrimarket-v2
 
-# 2. Công cụ: Node.js >= 20 (khuyến nghị 24.x), pnpm 12, MySQL 8.4 đang chạy
-node -v && pnpm -v && mysql --version
+# 2. Công cụ: Node.js >= 20 (khuyến nghị 24.x), npm, MySQL 8.4 đang chạy
+node -v && npm -v && mysql --version
 
 # 3. Cài dependencies (một lệnh cho cả 4 app)
-pnpm install
+npm install
 
 # 4. Tạo database (cmd.exe): mysql -u root -p < scripts\sql\create-databases.sql
 #    + tạo user agrimarket (xem README Bước 4)
@@ -144,33 +144,33 @@ pnpm install
 #    DATABASE_URL / TEST_DATABASE_URL / JWT_SECRET
 
 # 6. Schema + dữ liệu demo
-pnpm db:generate
-pnpm db:deploy
-pnpm db:seed
+npm run db:generate
+npm run db:deploy
+npm run db:seed
 #    Tài khoản demo: admin@agrimarket.vn / Admin@12345 (Admin Web),
 #    lan.nguyen@agrimarket.vn / Agri@12345 (Customer Web, Mobile)
 
 # 7. Chạy API (terminal 1 — bắt buộc trước tiên)
-pnpm dev:api
+npm run dev:api
 #    API: http://localhost:3000/api/v1 — Swagger: http://localhost:3000/docs
 
 # 8. Chạy Admin Web (terminal 2)
-pnpm dev:admin
+npm run dev:admin
 #    http://localhost:3001 — đăng nhập Admin
 
 # 9. Chạy Customer Web (terminal 3)
-pnpm dev:customer
+npm run dev:customer
 #    http://localhost:3002 — đăng nhập Khách hàng
 
 # 10. Chạy Mobile Expo Go (terminal 4)
 #     apps/mobile/.env: EXPO_PUBLIC_API_BASE_URL=http://<PC-LAN-IP>:3000/api/v1
 #     (điện thoại + PC cùng Wi-Fi; tuyệt đối không dùng localhost)
-pnpm dev:mobile
+npm run dev:mobile
 #    Quét QR bằng app Expo Go
 
 # 11. Kiểm thử
-pnpm test          # unit toàn repo (không cần DB)
-pnpm test:e2e      # e2e API trên agrimarket_v2_test (không đụng DB dev)
+npm run test          # unit toàn repo (không cần DB)
+npm run test:e2e      # e2e API trên agrimarket_v2_test (không đụng DB dev)
 ```
 
 - **URL Swagger:** `http://localhost:3000/docs`.

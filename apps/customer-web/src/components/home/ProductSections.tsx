@@ -27,7 +27,8 @@ import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { ProductCard } from "@/components/product/ProductCard";
-import { SectionHeader } from "@/components/home/FlashSaleSection";
+import { useAddToCart } from "@/components/product/useAddToCart";
+import { SectionHeader } from "@/components/ui/kit";
 import { usePromotionIndex } from "@/components/product/usePromotionIndex";
 import { ProductGridSkeleton, ErrorState, EmptyState } from "@/components/common/States";
 import type { Product } from "@/lib/api/types";
@@ -55,6 +56,7 @@ function useCatalogProducts() {
 function useHomeSections(flashSaleProductIds: ReadonlySet<number>) {
   const productsQuery = useCatalogProducts();
   const { index } = usePromotionIndex();
+  const cart = useAddToCart();
 
   const sections = useMemo(() => {
     const products = productsQuery.data?.data ?? [];
@@ -85,7 +87,7 @@ function useHomeSections(flashSaleProductIds: ReadonlySet<number>) {
     return { discounted, featured, hasAnyFlashPriced: products.some(isFlashSale) };
   }, [productsQuery.data, flashSaleProductIds]);
 
-  return { ...sections, index, productsQuery };
+  return { ...sections, index, productsQuery, cart };
 }
 
 export function DiscountedProductsSection({
@@ -93,11 +95,11 @@ export function DiscountedProductsSection({
 }: {
   flashSaleProductIds: ReadonlySet<number>;
 }) {
-  const { discounted, index, productsQuery } = useHomeSections(flashSaleProductIds);
+  const { discounted, index, productsQuery, cart } = useHomeSections(flashSaleProductIds);
 
   if (productsQuery.isError) {
     return (
-      <Stack gap="md">
+      <Stack gap={8}>
         <SectionHeader title="Sản phẩm đang giảm giá" href="/san-pham" />
         <ErrorState error={productsQuery.error} onRetry={() => productsQuery.refetch()} />
       </Stack>
@@ -106,7 +108,7 @@ export function DiscountedProductsSection({
 
   if (productsQuery.isLoading) {
     return (
-      <Stack gap="md">
+      <Stack gap={8}>
         <SectionHeader title="Sản phẩm đang giảm giá" href="/san-pham" />
         <ProductGridSkeleton count={DISCOUNTED_LIMIT} />
       </Stack>
@@ -118,9 +120,15 @@ export function DiscountedProductsSection({
   return (
     <Stack gap="md">
       <SectionHeader title="Sản phẩm đang giảm giá" href="/san-pham" />
-      <SimpleGrid cols={GRID_COLS} spacing="md">
+      <SimpleGrid cols={GRID_COLS} spacing={12}>
         {discounted.map((product) => (
-          <ProductCard key={product.id} product={product} index={index} />
+          <ProductCard
+            key={product.id}
+            product={product}
+            index={index}
+            onAddToCart={cart.add}
+            addPending={cart.pendingId === product.id}
+          />
         ))}
       </SimpleGrid>
     </Stack>
@@ -132,11 +140,11 @@ export function FeaturedProductsSection({
 }: {
   flashSaleProductIds: ReadonlySet<number>;
 }) {
-  const { featured, index, productsQuery } = useHomeSections(flashSaleProductIds);
+  const { featured, index, productsQuery, cart } = useHomeSections(flashSaleProductIds);
 
   if (productsQuery.isError) {
     return (
-      <Stack gap="md">
+      <Stack gap={8}>
         <SectionHeader title="Sản phẩm nổi bật" href="/san-pham" />
         <ErrorState error={productsQuery.error} onRetry={() => productsQuery.refetch()} />
       </Stack>
@@ -145,7 +153,7 @@ export function FeaturedProductsSection({
 
   if (productsQuery.isLoading) {
     return (
-      <Stack gap="md">
+      <Stack gap={8}>
         <SectionHeader title="Sản phẩm nổi bật" href="/san-pham" />
         <ProductGridSkeleton count={FEATURED_LIMIT} />
       </Stack>
@@ -154,7 +162,7 @@ export function FeaturedProductsSection({
 
   if (featured.length === 0) {
     return (
-      <Stack gap="md">
+      <Stack gap={8}>
         <SectionHeader title="Sản phẩm nổi bật" href="/san-pham" />
         <EmptyState
           title="Chưa có sản phẩm nào"
@@ -167,9 +175,15 @@ export function FeaturedProductsSection({
   return (
     <Stack gap="md">
       <SectionHeader title="Sản phẩm nổi bật" href="/san-pham" />
-      <SimpleGrid cols={GRID_COLS} spacing="md">
+      <SimpleGrid cols={GRID_COLS} spacing={12}>
         {featured.map((product) => (
-          <ProductCard key={product.id} product={product} index={index} />
+          <ProductCard
+            key={product.id}
+            product={product}
+            index={index}
+            onAddToCart={cart.add}
+            addPending={cart.pendingId === product.id}
+          />
         ))}
       </SimpleGrid>
     </Stack>

@@ -1,22 +1,24 @@
 "use client";
 
 /**
- * Order success.
+ * Order success — the web twin of the Mobile "Đặt hàng thành công" banner.
  *
  * Confirms the order code and the COD state honestly: a COD order is created as
- * PENDING, so "Đã thanh toán" is never shown here.
+ * PENDING, so "Đã thanh toán" is never shown here. Every number (total, parcel
+ * count) is the backend's own.
  */
 
-import { Button, Card, Container, Group, Stack, Text, ThemeIcon, Title } from "@mantine/core";
+import { Button, Container, Group, Stack, Text } from "@mantine/core";
 import { IconCircleCheck, IconShoppingBag } from "@tabler/icons-react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { formatMoney } from "@/lib/format";
-import { paymentStatusMeta } from "@/lib/status";
+import { formatDateTime, formatMoney } from "@/lib/format";
+import { orderStatusMeta, paymentStatusMeta } from "@/lib/status";
 import { StatusBadge } from "@/components/common/StatusBadge";
-import { DetailSkeleton, ErrorState } from "@/components/common/States";
+import { ErrorState } from "@/components/common/States";
+import { AppCard, GhostButton, KVRow, LoadingView } from "@/components/ui/kit";
 
 export function CheckoutSuccess({ orderId }: { orderId: number }) {
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -26,15 +28,15 @@ export function CheckoutSuccess({ orderId }: { orderId: number }) {
 
   if (isLoading) {
     return (
-      <Container size="sm" py="xl">
-        <DetailSkeleton />
+      <Container size="sm" px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 40 }}>
+        <LoadingView label="Đang tải đơn hàng…" />
       </Container>
     );
   }
 
   if (isError) {
     return (
-      <Container size="sm" py="xl">
+      <Container size="sm" px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 40 }}>
         <ErrorState error={error} onRetry={() => refetch()} />
       </Container>
     );
@@ -44,83 +46,111 @@ export function CheckoutSuccess({ orderId }: { orderId: number }) {
   if (!order) return null;
 
   const payment = order.payments[0];
+  const snapshot = order.shippingAddressSnapshot;
+
+  /** One-line delivery address of the order snapshot (what the backend stored). */
+  const addressLine = [
+    snapshot.detail,
+    snapshot.village,
+    snapshot.wardName ?? snapshot.ward,
+    snapshot.wardName ? null : snapshot.district,
+    snapshot.province,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const statusMeta = orderStatusMeta(order.status);
 
   return (
-    <Container size="sm" px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-      <Card padding="xl" radius="md" withBorder>
-        <Stack gap="lg" align="center">
-          <ThemeIcon size={64} radius="xl" variant="light" color="agri">
-            <IconCircleCheck size={34} />
-          </ThemeIcon>
-
-          <Stack gap={4} align="center">
-            <Title order={2} ta="center">
+    <Container size="sm" px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 40 }}>
+      <Stack gap={12}>
+        {/* --------------------------------------------------------- banner -- */}
+        <AppCard
+          style={{
+            border: "1px solid var(--agri-primary-border)",
+            background: "var(--agri-primary-soft)",
+          }}
+        >
+          <Group gap={8} wrap="nowrap" align="center">
+            <IconCircleCheck size={22} color="var(--agri-primary)" aria-hidden />
+            <Text fz={15} fw={700} c="var(--agri-primary-dark)">
               Đặt hàng thành công
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Cảm ơn bạn đã mua nông sản trên AgriMarket.
             </Text>
-          </Stack>
+          </Group>
+          <Text fz={12.5} c="var(--agri-muted)" mt={6} style={{ lineHeight: "18px" }}>
+            Mã đơn {order.code}. Thanh toán tiền mặt khi nhận hàng (COD).
+          </Text>
+        </AppCard>
 
-          <Card padding="md" radius="md" withBorder w="100%">
-            <Stack gap="xs">
-              <Group justify="space-between" wrap="wrap">
-                <Text size="sm" c="dimmed">
-                  Mã đơn hàng
-                </Text>
-                <Text size="sm" fw={700}>
-                  {order.code}
-                </Text>
-              </Group>
-              <Group justify="space-between" wrap="wrap">
-                <Text size="sm" c="dimmed">
-                  Tổng tiền
-                </Text>
-                <Text size="sm" fw={700} c="agri.9">
-                  {formatMoney(order.grandTotal)}
-                </Text>
-              </Group>
-              {payment ? (
-                <Group justify="space-between" wrap="wrap">
-                  <Text size="sm" c="dimmed">
-                    Thanh toán
-                  </Text>
+        {/* -------------------------------------------------------- summary -- */}
+        <AppCard padding={16}>
+          <Group justify="space-between" gap={12} wrap="nowrap" mb={8}>
+            <Text fz={15} fw={700} c="var(--agri-text-strong)">
+              {order.code}
+            </Text>
+            <StatusBadge label={statusMeta.label} tone={statusMeta.tone} />
+          </Group>
+          <Stack gap={6}>
+            <KVRow
+              label="Tổng tiền"
+              strong
+              valueColor="var(--agri-primary)"
+              value={formatMoney(order.grandTotal)}
+            />
+            <KVRow label="Đặt lúc" value={formatDateTime(order.createdAt)} />
+            {snapshot.recipientName ? (
+              <KVRow
+                label="Người nhận"
+                value={[snapshot.recipientName, snapshot.phone].filter(Boolean).join(" · ")}
+              />
+            ) : null}
+            {addressLine ? <KVRow label="Giao đến" value={addressLine} /> : null}
+            {payment ? (
+              <KVRow
+                label="Thanh toán"
+                value={
                   <StatusBadge
                     label={paymentStatusMeta(payment.status).label}
                     tone={paymentStatusMeta(payment.status).tone}
                   />
-                </Group>
-              ) : null}
-              <Group justify="space-between" wrap="wrap">
-                <Text size="sm" c="dimmed">
-                  Số kiện hàng
-                </Text>
-                <Text size="sm">
-                  {order.partnerOrders.length} kiện từ {order.partnerOrders.length} đối tác
-                </Text>
-              </Group>
-            </Stack>
-          </Card>
+                }
+              />
+            ) : null}
+            <KVRow
+              label="Số kiện hàng"
+              value={`${order.partnerOrders.length} kiện từ ${order.partnerOrders.length} đối tác`}
+            />
+          </Stack>
+        </AppCard>
 
-          <Text size="xs" c="dimmed" ta="center">
-            Đơn hàng COD được thanh toán khi bạn nhận hàng. Trạng thái thanh toán sẽ cập
-            nhật sau khi giao thành công.
-          </Text>
+        <Text fz={12.5} c="var(--agri-muted)" ta="center" style={{ lineHeight: "18px" }}>
+          Đơn hàng COD được thanh toán khi bạn nhận hàng. Trạng thái thanh toán sẽ cập nhật
+          sau khi giao thành công.
+        </Text>
 
-          <Group grow w="100%" gap="sm">
-            <Button
-              component={Link}
-              href={`/don-hang/${order.id}`}
-              leftSection={<IconShoppingBag size={18} />}
-            >
-              Xem đơn hàng
-            </Button>
-            <Button component={Link} href="/san-pham" variant="default">
-              Tiếp tục mua sắm
-            </Button>
-          </Group>
-        </Stack>
-      </Card>
+        {/* --------------------------------------------------------- actions -- */}
+        <Group grow gap={8} wrap="nowrap">
+          <Button
+            component={Link}
+            href={`/don-hang/${order.id}`}
+            radius={8}
+            size="md"
+            leftSection={<IconShoppingBag size={18} aria-hidden />}
+            styles={{ root: { minHeight: 48 }, label: { fontSize: 14, fontWeight: 700 } }}
+          >
+            Xem đơn hàng
+          </Button>
+          <GhostButton
+            component={Link}
+            href="/san-pham"
+            radius={8}
+            size="md"
+            styles={{ root: { minHeight: 48 }, label: { fontSize: 14, fontWeight: 700 } }}
+          >
+            Tiếp tục mua sắm
+          </GhostButton>
+        </Group>
+      </Stack>
     </Container>
   );
 }

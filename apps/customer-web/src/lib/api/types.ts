@@ -771,6 +771,27 @@ export interface ReturnRequest {
   evidence?: EvidenceImage[];
 }
 
+/**
+ * `GET /returns/me/eligible-items` — a delivered line that can still be
+ * returned. `returnableQuantity` already has the quantity claimed by other
+ * active requests subtracted, so it is the real maximum the backend allows.
+ */
+export interface EligibleReturnItem {
+  orderItemId: number;
+  orderId: number;
+  orderCode: string;
+  productId: number;
+  productName: string;
+  variantName: string;
+  sku: string;
+  /** What was bought. */
+  purchasedQuantity: string;
+  /** Still free to request: purchased minus active requests. */
+  returnableQuantity: string;
+  unitPrice: string;
+  imageUrl: string | null;
+}
+
 export type ComplaintType =
   | "PRODUCT_QUALITY"
   | "DELIVERY"
@@ -816,4 +837,24 @@ export interface MyReview {
   product: { id: number; name: string; slug: string };
   /** Evidence photos the customer attached. Visible regardless of status. */
   evidence?: EvidenceImage[];
+}
+
+/**
+ * `GET /reviews/me/eligible-items` — a delivered line not yet reviewed.
+ * Eligibility (DELIVERED order, own item, not already reviewed) is decided by
+ * the backend, so the picker can only ever offer something the create call
+ * will accept.
+ */
+export interface EligibleReviewItem {
+  orderItemId: number;
+  orderId: number;
+  orderCode: string;
+  deliveredAt: string;
+  productId: number;
+  productName: string;
+  variantName: string;
+  sku: string;
+  quantity: string;
+  unitPrice: string;
+  imageUrl: string | null;
 }

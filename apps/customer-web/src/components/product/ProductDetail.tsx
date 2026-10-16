@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * Product detail.
+ * Product detail — the web twin of the Mobile product screen.
  *
- * Left: gallery. Right: name, price, variants, quantity, add-to-cart, buy-now.
- * Below: description, origin, farm, public certificates, reviews.
+ * Gallery with real uploaded images (backend `sortOrder`, primary first), name
+ * + status, farm row, price block, trust strip, variant picker, quantity,
+ * description, origin, reviews and a sticky two-button action bar.
  *
  * Two important business rules are respected here:
  *  - the page never pins the product to a specific harvest/lot: the exact
@@ -16,28 +17,26 @@
  */
 
 import {
-  Alert,
-  Badge,
+  Avatar,
   Box,
-  Breadcrumbs,
   Button,
   Card,
   Container,
   Divider,
   Group,
-  NumberInput,
   SimpleGrid,
   Stack,
-  Tabs,
   Text,
-  Title,
 } from "@mantine/core";
+import { notifications } from "@mantine/notifications";
 import {
   IconAlertTriangle,
   IconBuildingStore,
   IconCheck,
-  IconInfoCircle,
+  IconCircleCheck,
+  IconChevronRight,
   IconLeaf,
+  IconQrcode,
   IconShieldCheck,
   IconShoppingCart,
 } from "@tabler/icons-react";
@@ -45,20 +44,33 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { notifications } from "@mantine/notifications";
 import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
-import { variantSpecLabel } from "@/lib/format";
+import {
+  discountPercent,
+  formatMoney,
+  formatQuantity,
+  formatDateTime,
+  formatWeight,
+  variantSpecLabel,
+} from "@/lib/format";
 import { variantDisplayPrice } from "@/lib/promotions";
+import { displayVariant } from "@/lib/product-variant";
 import { useAuth } from "@/lib/auth/useAuth";
-import { usePromotionIndex } from "@/components/product/usePromotionIndex";
 import { ProductImage } from "@/components/common/ProductImage";
-import { PriceBlock } from "@/components/common/PriceBlock";
 import { ErrorState, DetailSkeleton, NotFoundState } from "@/components/common/States";
 import { ProductReviews } from "@/components/product/ProductReviews";
 import { FarmCertificates } from "@/components/product/FarmCertificates";
+import { usePromotionIndex } from "@/components/product/usePromotionIndex";
+import { AppCard, BottomBar, GhostButton, QtyStepper, ToneBadge, KVRow } from "@/components/ui/kit";
 import { layout } from "@/theme";
+
+const PRICE_SOURCE_LABEL: Record<string, string | null> = {
+  NONE: null,
+  PRODUCT_DISCOUNT: "Giảm giá",
+  FLASH_SALE: "Flash Sale",
+};
 
 export function ProductDetail({ productId }: { productId: number }) {
   const router = useRouter();
@@ -74,31 +86,47 @@ export function ProductDetail({ productId }: { productId: number }) {
   const { index } = usePromotionIndex();
 
   const product = productQuery.data;
-  const activeVariants = useMemo(
-    () => (product?.variants ?? []).filter((variant) => variant.status === "ACTIVE"),
-    [product],
-  );
 
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState<number>(1);
   const [activeImage, setActiveImage] = useState(0);
 
-  // Default to the first active variant once the product loads.
-  const effectiveVariantId = selectedVariantId ?? activeVariants[0]?.id ?? null;
-  const selectedVariant = activeVariants.find((v) => v.id === effectiveVariantId) ?? null;
-
-  const price = selectedVariant ? variantDisplayPrice(selectedVariant, index) : null;
+  /**
+   * Gallery: real uploaded images only — the backend's primary first, then the
+   * rest in `sortOrder`, so the first slide is the same photo the card showed.
+   */
+  const images = useMemo(() => {
+    const list = [...(product?.images ?? [])].filter((image) => Boolean(image.url));
+    list.sort(
+      (a, b) =>
+        Number(b.isPrimary) - Number(a.isPrimary) ||
+        a.sortOrder - b.sortOrder ||
+        a.id - b.id,
+    );
+    return list;
+  }, [product]);
 
   /**
-   * Server-reported sellable quantity for the selected variant. `inStock` is the
-   * backend's own flag; the picker is capped so a customer cannot build a cart
-   * line that is already known to be unfulfillable.
+   * Default to the variant the CARD advertised (cheapest sellable one): a
+   * customer who tapped a card showing 12.000₫ must land on the same price.
+   * An explicit choice always wins.
    */
-  const availableQuantity = selectedVariant?.availableQuantity ?? null;
-  const inStock = selectedVariant?.inStock ?? false;
-  const maxQuantity = availableQuantity !== null && availableQuantity > 0
-    ? Math.max(1, Math.floor(availableQuantity))
-    : undefined;
+  const selected =
+    product?.variants.find((variant) => variant.id === selectedVariantId) ??
+    displayVariant(product ?? { variants: [] }, index)?.variant ??
+    null;
+
+  const price = selected ? variantDisplayPrice(selected, index) : null;
+  const percent = price ? discountPercent(price.basePrice, price.unitPrice) : null;
+  const canBuySelected =
+    selected !== null && selected.status === "ACTIVE" && selected.inStock;
+  const weight = selected ? formatWeight(selected.weight, selected.weightUnit) : "";
+  const maxQuantity = selected ? Math.max(1, Math.floor(selected.availableQuantity)) : 1;
+  const clampedQuantity = Math.min(quantity, maxQuantity);
+
+  /** Flash-sale quota line — only when the active flash sale really covers the variant. */
+  const flashSale = selected ? index?.flashByVariant.get(selected.id) : undefined;
+  const flashItem = flashSale?.items.find((item) => item.productVariantId === selected?.id);
 
   const addToCart = useMutation({
     mutationFn: (payload: { variantId: number; qty: number }) =>
@@ -128,7 +156,7 @@ export function ProductDetail({ productId }: { productId: number }) {
 
   if (productQuery.isLoading) {
     return (
-      <Container size={layout.containerSize} py="xl">
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py="xl">
         <DetailSkeleton />
       </Container>
     );
@@ -137,15 +165,15 @@ export function ProductDetail({ productId }: { productId: number }) {
   if (productQuery.isError) {
     const isNotFound = productQuery.error instanceof ApiError && productQuery.error.status === 404;
     return (
-      <Container size={layout.containerSize} py="xl">
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py="xl">
         {isNotFound ? (
           <NotFoundState
             title="Không tìm thấy sản phẩm"
             description="Sản phẩm có thể đã ngừng bán hoặc đường dẫn không đúng."
             action={
-              <Button component={Link} href="/san-pham" variant="default">
+              <GhostButton component={Link} href="/san-pham" radius={8}>
                 Về danh mục sản phẩm
-              </Button>
+              </GhostButton>
             }
           />
         ) : (
@@ -157,11 +185,10 @@ export function ProductDetail({ productId }: { productId: number }) {
 
   if (!product) return null;
 
-  const images = product.images.length > 0 ? product.images : [];
-  const currentImage = images[activeImage]?.url ?? null;
+  const currentImage = images[Math.min(activeImage, Math.max(0, images.length - 1))]?.url ?? null;
 
   const handleAddToCart = () => {
-    if (!selectedVariant) return;
+    if (!selected || !canBuySelected) return;
     if (!isAuthenticated) {
       router.push(`/dang-nhap?tiep-theo=${encodeURIComponent(`/san-pham/${productId}`)}`);
       return;
@@ -174,11 +201,11 @@ export function ProductDetail({ productId }: { productId: number }) {
       });
       return;
     }
-    addToCart.mutate({ variantId: selectedVariant.id, qty: quantity });
+    addToCart.mutate({ variantId: selected.id, qty: clampedQuantity });
   };
 
   const handleBuyNow = () => {
-    if (!selectedVariant) return;
+    if (!selected || !canBuySelected) return;
     if (!isAuthenticated || !isCustomer) {
       handleAddToCart();
       return;
@@ -186,54 +213,74 @@ export function ProductDetail({ productId }: { productId: number }) {
     // "Mua ngay" reuses the SAME cart + checkout flow: the item is added to the
     // cart and the customer is sent to checkout. No second pricing path exists.
     addToCart.mutate(
-      { variantId: selectedVariant.id, qty: quantity },
+      { variantId: selected.id, qty: clampedQuantity },
       { onSuccess: () => router.push("/thanh-toan") },
     );
   };
 
   return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Breadcrumbs separator="/" visibleFrom="sm">
-          <Text component={Link} href="/" size="sm" c="dimmed">
+    <Container
+      size={layout.containerSize}
+      px={{ base: 0, sm: "lg" }}
+      py={{ base: 0, sm: 24 }}
+      pb={{ base: 96, sm: 24 }}
+    >
+      {/* Mantine v9 `gap` is not a responsive prop, so a single value is used. */}
+      <Stack gap={12}>
+        <Group
+          gap={6}
+          visibleFrom="sm"
+          wrap="wrap"
+          px={{ base: 12, sm: 0 }}
+          style={{ marginBottom: 4 }}
+        >
+          <Text component={Link} href="/" fz={13} c="var(--agri-muted)">
             Trang chủ
           </Text>
-          <Text component={Link} href="/san-pham" size="sm" c="dimmed">
+          <Text fz={13} c="var(--agri-muted-soft)">
+            /
+          </Text>
+          <Text component={Link} href="/san-pham" fz={13} c="var(--agri-muted)">
             Sản phẩm
+          </Text>
+          <Text fz={13} c="var(--agri-muted-soft)">
+            /
           </Text>
           <Text
             component={Link}
             href={`/danh-muc/${product.category.slug}`}
-            size="sm"
-            c="dimmed"
+            fz={13}
+            c="var(--agri-muted)"
           >
             {product.category.name}
           </Text>
-          <Text size="sm" lineClamp={1} maw={260}>
+          <Text fz={13} c="var(--agri-muted-soft)">
+            /
+          </Text>
+          <Text fz={13} c="var(--agri-text)" lineClamp={1} maw={260}>
             {product.name}
           </Text>
-        </Breadcrumbs>
+        </Group>
 
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: "lg", md: 40 }}>
-          {/* Gallery */}
-          <Stack gap="sm">
-            <Card padding={0} radius="md" withBorder>
+        <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 8, md: 32 }}>
+          {/* ------------------------------------------------------ gallery -- */}
+          <Stack gap={8}>
+            <Box style={{ background: "var(--agri-surface)", borderRadius: 12, overflow: "hidden" }}>
               <ProductImage
                 src={currentImage}
                 alt={product.name}
                 ratio={1}
                 priority
-                fallbackLabel={product.name}
-                sizes="(max-width: 62em) 90vw, 560px"
+                sizes="(max-width: 62em) 100vw, 560px"
               />
-            </Card>
+            </Box>
             {images.length > 1 ? (
-              <Group gap="sm">
+              <Group gap={8} px={{ base: 12, sm: 0 }}>
                 {images.map((image, i) => (
                   <Box
                     key={image.id}
-                    w={64}
-                    h={64}
+                    w={56}
+                    h={56}
                     onClick={() => setActiveImage(i)}
                     style={{
                       cursor: "pointer",
@@ -241,7 +288,7 @@ export function ProductDetail({ productId }: { productId: number }) {
                       overflow: "hidden",
                       border:
                         i === activeImage
-                          ? "2px solid var(--mantine-color-agri-8)"
+                          ? "2px solid var(--agri-primary)"
                           : "1px solid var(--agri-border)",
                     }}
                   >
@@ -252,278 +299,377 @@ export function ProductDetail({ productId }: { productId: number }) {
             ) : null}
           </Stack>
 
-          {/* Buy box */}
-          <Stack gap="md">
-            <Stack gap="xs">
-              <Title order={2}>{product.name}</Title>
-              <Group gap="xs" wrap="wrap">
-                <Badge variant="light" color="agri" radius="sm">
-                  {product.category.name}
-                </Badge>
-                <Badge variant="light" color="gray" radius="sm">
-                  {product.partner.name}
-                </Badge>
-              </Group>
-            </Stack>
+          {/* ------------------------------------------------------ buy box -- */}
+          <Stack gap={10}>
+            {/* Title block */}
+            <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
+              <Stack gap={8}>
+                <Text fz={{ base: 18, sm: 20 }} fw={700} c="var(--agri-text-strong)" style={{ lineHeight: 1.35 }}>
+                  {product.name}
+                </Text>
 
-            <Card padding="md" radius="md" withBorder>
-              <Stack gap="md">
-                <PriceBlock price={price} />
+                <Group gap={8} wrap="wrap">
+                  <ToneBadge tone="green">{product.category.name}</ToneBadge>
+                  {selected ? (
+                    canBuySelected ? (
+                      <ToneBadge
+                        tone="green"
+                        icon={<IconCheck size={12} aria-hidden />}
+                      >
+                        Còn hàng
+                      </ToneBadge>
+                    ) : (
+                      <ToneBadge tone="red">
+                        {selected.status !== "ACTIVE" ? "Ngừng bán" : "Hết hàng"}
+                      </ToneBadge>
+                    )
+                  ) : null}
+                </Group>
 
-                {price?.source === "FLASH_SALE" && price.flash ? (
-                  <Alert color="red" variant="light" icon={<IconInfoCircle size={16} />}>
-                    <Stack gap={2}>
-                      <Text size="sm" fw={600}>
-                        {price.flash.name}
+                {/* Farm / partner row */}
+                {product.farmId ? (
+                  <Box
+                    component={Link}
+                    href={`/trang-trai/${product.farmId}`}
+                    className="agri-press"
+                    style={{ color: "var(--agri-primary)", display: "block" }}
+                  >
+                    <Group gap={6} wrap="nowrap" style={{ minHeight: 28 }}>
+                      <IconLeaf size={15} aria-hidden />
+                      <Text fz={13} fw={600} truncate style={{ flex: 1 }}>
+                        {product.partner.name}
                       </Text>
-                      <Text size="xs">
-                        Còn {price.flash.remaining}/{price.flash.quota} suất · tối đa{" "}
-                        {price.flash.perCustomerLimit} sản phẩm mỗi khách
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        Kết thúc{" "}
-                        {new Date(price.flash.endsAt).toLocaleString("vi-VN", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })}
-                      </Text>
-                    </Stack>
-                  </Alert>
+                      <Text fz={12}>Xem trang trại</Text>
+                      <IconChevronRight size={14} aria-hidden />
+                    </Group>
+                  </Box>
+                ) : (
+                  <Group gap={6} wrap="nowrap" style={{ minHeight: 28 }}>
+                    <IconBuildingStore size={15} color="var(--agri-muted)" aria-hidden />
+                    <Text fz={13} c="var(--agri-muted)" truncate>
+                      {product.partner.name}
+                    </Text>
+                  </Group>
+                )}
+
+                {/* Price */}
+                {price ? (
+                  <Group gap={8} align="baseline" wrap="wrap" mt={2}>
+                    <Text fz={24} fw={700} c="agri.9" style={{ lineHeight: 1.2 }}>
+                      {formatMoney(price.unitPrice)}
+                    </Text>
+                    {percent !== null && percent > 0 ? (
+                      <>
+                        <Text fz={13} c="var(--agri-muted-soft)" td="line-through">
+                          {formatMoney(price.basePrice)}
+                        </Text>
+                        <Box
+                          component="span"
+                          style={{
+                            background: "var(--agri-danger-soft)",
+                            borderRadius: 8,
+                            padding: "2px 6px",
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            color: "var(--agri-danger)",
+                          }}
+                        >
+                          -{percent}%
+                        </Box>
+                      </>
+                    ) : null}
+                  </Group>
+                ) : (
+                  <Text fz={16} fw={600} c="var(--agri-muted)" mt={2}>
+                    Liên hệ để biết giá
+                  </Text>
+                )}
+
+                {weight || selected ? (
+                  <Text fz={13} c="var(--agri-muted)">
+                    {weight ? `${weight} / ${selected?.saleUnit ?? ""}` : selected?.saleUnit}
+                  </Text>
                 ) : null}
 
-                {activeVariants.length > 0 ? (
-                  <Stack gap="xs">
-                    <Text size="sm" fw={600}>
-                      Chọn loại đóng gói
+                {price ? (
+                  PRICE_SOURCE_LABEL[price.source] ? (
+                    <Text fz={12} c="var(--agri-muted)">
+                      Đang áp dụng: {PRICE_SOURCE_LABEL[price.source]}
                     </Text>
-                    <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="xs">
-                      {activeVariants.map((variant) => {
-                        const variantPrice = variantDisplayPrice(variant, index);
-                        const selected = variant.id === effectiveVariantId;
-                        const soldOut = variant.inStock === false;
-                        return (
-                          <Card
-                            key={variant.id}
-                            padding="xs"
-                            radius="md"
-                            withBorder
-                            onClick={() => {
-                              setSelectedVariantId(variant.id);
-                              setQuantity(1);
-                            }}
-                            style={{
-                              cursor: "pointer",
-                              borderColor: selected
-                                ? "var(--mantine-color-agri-8)"
-                                : undefined,
-                              borderWidth: selected ? 2 : 1,
-                              opacity: soldOut ? 0.6 : 1,
-                            }}
-                          >
-                            <Stack gap={2}>
-                              <Text size="sm" fw={600}>
-                                {variantSpecLabel(variant)}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                Đơn vị: {variant.saleUnit}
-                              </Text>
-                              <Group gap="xs" wrap="wrap">
-                                <Text size="sm" fw={700} c="agri.9">
-                                  {variantPrice.unitPrice.toLocaleString("vi-VN")} ₫
-                                </Text>
-                                <Badge
-                                  size="xs"
-                                  variant="light"
-                                  color={soldOut ? "red" : "agri"}
-                                  radius="sm"
-                                >
-                                  {soldOut ? "Hết hàng" : "Còn hàng"}
-                                </Badge>
-                              </Group>
-                            </Stack>
-                          </Card>
-                        );
-                      })}
-                    </SimpleGrid>
-                  </Stack>
-                ) : (
-                  <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
-                    Sản phẩm hiện chưa có loại đóng gói nào đang bán.
-                  </Alert>
-                )}
+                  ) : null
+                ) : null}
 
-                <Group align="flex-end" gap="md" wrap="wrap">
-                  <NumberInput
-                    label="Số lượng"
-                    value={quantity}
-                    onChange={(value) => {
-                      const parsed = typeof value === "number" ? value : Number(value);
-                      setQuantity(Number.isFinite(parsed) && parsed >= 1 ? parsed : 1);
-                    }}
-                    min={1}
-                    max={maxQuantity}
-                    step={1}
-                    w={130}
-                    suffix={selectedVariant ? ` ${selectedVariant.saleUnit}` : ""}
-                    allowDecimal={false}
-                    allowNegative={false}
-                  />
-                  <Text size="xs" c="dimmed" pb={6}>
-                    Đơn vị bán: {selectedVariant?.saleUnit ?? "—"}
+                {flashSale && flashItem ? (
+                  <Text fz={12} c="var(--agri-danger)">
+                    Còn {Math.max(0, flashItem.quota - flashItem.soldQuantity)}/{flashItem.quota}{" "}
+                    suất · tối đa {flashItem.perCustomerLimit} sản phẩm mỗi khách · Kết thúc{" "}
+                    {formatDateTime(flashSale.endsAt)}
                   </Text>
-                </Group>
-
-                {selectedVariant && !inStock ? (
-                  <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
-                    <Text size="xs">
-                      Loại đóng gói này hiện đã hết hàng. Vui lòng chọn loại khác hoặc quay lại
-                      sau.
-                    </Text>
-                  </Alert>
-                ) : (
-                  <Alert color="gray" variant="light" icon={<IconInfoCircle size={16} />}>
-                    <Text size="xs">
-                      Tình trạng còn hàng được kiểm tra lại khi bạn đặt hàng. Lô hàng cụ thể
-                      sẽ được hệ thống phân bổ theo hạn sử dụng gần nhất.
-                    </Text>
-                  </Alert>
-                )}
-
-                <Group grow gap="sm">
-                  <Button
-                    size="md"
-                    variant="light"
-                    leftSection={<IconShoppingCart size={18} />}
-                    onClick={handleAddToCart}
-                    loading={addToCart.isPending}
-                    disabled={!selectedVariant || !inStock}
-                  >
-                    Thêm vào giỏ
-                  </Button>
-                  <Button
-                    size="md"
-                    onClick={handleBuyNow}
-                    loading={addToCart.isPending}
-                    disabled={!selectedVariant || !inStock}
-                  >
-                    Mua ngay
-                  </Button>
-                </Group>
+                ) : null}
               </Stack>
-            </Card>
+            </AppCard>
 
-            <Group gap="lg" wrap="wrap">
-              <Group gap={6}>
-                <IconShieldCheck size={16} color="var(--mantine-color-agri-8)" />
-                <Text size="xs" c="dimmed">
-                  Lô hàng đạt kiểm định mới được bán
+            {/* Trust strip — only facts the backend actually supports. */}
+            {(product.farmId || product.category) && (
+              <AppCard radius={0} py={12} style={{ borderLeft: "none", borderRight: "none" }}>
+                <Group gap={0} wrap="nowrap">
+                  {product.farmId ? (
+                    <TrustItem icon={<IconLeaf size={17} aria-hidden />} label="Nguồn gốc" />
+                  ) : null}
+                  {product.category ? (
+                    <TrustItem icon={<IconShieldCheck size={17} aria-hidden />} label="An toàn" />
+                  ) : null}
+                  {product.farmId ? (
+                    <TrustItem icon={<IconQrcode size={17} aria-hidden />} label="Truy xuất" />
+                  ) : null}
+                </Group>
+              </AppCard>
+            )}
+
+            {/* Variants */}
+            <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
+              <Stack gap={10}>
+                <Text fz={15} fw={700} c="var(--agri-text-strong)">
+                  Chọn quy cách
                 </Text>
-              </Group>
-              <Group gap={6}>
-                <IconLeaf size={16} color="var(--mantine-color-agri-8)" />
-                <Text size="xs" c="dimmed">
-                  Truy xuất nguồn gốc theo từng lô
-                </Text>
-              </Group>
-            </Group>
+
+                {product.variants.length === 0 ? (
+                  <Text fz={13} c="var(--agri-muted)">
+                    Sản phẩm chưa có quy cách bán.
+                  </Text>
+                ) : null}
+
+                {product.variants.map((variant) => {
+                  const variantPrice = variantDisplayPrice(variant, index);
+                  const variantPercent = discountPercent(
+                    variantPrice.basePrice,
+                    variantPrice.unitPrice,
+                  );
+                  const active = selected?.id === variant.id;
+                  return (
+                    <Box
+                      key={variant.id}
+                      component="button"
+                      type="button"
+                      onClick={() => {
+                        setSelectedVariantId(variant.id);
+                        setQuantity(1);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        textAlign: "left",
+                        border: `${active ? 1.5 : 1}px solid ${
+                          active ? "var(--agri-primary)" : "var(--agri-border)"
+                        }`,
+                        background: active ? "var(--agri-primary-soft)" : "var(--agri-surface)",
+                        borderRadius: 8,
+                        padding: 12,
+                        minHeight: 44,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+                        <Text fz={14} fw={600}>
+                          {variantSpecLabel(variant)}
+                        </Text>
+                        <Group gap={8} align="baseline" wrap="wrap">
+                          <Text fz={15} fw={700} c="agri.9">
+                            {formatMoney(variantPrice.unitPrice)}
+                          </Text>
+                          {variantPercent !== null && variantPercent > 0 ? (
+                            <>
+                              <Text fz={13} c="var(--agri-muted-soft)" td="line-through">
+                                {formatMoney(variantPrice.basePrice)}
+                              </Text>
+                              <Text fz={12} fw={700} c="var(--agri-danger)">
+                                -{variantPercent}%
+                              </Text>
+                            </>
+                          ) : null}
+                        </Group>
+                        <Text fz={12} c="var(--agri-muted)">
+                          {variant.status !== "ACTIVE"
+                            ? "Ngừng bán"
+                            : variant.inStock
+                              ? `Còn ${formatQuantity(variant.availableQuantity, variant.saleUnit)}`
+                              : "Tạm hết hàng"}
+                        </Text>
+                      </Stack>
+                      {active ? (
+                        <IconCircleCheck size={20} color="var(--agri-primary)" aria-hidden />
+                      ) : null}
+                    </Box>
+                  );
+                })}
+              </Stack>
+            </AppCard>
+
+            {/* Quantity */}
+            {selected ? (
+              <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
+                <Stack gap={10}>
+                  <Text fz={15} fw={700} c="var(--agri-text-strong)">
+                    Số lượng
+                  </Text>
+                  <Group gap={12} wrap="nowrap">
+                    <QtyStepper
+                      value={clampedQuantity}
+                      max={maxQuantity}
+                      onChange={setQuantity}
+                      disabled={!canBuySelected}
+                    />
+                    <Text fz={12} c="var(--agri-muted)" style={{ flex: 1 }}>
+                      Tối đa {formatQuantity(maxQuantity, selected.saleUnit)}
+                    </Text>
+                  </Group>
+                </Stack>
+              </AppCard>
+            ) : null}
           </Stack>
         </SimpleGrid>
 
-        <Tabs defaultValue="info" variant="outline" mt="md">
-          <Tabs.List>
-            <Tabs.Tab value="info">Thông tin sản phẩm</Tabs.Tab>
-            <Tabs.Tab value="origin">Nguồn gốc & trang trại</Tabs.Tab>
-            <Tabs.Tab value="reviews">Đánh giá</Tabs.Tab>
-          </Tabs.List>
-
-          <Tabs.Panel value="info" pt="md">
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Title order={4}>Mô tả</Title>
-                <Text size="sm" c={product.description ? undefined : "dimmed"}>
-                  {product.description || "Đối tác chưa cập nhật mô tả cho sản phẩm này."}
-                </Text>
-
-                {activeVariants.length > 0 ? (
-                  <>
-                    <Divider />
-                    <Title order={4}>Quy cách đóng gói</Title>
-                    <Stack gap="xs">
-                      {activeVariants.map((variant) => (
-                        <Group key={variant.id} justify="space-between" wrap="nowrap">
-                          <Text size="sm">{variantSpecLabel(variant)}</Text>
-                          <Text size="sm" c="dimmed">
-                            Đơn vị: {variant.saleUnit}
-                          </Text>
-                        </Group>
-                      ))}
-                    </Stack>
-                  </>
-                ) : null}
-              </Stack>
-            </Card>
-          </Tabs.Panel>
-
-          <Tabs.Panel value="origin" pt="md">
-            <Stack gap="md">
-              <Card padding="lg" radius="md" withBorder>
-                <Stack gap="sm">
-                  <Group gap="sm">
-                    <IconBuildingStore size={20} color="var(--mantine-color-agri-8)" />
-                    <Title order={4}>Đối tác cung cấp</Title>
-                  </Group>
-                  <Text size="sm" fw={600}>
-                    {product.partner.name}
-                  </Text>
-                  <Button
-                    component={Link}
-                    href={`/doi-tac/${product.partner.id}`}
-                    variant="light"
-                    size="xs"
-                    w="fit-content"
-                  >
-                    Xem đối tác
-                  </Button>
-                  <Divider my="xs" />
-                  <Text size="xs" c="dimmed">
-                    Đối tác là đơn vị cung cấp nông sản. Nguồn gốc cụ thể của hàng hóa
-                    được xác định theo lô hàng thực tế khi đơn được phân bổ.
-                  </Text>
-                </Stack>
-              </Card>
-
-              {product.farmId ? <ProductFarmPanel farmId={product.farmId} /> : null}
-
-              <Card padding="lg" radius="md" withBorder>
-                <Stack gap="sm">
-                  <Group gap="sm">
-                    <IconShieldCheck size={20} color="var(--mantine-color-agri-8)" />
-                    <Title order={4}>Truy xuất nguồn gốc</Title>
-                  </Group>
-                  <Text size="sm" c="dimmed">
-                    Sau khi mua, bạn xem được mã truy xuất của lô hàng thực tế trong chi
-                    tiết đơn hàng.
-                  </Text>
-                  <Button
-                    component={Link}
-                    href="/truy-xuat"
-                    variant="light"
-                    size="xs"
-                    w="fit-content"
-                  >
-                    Tra cứu mã truy xuất
-                  </Button>
-                </Stack>
-              </Card>
+        {/* --------------------------------------------------- description -- */}
+        {product.description ? (
+          <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
+            <Stack gap={8}>
+              <Text fz={15} fw={700} c="var(--agri-text-strong)">
+                Mô tả
+              </Text>
+              <Text fz={14} c="var(--agri-text)" style={{ lineHeight: 1.5 }}>
+                {product.description}
+              </Text>
             </Stack>
-          </Tabs.Panel>
+          </AppCard>
+        ) : null}
 
-          <Tabs.Panel value="reviews" pt="md">
+        {/* ------------------------------------------------ origin & farm -- */}
+        <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
+          <Stack gap={10}>
+            <Text fz={15} fw={700} c="var(--agri-text-strong)">
+              Nguồn gốc &amp; trang trại
+            </Text>
+
+            {product.farmId ? <ProductFarmPanel farmId={product.farmId} /> : null}
+
+            <Group gap={8} wrap="wrap">
+              <Avatar size={36} radius="xl" color="agri">
+                {product.partner.name.trim().charAt(0).toUpperCase()}
+              </Avatar>
+              <Stack gap={0} style={{ flex: 1, minWidth: 0 }}>
+                <Text fz={13.5} fw={600} truncate>
+                  {product.partner.name}
+                </Text>
+                <Text fz={12} c="var(--agri-muted)">
+                  Đối tác cung cấp
+                </Text>
+              </Stack>
+              <GhostButton
+                component={Link}
+                href={`/doi-tac/${product.partner.id}`}
+                size="compact-sm"
+                radius={8}
+              >
+                Xem đối tác
+              </GhostButton>
+            </Group>
+
+            <Divider />
+
+            <Group gap={8} wrap="nowrap" align="flex-start">
+              <IconQrcode size={16} color="var(--agri-primary)" style={{ marginTop: 2 }} aria-hidden />
+              <Text fz={12.5} c="var(--agri-muted)" style={{ lineHeight: 1.45 }}>
+                Sau khi mua, bạn xem được mã truy xuất của lô hàng thực tế trong chi tiết
+                đơn hàng.{" "}
+                <Text
+                  component={Link}
+                  href="/truy-xuat"
+                  fz={12.5}
+                  fw={600}
+                  c="agri.9"
+                >
+                  Tra cứu mã truy xuất
+                </Text>
+              </Text>
+            </Group>
+          </Stack>
+        </AppCard>
+
+        {/* ------------------------------------------------------- reviews -- */}
+        <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
+          <Stack gap={10}>
+            <Text fz={15} fw={700} c="var(--agri-text-strong)">
+              Đánh giá
+            </Text>
             <ProductReviews productId={product.id} />
-          </Tabs.Panel>
-        </Tabs>
+          </Stack>
+        </AppCard>
       </Stack>
+
+      {/* ------------------------------------------------- action bar ------- */}
+      {selected ? (
+        <BottomBar>
+          <Stack gap={8}>
+            {!isAuthenticated ? (
+              <Text fz={12} c="var(--agri-muted)">
+                Đăng nhập để đặt hàng.
+              </Text>
+            ) : null}
+            <Group grow gap={8} wrap="nowrap">
+              <GhostButton
+                radius={8}
+                size="md"
+                leftSection={<IconShoppingCart size={18} aria-hidden />}
+                onClick={handleAddToCart}
+                loading={addToCart.isPending}
+                disabled={!canBuySelected}
+                styles={{
+                  root: { minHeight: 48, borderWidth: 1.5 },
+                  label: { fontSize: 14, fontWeight: 700 },
+                }}
+              >
+                Thêm vào giỏ
+              </GhostButton>
+              <Button
+                radius={8}
+                size="md"
+                onClick={handleBuyNow}
+                loading={addToCart.isPending}
+                disabled={!canBuySelected}
+                styles={{ root: { minHeight: 48 }, label: { fontSize: 14, fontWeight: 700 } }}
+              >
+                Mua ngay
+              </Button>
+            </Group>
+          </Stack>
+        </BottomBar>
+      ) : null}
     </Container>
+  );
+}
+
+/** Small icon + label pair in the trust strip. */
+function TrustItem({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <Stack align="center" gap={4} style={{ flex: 1 }}>
+      <Box
+        w={38}
+        h={38}
+        style={{
+          borderRadius: 999,
+          background: "var(--agri-primary-soft)",
+          display: "grid",
+          placeItems: "center",
+          color: "var(--agri-primary)",
+        }}
+      >
+        {icon}
+      </Box>
+      <Text fz={11.5} fw={600}>
+        {label}
+      </Text>
+    </Stack>
   );
 }
 
@@ -536,46 +682,42 @@ function ProductFarmPanel({ farmId }: { farmId: number }) {
   });
 
   if (farmQuery.isLoading) {
-    return <Card padding="lg" radius="md" withBorder h={140} />;
+    return <Card padding="md" radius={12} withBorder h={120} />;
   }
   if (farmQuery.isError || !farmQuery.data) return null;
 
   const farm = farmQuery.data;
 
   return (
-    <Card padding="lg" radius="md" withBorder>
-      <Stack gap="sm">
-        <Group gap="sm">
-          <IconLeaf size={20} color="var(--mantine-color-agri-8)" />
-          <Title order={4}>Trang trại</Title>
-        </Group>
-        <Text size="sm" fw={600}>
+    <Stack gap={8}>
+      <Group gap={8}>
+        <IconLeaf size={18} color="var(--agri-primary)" aria-hidden />
+        <Text fz={14.5} fw={700}>
           {farm.name}
         </Text>
-        <Text size="sm" c="dimmed">
-          {farm.address}
+      </Group>
+      <KVRow label="Địa chỉ" value={farm.address} />
+      {farm.areaHa ? (
+        <KVRow
+          label="Diện tích"
+          value={`${Number(farm.areaHa).toLocaleString("vi-VN")} ha`}
+        />
+      ) : null}
+      {farm.description ? (
+        <Text fz={12.5} c="var(--agri-muted)" style={{ lineHeight: 1.45 }}>
+          {farm.description}
         </Text>
-        {farm.areaHa ? (
-          <Text size="sm" c="dimmed">
-            Diện tích: {Number(farm.areaHa).toLocaleString("vi-VN")} ha
-          </Text>
-        ) : null}
-        {farm.description ? (
-          <Text size="sm" c="dimmed">
-            {farm.description}
-          </Text>
-        ) : null}
-        <FarmCertificates farmId={farm.id} />
-        <Button
-          component={Link}
-          href={`/trang-trai/${farm.id}`}
-          variant="light"
-          size="xs"
-          w="fit-content"
-        >
-          Xem trang trại
-        </Button>
-      </Stack>
-    </Card>
+      ) : null}
+      <FarmCertificates farmId={farm.id} />
+      <GhostButton
+        component={Link}
+        href={`/trang-trai/${farm.id}`}
+        size="compact-sm"
+        radius={8}
+        w="fit-content"
+      >
+        Xem trang trại
+      </GhostButton>
+    </Stack>
   );
 }

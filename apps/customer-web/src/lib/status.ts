@@ -79,6 +79,25 @@ export function returnStatusMeta(status: string): StatusMeta {
   return RETURN_STATUS[status as ReturnRequestStatus] ?? UNKNOWN;
 }
 
+/**
+ * Happy-path progression of a return, in backend order (port of the Mobile
+ * `RETURN_FLOW`). `REJECTED` is a terminal off-flow outcome, so it is excluded
+ * here and rendered as its own notice.
+ */
+export const RETURN_FLOW: ReturnRequestStatus[] = [
+  "REQUESTED",
+  "APPROVED",
+  "RETURNING",
+  "RECEIVED",
+  "QC_PENDING",
+  "REFUNDED",
+];
+
+/** Index of a status within `RETURN_FLOW`, or -1 when it is off-flow (REJECTED). */
+export function returnFlowIndex(status: string): number {
+  return RETURN_FLOW.indexOf(status as ReturnRequestStatus);
+}
+
 export const COMPLAINT_STATUS: Record<ComplaintStatus, StatusMeta> = {
   OPEN: { label: "Đã tiếp nhận", tone: "yellow" },
   PROCESSING: { label: "Đang xử lý", tone: "blue" },
@@ -173,6 +192,25 @@ export const CANCELLABLE_ORDER_STATUSES: OrderStatus[] = [
   "READY_TO_SHIP",
   "SHIPPING",
 ];
+
+/**
+ * The order state machine, in customer-facing order (port of the Mobile
+ * `ORDER_FLOW`). `CANCELLED` deliberately sits OFF this flow, so a cancelled
+ * order renders as cancelled instead of as a half-filled progress tracker.
+ */
+export const ORDER_FLOW: OrderStatus[] = [
+  "PENDING_CONFIRMATION",
+  "CONFIRMED",
+  "PREPARING",
+  "READY_TO_SHIP",
+  "SHIPPING",
+  "DELIVERED",
+];
+
+/** Index of a status within `ORDER_FLOW`, or -1 when it is off-flow (CANCELLED). */
+export function orderFlowIndex(status: string): number {
+  return ORDER_FLOW.indexOf(status as OrderStatus);
+}
 
 /** Order statuses that allow a return request (backend requires DELIVERED). */
 export const RETURNABLE_ORDER_STATUSES: OrderStatus[] = ["DELIVERED"];

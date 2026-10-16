@@ -453,7 +453,7 @@ quan trọng vì chính sự cố cài đặt pnpm một phần là nguyên nhâ
 | **Expo Go trên thiết bị Android thật** | **NOT TESTED / BLOCKED** | Không có điều khiển thiết bị (không bắt buộc USB/ADB). Mọi kết luận UI ở đây là trên **Expo Web** (Metro + react-native-web), không phải máy thật. |
 | Splash screen native | **NOT TESTED** | `expo-splash-screen` chưa cài (§G2); không thể kiểm chứng không có thiết bị/build. |
 | `web.splash` có hiệu lực thật | **NOT TESTED** | `expo export --platform web` ở chế độ `output: single` **không** sinh PWA manifest → chưa quan sát được tác dụng. Đã ghi nhận, không tuyên bố PASS. |
-| `pnpm why @expo/vector-icons` | **NOT RUN** | Chỉ dùng `expo install --check` + `expo-doctor` + phân tích cây `.pnpm`. |
+| `npm why @expo/vector-icons` | **NOT RUN** | Chỉ dùng `expo install --check` + `expo-doctor` + phân tích cây `.pnpm`. |
 | Ghi DB / write flow | **NOT RUN** | Cố ý: không reset/reseed, không tạo dữ liệu. Integration chỉ chạy nhánh read-only (write cần `AGRIMARKET_RUN_WRITE_TESTS=1`). |
 
 ---

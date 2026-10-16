@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Checkout.
+ * Checkout — the web twin of the Mobile checkout screen.
  *
  * The amount shown before submitting comes from `POST /orders/checkout-preview`:
  * the backend resolves the price, applies the voucher, reports the shipping fee
@@ -12,7 +12,9 @@
  * Submitting uses an idempotency key: it is reused while the payload stays the
  * same, so a retry after a lost response returns the original order instead of
  * creating a second one. It is regenerated as soon as the payload changes or
- * after a successful order.
+ * after a successful order. A 409 is classified (`lib/checkout.ts`): a re-price
+ * asks for one explicit confirmation of the NEW amount; an in-flight retry
+ * needs no confirmation at all.
  *
  * Only COD is offered. `PaymentMethod.VNPAY` / `MOCK_ONLINE` exist in the enum
  * but no gateway or payment-initiation endpoint exists, so no online payment UI
@@ -20,30 +22,32 @@
  */
 
 import {
-  Alert,
-  Badge,
+  Box,
   Button,
-  Card,
   Container,
   Divider,
   Group,
   Modal,
-  Radio,
-  SimpleGrid,
-  Skeleton,
   Stack,
   Text,
   Textarea,
   TextInput,
-  Title,
 } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import {
   IconAlertCircle,
-  IconAlertTriangle,
-  IconCheck,
+  IconCash,
+  IconChevronDown,
+  IconChevronUp,
+  IconCircle,
+  IconCircleCheck,
+  IconCircleDot,
+  IconEdit,
   IconMapPin,
+  IconMessageCircle,
   IconPlus,
+  IconReceipt,
+  IconTag,
   IconTicket,
 } from "@tabler/icons-react";
 import Link from "next/link";
@@ -63,12 +67,21 @@ import {
   toAddressPayload,
   type AddressFormValues,
 } from "@/lib/address";
-import { formatDate, formatMoney } from "@/lib/format";
-import { useCartProducts } from "@/lib/hooks/useCartProducts";
-import { useDebounced } from "@/lib/hooks/useDebouncedValue";
-import { EmptyCartState, ErrorState, ListSkeleton } from "@/components/common/States";
+import { classifyCheckoutConflict, needsTotalConfirm } from "@/lib/checkout";
+import { formatMoney, formatQuantity } from "@/lib/format";
+import { splitVouchers, voucherValueLabel } from "@/lib/vouchers";
+import { EmptyState, ErrorState } from "@/components/common/States";
 import { WardPicker } from "@/components/common/WardPicker";
+import {
+  AppCard,
+  BottomBar,
+  GhostButton,
+  LoadingView,
+  PageTitle,
+  ToneBadge,
+} from "@/components/ui/kit";
 import { layout } from "@/theme";
+import type { Address } from "@/lib/api/types";
 
 /** `crypto.randomUUID` needs a secure context; this works everywhere. */
 function newIdempotencyKey(): string {
@@ -78,15 +91,56 @@ function newIdempotencyKey(): string {
   return `ck-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
+/** Compact error line inside a card (Mobile `ErrorView` at card scale). */
+function InlineError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <Group gap={6} wrap="nowrap" align="center">
+      <IconAlertCircle size={15} color="var(--agri-danger)" style={{ flexShrink: 0 }} />
+      <Text fz={12.5} c="var(--agri-danger)" style={{ flex: 1 }}>
+        {message}
+      </Text>
+      {onRetry ? (
+        <Text
+          component="button"
+          type="button"
+          fz={12.5}
+          fw={700}
+          c="var(--agri-danger)"
+          onClick={onRetry}
+          style={{
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          Thử lại
+        </Text>
+      ) : null}
+    </Group>
+  );
+}
+
 export function CheckoutView() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
   const [voucherCode, setVoucherCode] = useState("");
+  const [voucherPickerOpen, setVoucherPickerOpen] = useState(false);
   const [note, setNote] = useState("");
   const [addressModalOpened, addressModal] = useDisclosure(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /**
+   * The total the customer must accept before submitting, or `null`.
+   *
+   * Set ONLY by the 409 re-price path: the preview is trusted on arrival, so a
+   * first visit needs no confirmation at all. Cleared the moment the customer
+   * edits the order (address, voucher), because then the refreshed preview IS
+   * their own new total.
+   */
+  const [pendingTotal, setPendingTotal] = useState<number | null>(null);
 
   const cartQuery = useQuery({
     queryKey: queryKeys.cart.me(),
@@ -158,7 +212,7 @@ export function CheckoutView() {
         title: "Đã thêm địa chỉ",
         message: "Địa chỉ giao hàng mới đã được lưu.",
         color: "agri",
-        icon: <IconCheck size={16} />,
+        icon: <IconCircleCheck size={16} />,
       });
     },
     onError: (error) => {
@@ -170,34 +224,31 @@ export function CheckoutView() {
     },
   });
 
-  /** Voucher typing is debounced so the preview is not re-fetched per keystroke. */
-  const debouncedVoucher = useDebounced(voucherCode.trim(), 400);
+  const voucher = voucherCode.trim();
+
+  /**
+   * The preview prices the lines the signature encodes; the endpoint reads the
+   * cart server-side, so no line is sent from here. The key also carries the
+   * voucher, and is shared with the cart screen when no voucher is applied.
+   */
+  const itemSignature = items
+    .map((item) => `${item.productVariantId}:${item.quantity}`)
+    .join(",");
 
   const previewQuery = useQuery({
-    queryKey: ["checkout", "preview", debouncedVoucher || null, items.length],
-    queryFn: () =>
-      resources.checkoutPreview({
-        voucherCode: debouncedVoucher || undefined,
-      }),
+    queryKey: queryKeys.checkout.preview(itemSignature, voucher),
+    queryFn: () => resources.checkoutPreview({ voucherCode: voucher || undefined }),
     enabled: items.length > 0,
     retry: false,
   });
 
   const preview = previewQuery.data;
 
-  /**
-   * The cart API sends only `product.partnerId` (no `partner` relation), so
-   * partner names are resolved from the public product resource.
-   */
-  const productIds = useMemo(
-    () => items.map((item) => item.productVariant.product.id),
-    [items],
+  /** Voucher ordering per the backend's own rules; every amount comes from the preview. */
+  const voucherGroups = useMemo(
+    () => splitVouchers(vouchersQuery.data?.data ?? [], preview?.subtotal ?? 0),
+    [vouchersQuery.data, preview],
   );
-  const products = useCartProducts(productIds);
-
-  /** Partner name for a cart line, or a neutral label while it is loading. */
-  const partnerNameOf = (productId: number): string =>
-    products.get(productId)?.partner.name ?? "Đang tải tên đối tác…";
 
   const selectedAddress = useMemo(() => {
     if (addresses.length === 0) return null;
@@ -208,39 +259,29 @@ export function CheckoutView() {
   }, [addresses, selectedAddressId]);
 
   /**
-   * Any change to the order invalidates a previous submit error: the message
-   * belonged to the old payload, and the button must not stay blocked by it.
+   * Any change to the order invalidates a previous submit error (the message
+   * belonged to the old payload) and any pending re-price confirmation (the new
+   * preview is the customer's own total, so nothing needs confirming).
    */
   const selectAddress = (id: number) => {
     setSelectedAddressId(id);
     setSubmitError(null);
+    setPendingTotal(null);
   };
 
-  /** Authoritative line data, keyed by variant, from the preview response. */
-  const previewLineByVariant = useMemo(() => {
-    const map = new Map<number, NonNullable<typeof preview>["items"][number]>();
-    for (const line of preview?.items ?? []) map.set(line.productVariantId, line);
-    return map;
-  }, [preview]);
+  const chooseVoucher = (code: string) => {
+    setVoucherCode(code);
+    setSubmitError(null);
+    setPendingTotal(null);
+    setVoucherPickerOpen(false);
+  };
 
-  /**
-   * Partner groups, mirroring the backend's per-partner split. Keyed on
-   * `partnerId` so the memo does not depend on the product lookup map; names and
-   * amounts are resolved while rendering.
-   */
-  const groups = useMemo(() => {
-    const map = new Map<number, { count: number; productIds: number[] }>();
-    for (const item of items) {
-      const product = item.productVariant.product;
-      const existing = map.get(product.partnerId);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        map.set(product.partnerId, { count: 1, productIds: [product.id] });
-      }
-    }
-    return Array.from(map, ([partnerId, group]) => ({ partnerId, ...group }));
-  }, [items]);
+  const clearVoucher = () => {
+    setVoucherCode("");
+    setSubmitError(null);
+    setPendingTotal(null);
+    setVoucherPickerOpen(false);
+  };
 
   const buildPayload = (): CheckoutPayload | null => {
     if (!selectedAddress) return null;
@@ -259,7 +300,7 @@ export function CheckoutView() {
         village: selectedAddress.village ?? undefined,
         detail: selectedAddress.detail,
       },
-      voucherCode: voucherCode.trim() || undefined,
+      voucherCode: voucher || undefined,
       paymentMethod: "COD",
       note: note.trim() || undefined,
       // The total the customer is looking at. If the price or a promotion
@@ -294,22 +335,33 @@ export function CheckoutView() {
       router.replace(`/dat-hang-thanh-cong/${order.id}`);
     },
     onError: (error) => {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : "Không đặt được hàng. Vui lòng kiểm tra lại giỏ hàng.";
-      setSubmitError(message);
-      // A 409 means the total moved under the customer (a flash sale ended, a
-      // voucher ran out, …). Pull a fresh preview so the new amount is on
-      // screen and the next confirm sends the updated `expectedGrandTotal`.
-      if (error instanceof ApiError && error.status === 409) {
+      const conflict = classifyCheckoutConflict(error);
+      let message: string;
+      if (conflict === "in-flight") {
+        // Same request, still processing. Retrying with the SAME key is correct
+        // and safe, so no confirmation is demanded — that would force the
+        // customer to re-confirm a total that never changed.
+        message =
+          "Đơn hàng trước đang được xử lý. Vui lòng đợi vài giây rồi bấm đặt hàng lại (không tạo đơn trùng).";
+      } else if (conflict === "total-changed") {
+        // The price/voucher/stock really did move: refresh the preview and make
+        // the customer accept the NEW amount before submitting again.
+        if (preview) setPendingTotal(preview.grandTotal);
         void previewQuery.refetch();
+        message =
+          "Giá hoặc khuyến mãi vừa thay đổi. Vui lòng xem lại tổng tiền mới và xác nhận.";
+      } else {
+        message =
+          error instanceof ApiError
+            ? error.message
+            : "Không đặt được hàng. Vui lòng kiểm tra lại giỏ hàng.";
       }
+      setSubmitError(message);
       notifications.show({
         title: "Đặt hàng chưa thành công",
         message,
         color: "red",
-        icon: <IconAlertTriangle size={16} />,
+        icon: <IconAlertCircle size={16} />,
       });
     },
   });
@@ -341,17 +393,19 @@ export function CheckoutView() {
     checkout.mutate({ payload, key: idempotencyKeyFor(payload) });
   };
 
+  /* ------------------------------------------------------------- states -- */
+
   if (cartQuery.isLoading) {
     return (
-      <Container size={layout.containerSize} py="xl">
-        <ListSkeleton rows={4} />
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 24 }}>
+        <LoadingView label="Đang tải giỏ hàng…" />
       </Container>
     );
   }
 
   if (cartQuery.isError) {
     return (
-      <Container size={layout.containerSize} py="xl">
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 24 }}>
         <ErrorState error={cartQuery.error} onRetry={() => cartQuery.refetch()} />
       </Container>
     );
@@ -359,419 +413,536 @@ export function CheckoutView() {
 
   if (items.length === 0) {
     return (
-      <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-        <Stack gap="lg">
-          <Title order={2}>Thanh toán</Title>
-          <EmptyCartState
-            action={
-              <Button component={Link} href="/san-pham">
-                Mua nông sản
-              </Button>
-            }
-          />
-        </Stack>
+      <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 24 }}>
+        <EmptyState
+          kind="cart"
+          title="Chưa có sản phẩm để đặt"
+          description="Thêm sản phẩm vào giỏ hàng trước khi đặt hàng."
+          action={
+            <Button component={Link} href="/san-pham" radius={8}>
+              Xem sản phẩm
+            </Button>
+          }
+        />
       </Container>
     );
   }
 
-  return (
-    <Container size={layout.containerSize} px={{ base: "md", sm: "lg" }} py={{ base: 20, sm: 28 }}>
-      <Stack gap="lg">
-        <Title order={2}>Thanh toán</Title>
+  /* --------------------------------------------------------------- ready -- */
 
-        <Group align="flex-start" gap="lg" wrap="wrap">
-          <Stack gap="md" style={{ flex: 1, minWidth: 300 }}>
-            {/* Address */}
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Group justify="space-between" wrap="wrap">
-                  <Group gap="sm">
-                    <IconMapPin size={18} color="var(--mantine-color-agri-8)" />
-                    <Title order={4}>Địa chỉ giao hàng</Title>
-                  </Group>
-                  <Button
-                    variant="light"
-                    size="xs"
-                    leftSection={<IconPlus size={14} />}
+  const appliedCode = preview?.voucher?.code ?? null;
+  const voucherDiscount = preview?.voucher?.discountAmount ?? 0;
+  const grandTotal = preview?.grandTotal;
+  const confirmTotal = needsTotalConfirm(preview, pendingTotal);
+  const hasUnavailable = unavailableLines.length > 0;
+  const canSubmit =
+    !checkout.isPending &&
+    selectedAddress !== null &&
+    preview !== undefined &&
+    !hasUnavailable;
+
+  const renderAddress = (address: Address) => {
+    const active = selectedAddress?.id === address.id;
+    const catalogue = Boolean(address.wardCode);
+    return (
+      <Box
+        key={address.id}
+        role="button"
+        tabIndex={0}
+        aria-pressed={active}
+        onClick={() => selectAddress(address.id)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectAddress(address.id);
+          }
+        }}
+        className="agri-press"
+        style={{
+          border: active
+            ? "1.5px solid var(--agri-primary)"
+            : "1px solid var(--agri-border)",
+          background: active ? "var(--agri-primary-soft)" : "var(--agri-surface)",
+          borderRadius: 8,
+          padding: 12,
+          marginBottom: 8,
+          cursor: "pointer",
+        }}
+      >
+        <Group gap={6} wrap="nowrap">
+          {active ? (
+            <IconCircleDot size={18} color="var(--agri-primary)" aria-hidden />
+          ) : (
+            <IconCircle size={18} color="var(--agri-muted-soft)" aria-hidden />
+          )}
+          {/* The name/phone line gets the full width; the badges sit on their
+              own row so a long phone number is never clipped. */}
+          <Text fz={14} fw={600} c="var(--agri-text)" truncate style={{ flex: 1 }}>
+            {address.recipientName} · {address.phone}
+          </Text>
+        </Group>
+        {address.isDefault || !catalogue ? (
+          <Group gap={6} mt={4} ml={24}>
+            {address.isDefault ? <ToneBadge tone="green">Mặc định</ToneBadge> : null}
+            {catalogue ? null : <ToneBadge tone="gray">Địa chỉ cũ</ToneBadge>}
+          </Group>
+        ) : null}
+        <Text fz={12.5} c="var(--agri-muted)" mt={4} ml={24} style={{ lineHeight: "18px" }}>
+          {formatAddressLine(address)}
+        </Text>
+        {catalogue ? null : (
+          <Text fz={12} c="var(--agri-warning)" mt={2} ml={24} style={{ lineHeight: "17px" }}>
+            Địa chỉ lưu trước cập nhật danh mục 2025. Vào sổ địa chỉ để chọn lại xã/phường.
+          </Text>
+        )}
+      </Box>
+    );
+  };
+
+  return (
+    <Container
+      size={layout.containerSize}
+      px={{ base: 12, sm: "lg" }}
+      py={{ base: 12, sm: 24 }}
+      pb={{ base: 132, sm: 24 }}
+    >
+      <Stack gap={12}>
+        <PageTitle>Đặt hàng</PageTitle>
+
+        <Group align="flex-start" gap={12} wrap="wrap">
+          <Stack gap={8} style={{ flex: "1 1 420px", minWidth: 0 }}>
+            {/* ------------------------------------------------------ address -- */}
+            <AppCard>
+              <Group gap={6} wrap="nowrap" mb={8}>
+                <IconMapPin size={17} color="var(--agri-primary)" aria-hidden />
+                <Text fz={15} fw={700} c="var(--agri-text-strong)" style={{ flex: 1 }}>
+                  Địa chỉ giao hàng
+                </Text>
+              </Group>
+
+              {addressesQuery.isLoading ? <LoadingView label="Đang tải địa chỉ…" /> : null}
+              {addressesQuery.isError ? (
+                <InlineError
+                  message={
+                    addressesQuery.error instanceof ApiError
+                      ? addressesQuery.error.message
+                      : "Không tải được địa chỉ."
+                  }
+                  onRetry={() => addressesQuery.refetch()}
+                />
+              ) : null}
+
+              {addresses.map(renderAddress)}
+
+              {!addressesQuery.isLoading && !addressesQuery.isError && addresses.length === 0 ? (
+                <Stack gap={8}>
+                  <Text fz={13} c="var(--agri-muted)">
+                    Chưa có địa chỉ giao hàng.
+                  </Text>
+                  <GhostButton
                     onClick={openAddressModal}
+                    leftSection={<IconPlus size={14} aria-hidden />}
+                    radius={8}
+                    w="fit-content"
                   >
                     Thêm địa chỉ
-                  </Button>
-                </Group>
-
-                <Divider />
-
-                {addressesQuery.isError ? (
-                  <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-                    <Text size="sm">
-                      Chưa tải được sổ địa chỉ. Bạn vẫn có thể thêm địa chỉ mới.
-                    </Text>
-                  </Alert>
-                ) : addresses.length === 0 ? (
-                  <Alert color="orange" variant="light" icon={<IconAlertCircle size={16} />}>
-                    <Text size="sm">
-                      Bạn chưa có địa chỉ giao hàng nào. Vui lòng thêm địa chỉ để đặt hàng.
-                    </Text>
-                  </Alert>
-                ) : (
-                  <Radio.Group
-                    value={selectedAddress ? String(selectedAddress.id) : null}
-                    onChange={(value) => selectAddress(Number(value))}
-                  >
-                    <Stack gap="sm">
-                      {addresses.map((address) => (
-                        <Card
-                          key={address.id}
-                          padding="sm"
-                          radius="md"
-                          withBorder
-                          onClick={() => selectAddress(address.id)}
-                          style={{ cursor: "pointer" }}
-                        >
-                          <Radio
-                            value={String(address.id)}
-                            label={
-                              <Stack gap={2} pl={4}>
-                                <Group gap="xs">
-                                  <Text size="sm" fw={600}>
-                                    {address.recipientName}
-                                  </Text>
-                                  <Text size="sm" c="dimmed">
-                                    {address.phone}
-                                  </Text>
-                                  {address.isDefault ? (
-                                    <Badge size="xs" variant="light" color="agri" radius="sm">
-                                      Mặc định
-                                    </Badge>
-                                  ) : null}
-                                  {address.wardCode ? null : (
-                                    <Badge size="xs" variant="light" color="gray" radius="sm">
-                                      Địa chỉ cũ
-                                    </Badge>
-                                  )}
-                                </Group>
-                                <Text size="xs" c="dimmed">
-                                  {formatAddressLine(address)}
-                                </Text>
-                              </Stack>
-                            }
-                          />
-                        </Card>
-                      ))}
-                    </Stack>
-                  </Radio.Group>
-                )}
-
-                <Button component={Link} href="/tai-khoan/dia-chi" variant="subtle" size="xs" w="fit-content">
-                  Quản lý sổ địa chỉ
-                </Button>
-              </Stack>
-            </Card>
-
-            {/* Partner groups */}
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Group justify="space-between" wrap="wrap">
-                  <Title order={4}>Đơn hàng của bạn</Title>
-                  {groups.length > 1 ? (
-                    <Badge variant="light" color="blue" radius="sm">
-                      Đơn hàng gồm {groups.length} kiện từ {groups.length} đối tác
-                    </Badge>
-                  ) : null}
-                </Group>
-                <Divider />
-
-                {groups.map((group) => (
-                  <Stack key={group.partnerId} gap="xs">
-                    <Group justify="space-between" wrap="wrap">
-                      <Text size="sm" fw={600}>
-                        {partnerNameOf(group.productIds[0])}
-                      </Text>
-                      <Text size="xs" c="dimmed">
-                        {group.count} sản phẩm
-                      </Text>
-                    </Group>
-                    <Stack gap={4}>
-                      {items
-                        .filter(
-                          (item) =>
-                            item.productVariant.product.partnerId === group.partnerId,
-                        )
-                        .map((item) => {
-                          const line = previewLineByVariant.get(item.productVariantId);
-                          return (
-                            <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
-                              <Text size="sm" lineClamp={1} style={{ flex: 1, minWidth: 0 }}>
-                                {item.productVariant.product.name} ·{" "}
-                                {item.productVariant.name} × {Number(item.quantity)}
-                              </Text>
-                              {line ? (
-                                <Text size="sm" style={{ flexShrink: 0 }}>
-                                  {formatMoney(line.subtotal)}
-                                </Text>
-                              ) : (
-                                <Skeleton height={16} width={72} radius="sm" />
-                              )}
-                            </Group>
-                          );
-                        })}
-                    </Stack>
-                    <Divider />
-                  </Stack>
-                ))}
-
-                <Textarea
-                  label="Ghi chú cho đơn hàng"
-                  placeholder="Ví dụ: giao trong giờ hành chính"
-                  value={note}
-                  onChange={(event) => {
-                    setNote(event.currentTarget.value);
-                    setSubmitError(null);
-                  }}
-                  autosize
-                  minRows={2}
-                />
-              </Stack>
-            </Card>
-
-            {/* Voucher */}
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Group gap="sm">
-                  <IconTicket size={18} color="var(--mantine-color-agri-8)" />
-                  <Title order={4}>Mã giảm giá</Title>
-                </Group>
-                <Divider />
-
-                <TextInput
-                  label="Mã giảm giá"
-                  placeholder="Nhập mã, ví dụ HUNGYEN50K"
-                  value={voucherCode}
-                  onChange={(event) => {
-                    setVoucherCode(event.currentTarget.value.toUpperCase());
-                    setSubmitError(null);
-                  }}
-                  description="Hệ thống kiểm tra điều kiện áp dụng và hiển thị số tiền giảm ngay bên dưới."
-                />
-
-                {(vouchersQuery.data?.data ?? []).length > 0 ? (
-                  <Stack gap="xs">
-                    <Text size="sm" fw={600}>
-                      Mã đang áp dụng trên sàn
-                    </Text>
-                    <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-                      {(vouchersQuery.data?.data ?? []).map((voucher) => (
-                        <Card
-                          key={voucher.id}
-                          padding="sm"
-                          radius="md"
-                          withBorder
-                          onClick={() => {
-                            setVoucherCode(voucher.code);
-                            setSubmitError(null);
-                          }}
-                          style={{ cursor: "pointer" }}
-                        >
-                          <Stack gap={4}>
-                            <Group gap="xs" wrap="wrap">
-                              <Text size="sm" fw={700}>
-                                {voucher.code}
-                              </Text>
-                              <Badge size="xs" variant="light" color="agri" radius="sm">
-                                {voucher.discountType === "PERCENT"
-                                  ? `Giảm ${Number(voucher.discountValue)}%`
-                                  : `Giảm ${formatMoney(voucher.discountValue)}`}
-                              </Badge>
-                            </Group>
-                            <Text size="xs" c="dimmed">
-                              {voucher.name}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              Đơn từ {formatMoney(voucher.minOrderAmount)}
-                              {voucher.maxDiscount
-                                ? ` · tối đa ${formatMoney(voucher.maxDiscount)}`
-                                : ""}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              Hiệu lực đến {formatDate(voucher.endsAt)}
-                            </Text>
-                          </Stack>
-                        </Card>
-                      ))}
-                    </SimpleGrid>
-                  </Stack>
-                ) : null}
-              </Stack>
-            </Card>
-
-            {/* Payment */}
-            <Card padding="lg" radius="md" withBorder>
-              <Stack gap="md">
-                <Title order={4}>Phương thức thanh toán</Title>
-                <Divider />
-                <Radio.Group value="COD">
-                  <Radio
-                    value="COD"
-                    label={
-                      <Stack gap={2} pl={4}>
-                        <Text size="sm" fw={600}>
-                          Thanh toán khi nhận hàng (COD)
-                        </Text>
-                        <Text size="xs" c="dimmed">
-                          Đơn hàng ở trạng thái chờ thanh toán cho đến khi bạn nhận hàng.
-                        </Text>
-                      </Stack>
-                    }
-                  />
-                </Radio.Group>
-                <Alert color="gray" variant="light" icon={<IconAlertCircle size={15} />}>
-                  <Text size="xs">
-                    Thanh toán trực tuyến (VNPay) chưa được mở trên hệ thống. Hiện chỉ hỗ
-                    trợ COD.
-                  </Text>
-                </Alert>
-              </Stack>
-            </Card>
-          </Stack>
-
-          {/* Summary */}
-          <Card
-            padding="lg"
-            radius="md"
-            withBorder
-            w={{ base: "100%", md: 340 }}
-            style={{ flexShrink: 0 }}
-          >
-            <Stack gap="md">
-              <Title order={4}>Tổng kết đơn hàng</Title>
-
-              {previewQuery.isLoading ? (
-                <Stack gap="xs">
-                  <Skeleton height={18} radius="sm" />
-                  <Skeleton height={18} radius="sm" />
-                  <Skeleton height={18} radius="sm" />
+                  </GhostButton>
                 </Stack>
               ) : null}
 
-              {previewQuery.isError ? (
-                <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
-                  <Stack gap="sm">
-                    <Text size="sm">
-                      {previewQuery.error instanceof ApiError
-                        ? previewQuery.error.message
-                        : "Chưa kiểm tra được giá và tồn kho."}
-                    </Text>
-                    <Button
-                      variant="light"
-                      color="red"
-                      size="xs"
-                      w="fit-content"
-                      onClick={() => previewQuery.refetch()}
-                    >
-                      Kiểm tra lại
-                    </Button>
-                  </Stack>
-                </Alert>
-              ) : null}
-
-              {preview ? (
-                <>
-                  <Stack gap="xs">
-                    <Group justify="space-between">
-                      <Text size="sm" c="dimmed">
-                        Tạm tính ({preview.itemCount} sản phẩm)
-                      </Text>
-                      <Text size="sm">{formatMoney(preview.subtotal)}</Text>
-                    </Group>
-                    {preview.discountTotal > 0 ? (
-                      <Group justify="space-between">
-                        <Text size="sm" c="dimmed">
-                          Giảm giá{preview.voucher ? ` (${preview.voucher.code})` : ""}
-                        </Text>
-                        <Text size="sm" c="agri.7">
-                          −{formatMoney(preview.discountTotal)}
-                        </Text>
-                      </Group>
-                    ) : null}
-                    <Group justify="space-between">
-                      <Text size="sm" c="dimmed">
-                        Phí giao hàng
-                      </Text>
-                      <Text size="sm">{formatMoney(preview.shippingFee)}</Text>
-                    </Group>
-                  </Stack>
-
-                  <Divider />
-
-                  <Group justify="space-between">
-                    <Text size="sm" fw={600}>
-                      Tổng thanh toán
-                    </Text>
-                    <Text size="lg" fw={700} c="agri.8">
-                      {formatMoney(preview.grandTotal)}
-                    </Text>
-                  </Group>
-                </>
-              ) : null}
-
-              {unavailableLines.length > 0 ? (
-                <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
-                  <Text size="xs">
-                    Có {unavailableLines.length} sản phẩm không còn đủ hàng cho số lượng bạn
-                    chọn. Vui lòng giảm số lượng trong giỏ hàng trước khi đặt.
+              {addresses.length > 0 ? (
+                <UnstyledRow
+                  onClick={() => router.push("/tai-khoan/dia-chi")}
+                  ariaLabel="Quản lý sổ địa chỉ"
+                >
+                  <IconEdit size={15} color="var(--agri-primary)" aria-hidden />
+                  <Text fz={13} fw={700} c="var(--agri-primary)">
+                    Quản lý sổ địa chỉ
                   </Text>
-                </Alert>
+                </UnstyledRow>
+              ) : null}
+            </AppCard>
+
+            {/* ------------------------------------------------------ voucher -- */}
+            <AppCard>
+              <Group gap={6} wrap="nowrap" mb={8}>
+                <IconTag size={17} color="var(--agri-primary)" aria-hidden />
+                <Text fz={15} fw={700} c="var(--agri-text-strong)" style={{ flex: 1 }}>
+                  Mã giảm giá
+                </Text>
+                {vouchersQuery.data ? (
+                  <Text fz={12} fw={700} c="var(--agri-primary)">
+                    {voucherGroups.eligible.length > 0
+                      ? `${voucherGroups.eligible.length} mã dùng được`
+                      : "Chưa có mã"}
+                  </Text>
+                ) : null}
+              </Group>
+
+              {/* Applied state: the code and the amount come from the preview. */}
+              {appliedCode && voucherDiscount > 0 ? (
+                <Group
+                  gap={10}
+                  wrap="nowrap"
+                  style={{
+                    border: "1px solid var(--agri-primary)",
+                    borderRadius: 8,
+                    padding: "0 12px",
+                    minHeight: 44,
+                    background: "var(--agri-primary-soft)",
+                  }}
+                >
+                  <IconCircleCheck size={16} color="var(--agri-primary)" aria-hidden />
+                  <Text fz={13.5} fw={700} c="var(--agri-primary-dark)" style={{ flex: 1 }}>
+                    {appliedCode} · giảm {formatMoney(voucherDiscount)}
+                  </Text>
+                  <Text
+                    component="button"
+                    type="button"
+                    fz={13}
+                    fw={700}
+                    c="var(--agri-danger)"
+                    onClick={clearVoucher}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                  >
+                    Bỏ
+                  </Text>
+                </Group>
+              ) : (
+                <Box
+                  component="button"
+                  type="button"
+                  onClick={() => setVoucherPickerOpen((open) => !open)}
+                  aria-expanded={voucherPickerOpen}
+                  aria-label="Chọn mã giảm giá"
+                  className="agri-press"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    width: "100%",
+                    border: "1px solid var(--agri-primary-border)",
+                    borderRadius: 8,
+                    padding: "0 12px",
+                    minHeight: 44,
+                    background: "var(--agri-primary-soft)",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  <IconTicket size={16} color="var(--agri-primary)" aria-hidden />
+                  <Text fz={14} fw={700} c="var(--agri-primary-dark)" style={{ flex: 1 }}>
+                    {voucherGroups.eligible.length > 0 ? "Chọn mã giảm giá" : "Xem mã giảm giá"}
+                  </Text>
+                  {voucherPickerOpen ? (
+                    <IconChevronUp size={16} color="var(--agri-primary)" aria-hidden />
+                  ) : (
+                    <IconChevronDown size={16} color="var(--agri-primary)" aria-hidden />
+                  )}
+                </Box>
+              )}
+
+              {/* A code the backend refused: the preview errored while one was set. */}
+              {voucher && previewQuery.isError ? (
+                <Box mt={8}>
+                  <InlineError
+                    message={
+                      previewQuery.error instanceof ApiError
+                        ? previewQuery.error.message
+                        : "Mã giảm giá không hợp lệ."
+                    }
+                  />
+                </Box>
               ) : null}
 
-              {submitError ? (
-                <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
-                  <Stack gap="sm">
-                    <Text size="sm">{submitError}</Text>
-                    <Button
-                      variant="light"
-                      color="red"
-                      size="xs"
-                      w="fit-content"
-                      onClick={() => {
-                        setSubmitError(null);
-                        cartQuery.refetch();
-                        previewQuery.refetch();
+              {voucherPickerOpen ? (
+                <Stack gap={8} mt={8}>
+                  {vouchersQuery.isLoading ? <LoadingView label="Đang tải mã giảm giá…" /> : null}
+                  {vouchersQuery.isError ? (
+                    <InlineError
+                      message={
+                        vouchersQuery.error instanceof ApiError
+                          ? vouchersQuery.error.message
+                          : "Không tải được mã giảm giá."
+                      }
+                      onRetry={() => vouchersQuery.refetch()}
+                    />
+                  ) : null}
+
+                  {voucherGroups.eligible.map((option) => (
+                    <Box
+                      key={option.voucher.id}
+                      component="button"
+                      type="button"
+                      onClick={() => chooseVoucher(option.voucher.code)}
+                      aria-label={`Áp dụng mã ${option.voucher.code}`}
+                      className="agri-press"
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        width: "100%",
+                        border: "1px solid var(--agri-border)",
+                        borderRadius: 8,
+                        padding: 10,
+                        background: "var(--agri-surface)",
+                        cursor: "pointer",
+                        textAlign: "left",
                       }}
                     >
-                      Tải lại giỏ hàng
-                    </Button>
-                  </Stack>
-                </Alert>
+                      <Box style={{ flex: 1, minWidth: 0 }}>
+                        <Group gap={10} wrap="nowrap" justify="space-between">
+                          <Text
+                            fz={14}
+                            fw={700}
+                            c="var(--agri-primary)"
+                            style={{ letterSpacing: 0.4 }}
+                          >
+                            {option.voucher.code}
+                          </Text>
+                          <Text fz={12.5} fw={700} c="var(--agri-primary-dark)">
+                            {voucherValueLabel(option.voucher)}
+                          </Text>
+                        </Group>
+                        <Text fz={12.5} c="var(--agri-text)" lineClamp={1}>
+                          {option.voucher.name}
+                        </Text>
+                        <Text fz={11.5} lh="16px" c="var(--agri-muted)">
+                          Đơn tối thiểu {formatMoney(option.voucher.minOrderAmount)}
+                          {option.voucher.maxDiscount
+                            ? ` · tối đa ${formatMoney(option.voucher.maxDiscount)}`
+                            : ""}
+                        </Text>
+                      </Box>
+                      <Box
+                        style={{
+                          background: "var(--agri-primary)",
+                          borderRadius: 8,
+                          padding: "0 12px",
+                          minHeight: 34,
+                          display: "grid",
+                          placeItems: "center",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Text fz={12.5} fw={700} c="#ffffff">
+                          Áp dụng
+                        </Text>
+                      </Box>
+                    </Box>
+                  ))}
+
+                  {voucherGroups.ineligible.length > 0 ? (
+                    <Text fz={12} fw={700} c="var(--agri-muted)" mt={4}>
+                      Chưa dùng được
+                    </Text>
+                  ) : null}
+                  {voucherGroups.ineligible.map((option) => (
+                    <Box
+                      key={option.voucher.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        border: "1px solid var(--agri-border)",
+                        borderRadius: 8,
+                        padding: 10,
+                        background: "var(--agri-page)",
+                        opacity: 0.6,
+                      }}
+                    >
+                      <Box style={{ flex: 1, minWidth: 0 }}>
+                        <Group gap={10} wrap="nowrap" justify="space-between">
+                          <Text fz={14} fw={700} c="var(--agri-muted)" style={{ letterSpacing: 0.4 }}>
+                            {option.voucher.code}
+                          </Text>
+                          <Text fz={12.5} fw={700} c="var(--agri-muted)">
+                            {voucherValueLabel(option.voucher)}
+                          </Text>
+                        </Group>
+                        <Text fz={12.5} c="var(--agri-text)" lineClamp={1}>
+                          {option.voucher.name}
+                        </Text>
+                        <Text fz={11.5} lh="16px" c="var(--agri-danger)">
+                          {option.reason}
+                        </Text>
+                      </Box>
+                    </Box>
+                  ))}
+
+                  {!vouchersQuery.isLoading && !vouchersQuery.isError &&
+                  voucherGroups.eligible.length + voucherGroups.ineligible.length === 0 ? (
+                    <Text fz={11.5} c="var(--agri-muted)">
+                      Hiện chưa có chương trình giảm giá nào.
+                    </Text>
+                  ) : null}
+                </Stack>
               ) : null}
+            </AppCard>
 
-              <Button
-                size="md"
-                fullWidth
-                onClick={handlePlaceOrder}
-                loading={checkout.isPending}
-                disabled={
-                  checkout.isPending ||
-                  !selectedAddress ||
-                  unavailableLines.length > 0 ||
-                  previewQuery.isLoading ||
-                  !preview
-                }
+            {/* ------------------------------------------ note & payment ----- */}
+            <AppCard>
+              <Group gap={6} wrap="nowrap" mb={8}>
+                <IconMessageCircle size={17} color="var(--agri-primary)" aria-hidden />
+                <Text fz={15} fw={700} c="var(--agri-text-strong)" style={{ flex: 1 }}>
+                  Ghi chú & thanh toán
+                </Text>
+              </Group>
+              <Textarea
+                value={note}
+                onChange={(event) => {
+                  setNote(event.currentTarget.value);
+                  setSubmitError(null);
+                }}
+                placeholder="Ghi chú cho đơn hàng (tùy chọn)"
+                autosize
+                minRows={2}
+                aria-label="Ghi chú đơn hàng"
+              />
+              <Group gap={6} wrap="nowrap" mt={12}>
+                <IconCash size={17} color="var(--agri-primary)" aria-hidden />
+                <Text fz={13} fw={600} c="var(--agri-text)" style={{ flex: 1 }}>
+                  Thanh toán tiền mặt khi nhận hàng (COD)
+                </Text>
+              </Group>
+            </AppCard>
+
+            {submitError ? (
+              <Group
+                gap={6}
+                align="flex-start"
+                wrap="nowrap"
+                style={{
+                  background: "var(--agri-danger-soft)",
+                  border: "1px solid var(--agri-danger)",
+                  borderRadius: 8,
+                  padding: 12,
+                }}
               >
-                Đặt hàng (COD)
-              </Button>
+                <IconAlertCircle
+                  size={16}
+                  color="var(--agri-danger)"
+                  style={{ flexShrink: 0, marginTop: 2 }}
+                />
+                <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+                  {submitError}
+                </Text>
+              </Group>
+            ) : null}
+          </Stack>
 
-              <Text size="xs" c="dimmed" ta="center">
-                Bằng việc đặt hàng, bạn đồng ý để hệ thống kiểm tra lại giá và tồn kho của
-                từng sản phẩm.
+          {/* ---------------------------------------------------------- total -- */}
+          <AppCard padding={16} w={{ base: "100%", md: 340 }} style={{ flexShrink: 0 }}>
+            <Group gap={6} wrap="nowrap" mb={8}>
+              <IconReceipt size={17} color="var(--agri-primary)" aria-hidden />
+              <Text fz={15} fw={700} c="var(--agri-text-strong)" style={{ flex: 1 }}>
+                Tổng tiền
               </Text>
+            </Group>
 
-              <Button component={Link} href="/gio-hang" variant="subtle" size="sm" fullWidth>
-                Về giỏ hàng
-              </Button>
-            </Stack>
-          </Card>
+            {previewQuery.isLoading ? <LoadingView label="Đang tính tổng tiền…" /> : null}
+            {previewQuery.isError && !voucher ? (
+              <InlineError
+                message={
+                  previewQuery.error instanceof ApiError
+                    ? previewQuery.error.message
+                    : "Không tính được tổng tiền."
+                }
+                onRetry={() => previewQuery.refetch()}
+              />
+            ) : null}
+
+            {preview ? (
+              <Stack gap={0}>
+                {preview.items.map((line) => (
+                  <Group key={line.productVariantId} justify="space-between" gap={12} wrap="nowrap" py={3}>
+                    <Text fz={13} lh="18px" style={{ flex: 1 }}>
+                      {line.productName} × {formatQuantity(line.quantity)}
+                    </Text>
+                    <Text fz={13} fw={600} c="var(--agri-text)">
+                      {formatMoney(line.subtotal)}
+                    </Text>
+                  </Group>
+                ))}
+
+                <Divider my={8} />
+
+                <Group justify="space-between" gap={12} wrap="nowrap" py={3}>
+                  <Text fz={13} c="var(--agri-muted)">
+                    Tiền hàng
+                  </Text>
+                  <Text fz={13} fw={600} c="var(--agri-text)">
+                    {formatMoney(preview.subtotal)}
+                  </Text>
+                </Group>
+                {preview.discountTotal > 0 ? (
+                  <Group justify="space-between" gap={12} wrap="nowrap" py={3}>
+                    <Text fz={13} c="var(--agri-muted)">
+                      Giảm giá{preview.voucher ? ` (${preview.voucher.code})` : ""}
+                    </Text>
+                    <Text fz={13} fw={700} c="var(--agri-primary)">
+                      −{formatMoney(preview.discountTotal)}
+                    </Text>
+                  </Group>
+                ) : null}
+                <Group justify="space-between" gap={12} wrap="nowrap" py={3}>
+                  <Text fz={13} c="var(--agri-muted)">
+                    Phí vận chuyển
+                  </Text>
+                  <Text fz={13} fw={600} c="var(--agri-text)">
+                    {formatMoney(preview.shippingFee)}
+                  </Text>
+                </Group>
+
+                <Divider my={8} />
+
+                <Group justify="space-between" gap={12} wrap="nowrap">
+                  <Text fz={15} fw={700} c="var(--agri-text-strong)">
+                    Tổng cộng
+                  </Text>
+                  <Text fz={17} fw={700} c="var(--agri-primary)">
+                    {formatMoney(preview.grandTotal)}
+                  </Text>
+                </Group>
+              </Stack>
+            ) : null}
+
+            {hasUnavailable ? (
+              <Box mt={8}>
+                <InlineError message="Có sản phẩm không còn đủ hàng cho số lượng bạn chọn. Vui lòng giảm số lượng trong giỏ hàng trước khi đặt." />
+              </Box>
+            ) : null}
+          </AppCard>
         </Group>
       </Stack>
+
+      {/* ------------------------------------------------------ action bar --- */}
+      <BottomBar>
+        <Stack gap={8}>
+          {confirmTotal && grandTotal !== undefined ? (
+            <Text fz={12.5} fw={600} c="var(--agri-warning)" lh="17px">
+              Giá vừa được cập nhật thành {formatMoney(grandTotal)}. Bấm đặt hàng để xác nhận.
+            </Text>
+          ) : null}
+
+          <Button
+            radius={8}
+            size="md"
+            fullWidth
+            onClick={handlePlaceOrder}
+            disabled={!canSubmit}
+            styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+          >
+            {checkout.isPending
+              ? "Đang đặt hàng…"
+              : hasUnavailable
+                ? "Không đủ hàng"
+                : grandTotal !== undefined
+                  ? `Đặt hàng · ${formatMoney(grandTotal)}`
+                  : "Đặt hàng"}
+          </Button>
+        </Stack>
+      </BottomBar>
 
       <Modal
         opened={addressModalOpened}
@@ -833,5 +1004,39 @@ export function CheckoutView() {
         </form>
       </Modal>
     </Container>
+  );
+}
+
+/** Centered text row acting as a link/button (Mobile `addrManage` row). */
+function UnstyledRow({
+  children,
+  onClick,
+  ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  ariaLabel: string;
+}) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      className="agri-press"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 5,
+        width: "100%",
+        minHeight: 44,
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </Box>
   );
 }

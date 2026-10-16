@@ -1,32 +1,33 @@
 "use client";
 
 /**
- * Reset password — the page the recovery e-mail links to.
+ * Đặt lại mật khẩu — web twin of the Mobile reset-password screen.
  *
- * The link carries `?token=…`; the raw value is the ONLY thing that proves the
- * request came from the mailbox owner, so it is sent straight to
- * `POST /auth/reset-password` and never stored locally. The backend decides
- * whether it is still valid (unused, unexpired) and answers the same
+ * The page the recovery e-mail links to carries `?token=…`; the raw value is the
+ * ONLY thing that proves the request came from the mailbox owner, so it is sent
+ * straight to `POST /auth/reset-password` and never stored locally. The backend
+ * decides whether it is still valid (unused, unexpired) and answers the same
  * "invalid or expired" error for every failure mode, so this screen has exactly
  * one error branch to render.
+ *
+ * Like the app, the code is also an editable field: if the link does not open
+ * by itself, the customer can paste the code from the e-mail — the URL value is
+ * only the initial value.
  *
  * No session is issued: the customer is sent to the login screen and signs in
  * with the new password — the same single flow used after registration.
  */
 
 import {
-  Alert,
   Button,
-  Card,
   Container,
-  Divider,
-  List,
+  Group,
   PasswordInput,
   Stack,
   Text,
-  Title,
+  TextInput,
 } from "@mantine/core";
-import { IconAlertCircle, IconCheck, IconKey, IconLock } from "@tabler/icons-react";
+import { IconAlertCircle, IconCircleCheck, IconKey, IconLink, IconLock } from "@tabler/icons-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -41,6 +42,7 @@ import {
   PASSWORD_PATTERN,
   PASSWORD_RULES_TEXT,
 } from "@/lib/auth/password-policy";
+import { AppCard, GhostButton } from "@/components/ui/kit";
 
 const resetSchema = z
   .object({
@@ -58,8 +60,26 @@ const resetSchema = z
 
 type ResetFormValues = z.infer<typeof resetSchema>;
 
+/** Muted inline error row (Mobile `errorRow`). */
+function ErrorRow({ message }: { message: string }) {
+  return (
+    <Group gap={6} align="flex-start" wrap="nowrap" mt={10}>
+      <IconAlertCircle
+        size={15}
+        color="var(--agri-danger)"
+        style={{ flexShrink: 0, marginTop: 2 }}
+        aria-hidden
+      />
+      <Text fz={13} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
+        {message}
+      </Text>
+    </Group>
+  );
+}
+
 export function ResetPasswordForm({ token }: { token: string }) {
   const router = useRouter();
+  const [code, setCode] = useState(token);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
@@ -74,8 +94,12 @@ export function ResetPasswordForm({ token }: { token: string }) {
 
   const submit = async (values: ResetFormValues) => {
     setError(null);
+    if (!code.trim()) {
+      setError("Vui lòng dán mã đặt lại trong email.");
+      return;
+    }
     try {
-      await resources.resetPassword(token, values.password);
+      await resources.resetPassword(code.trim(), values.password);
       setDone(true);
     } catch (err) {
       setError(
@@ -86,125 +110,118 @@ export function ResetPasswordForm({ token }: { token: string }) {
     }
   };
 
-  // A link without a token cannot be completed; the customer is told to request
-  // a new one rather than being shown a form that is guaranteed to fail.
-  if (!token) {
-    return (
-      <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-        <Card padding="lg" radius="md" withBorder>
-          <Stack gap="md">
-            <Stack gap={4} align="center">
-              <IconAlertCircle size={30} color="var(--mantine-color-orange-7)" />
-              <Title order={2} fz={22} ta="center">
-                Liên kết chưa đầy đủ
-              </Title>
-            </Stack>
-            <Divider />
-            <Text size="sm" c="dimmed" ta="center">
-              Liên kết đặt lại mật khẩu không có mã xác nhận. Vui lòng mở lại liên kết
-              trong email hoặc yêu cầu gửi liên kết mới.
-            </Text>
-            <Button component={Link} href="/quen-mat-khau" size="md" fullWidth>
-              Yêu cầu liên kết mới
-            </Button>
-            <Button component={Link} href="/dang-nhap" variant="subtle" size="sm" fullWidth>
-              Quay lại đăng nhập
-            </Button>
-          </Stack>
-        </Card>
-      </Container>
-    );
-  }
-
   if (done) {
     return (
-      <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-        <Card padding="lg" radius="md" withBorder>
-          <Stack gap="md" align="center">
-            <IconCheck size={30} color="var(--mantine-color-agri-8)" />
-            <Title order={2} fz={22} ta="center">
-              Đã đặt lại mật khẩu
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Mật khẩu mới đã được lưu. Vui lòng đăng nhập lại bằng mật khẩu vừa đặt.
-            </Text>
-            <Button size="md" fullWidth onClick={() => router.push("/dang-nhap")}>
-              Đăng nhập
-            </Button>
-            <Button component={Link} href="/" variant="subtle" size="sm" fullWidth>
-              Tiếp tục xem sản phẩm
-            </Button>
-          </Stack>
-        </Card>
+      <Container size={460} px={{ base: 12, sm: "lg" }} py={{ base: 40, sm: 72 }}>
+        <Stack align="center" gap={0}>
+          <IconCircleCheck size={54} color="var(--agri-primary)" aria-hidden />
+          <Text fz={20} fw={800} c="var(--agri-text-strong)" mt={8}>
+            Đã đặt lại mật khẩu
+          </Text>
+          <Text fz={13.5} lh="19px" c="var(--agri-muted)" ta="center" mt={4}>
+            Mật khẩu mới đã được lưu. Vui lòng đăng nhập lại.
+          </Text>
+          <Button
+            radius={8}
+            mt={20}
+            fullWidth
+            onClick={() => router.replace("/dang-nhap")}
+            styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+          >
+            Đăng nhập
+          </Button>
+        </Stack>
       </Container>
     );
   }
 
   return (
-    <Container size={460} px={{ base: "md", sm: "lg" }} py={{ base: 32, sm: 56 }}>
-      <Card padding="lg" radius="md" withBorder>
-        <Stack gap="md">
-          <Stack gap={4} align="center">
-            <IconKey size={30} color="var(--mantine-color-agri-8)" />
-            <Title order={2} fz={24}>
+    <Container size={460} px={{ base: 12, sm: "lg" }} py={{ base: 24, sm: 56 }}>
+      <Stack gap={16}>
+        <AppCard padding={16}>
+          <Group gap={8} align="center" wrap="nowrap">
+            <IconKey size={20} color="var(--agri-primary)" aria-hidden />
+            <Text fz={16} fw={700} c="var(--agri-text-strong)">
               Đặt lại mật khẩu
-            </Title>
-            <Text size="sm" c="dimmed" ta="center">
-              Nhập mật khẩu mới cho tài khoản AgriMarket của bạn.
             </Text>
-          </Stack>
-
-          <Divider />
-
-          {error ? (
-            <Alert color="red" variant="light" icon={<IconAlertCircle size={16} />}>
-              <Stack gap={6}>
-                <Text size="sm">{error}</Text>
-                <Text component={Link} href="/quen-mat-khau" size="sm" fw={600}>
-                  Yêu cầu liên kết đặt lại mới
-                </Text>
-              </Stack>
-            </Alert>
-          ) : null}
-
-          <List size="xs" c="dimmed" spacing={2}>
-            <List.Item>{PASSWORD_RULES_TEXT}</List.Item>
-          </List>
+          </Group>
+          <Text fz={12.5} lh="18px" c="var(--agri-muted)" mt={6}>
+            Dán mã trong liên kết đặt lại (hoặc mở liên kết từ email) rồi đặt mật khẩu mới.
+          </Text>
 
           <form onSubmit={handleSubmit(submit)}>
-            <Stack gap="md">
-              <PasswordInput
-                label="Mật khẩu mới"
-                placeholder="Nhập mật khẩu mới"
-                leftSection={<IconLock size={16} />}
-                autoComplete="new-password"
-                error={errors.password?.message}
-                required
-                size="md"
-                {...register("password")}
-              />
-              <PasswordInput
-                label="Nhập lại mật khẩu mới"
-                placeholder="Nhập lại mật khẩu mới"
-                leftSection={<IconLock size={16} />}
-                autoComplete="new-password"
-                error={errors.confirmPassword?.message}
-                required
-                size="md"
-                {...register("confirmPassword")}
-              />
-              <Button type="submit" size="md" fullWidth loading={isSubmitting}>
-                Đặt lại mật khẩu
-              </Button>
-            </Stack>
-          </form>
+            <TextInput
+              mt={12}
+              label="Mã đặt lại"
+              placeholder="Dán mã trong email"
+              value={code}
+              onChange={(event) => {
+                setCode(event.currentTarget.value);
+                setError(null);
+              }}
+              leftSection={<IconLink size={16} aria-hidden />}
+              autoCapitalize="none"
+              autoCorrect="off"
+              size="md"
+            />
+            <PasswordInput
+              mt={12}
+              label="Mật khẩu mới"
+              placeholder="••••••••••"
+              leftSection={<IconLock size={16} aria-hidden />}
+              autoComplete="new-password"
+              error={errors.password?.message}
+              required
+              size="md"
+              {...register("password")}
+            />
+            <Text fz={12} c="var(--agri-muted)" mt={4}>
+              {PASSWORD_RULES_TEXT}
+            </Text>
+            <PasswordInput
+              mt={12}
+              label="Nhập lại mật khẩu mới"
+              placeholder="••••••••••"
+              leftSection={<IconLock size={16} aria-hidden />}
+              autoComplete="new-password"
+              error={errors.confirmPassword?.message}
+              required
+              size="md"
+              {...register("confirmPassword")}
+            />
 
-          <Divider />
-          <Button component={Link} href="/dang-nhap" variant="subtle" size="sm" fullWidth>
+            {error ? <ErrorRow message={error} /> : null}
+
+            <Button
+              type="submit"
+              radius={8}
+              mt={16}
+              fullWidth
+              loading={isSubmitting}
+              styles={{ root: { minHeight: 48 }, label: { fontSize: 15, fontWeight: 700 } }}
+            >
+              {isSubmitting ? "Đang lưu…" : "Đặt lại mật khẩu"}
+            </Button>
+
+            <GhostButton
+              component={Link}
+              href="/quen-mat-khau"
+              radius={8}
+              mt={8}
+              fullWidth
+              styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
+            >
+              Yêu cầu liên kết mới
+            </GhostButton>
+          </form>
+        </AppCard>
+
+        <Group justify="center">
+          <Text component={Link} href="/dang-nhap" fz={13} fw={600} c="var(--agri-muted)">
             Quay lại đăng nhập
-          </Button>
-        </Stack>
-      </Card>
+          </Text>
+        </Group>
+      </Stack>
     </Container>
   );
 }
