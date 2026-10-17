@@ -250,6 +250,10 @@ export default function CheckoutScreen() {
      *
      * The total is `preview.data.grandTotal` — the amount the BACKEND computed.
      * No fee, discount or price is calculated here.
+     *
+     * `source` tells the backend whether these lines are cart lines or a direct
+     * "Mua ngay" purchase — the only thing that decides whether it may consume
+     * cart lines. `hasBuyNow` is exactly that distinction.
      */
     const payload: CheckoutPayload = buildCheckoutPayload(
       selectedAddress,
@@ -257,10 +261,15 @@ export default function CheckoutScreen() {
       appliedVoucher,
       note,
       preview.data,
+      hasBuyNow ? "BUY_NOW" : "CART",
     );
     try {
       const order = await resources.checkout(payload, idempotencyKey);
-      void client.invalidateQueries({ queryKey: ["cart"] });
+      // Only a cart checkout consumed cart lines: a "Mua ngay" order leaves the
+      // cart untouched, so there is nothing to refresh.
+      if (!hasBuyNow) {
+        void client.invalidateQueries({ queryKey: ["cart"] });
+      }
       void client.invalidateQueries({ queryKey: ["orders"] });
       router.replace({ pathname: "/order/[id]", params: { id: String(order.id), success: "1" } });
     } catch (err) {

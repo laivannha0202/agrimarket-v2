@@ -29,6 +29,10 @@
     "./home": {
       "types": "./src/home.ts",
       "default": "./src/home.ts"
+    },
+    "./quality": {
+      "types": "./src/quality.ts",
+      "default": "./src/quality.ts"
     }
   },
   "scripts": {

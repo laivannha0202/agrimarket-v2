@@ -1545,6 +1545,301 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       await post(`/api/v1/orders/me/${orderId}/cancel`, customerToken).expect(400);
     });
 
+    // -----------------------------------------------------------------------
+    // F2. Hồi quy P0 trên HTTP thật: "Mua ngay" không được sửa giỏ, và đặt cả
+    //     giỏ phải trừ đúng dòng đã trả tiền (không xoá cả dòng, không âm).
+    // -----------------------------------------------------------------------
+    describe('F2. Buy Now vs cart checkout (P0 regression, HTTP-level)', () => {
+      let variantBId: number;
+      let balanceBId: number;
+
+      const shippingAddress = {
+        recipientName: 'E2E Khách',
+        phone: '0911111111',
+        province: 'Hưng Yên',
+        detail: 'Số 1 đường E2E',
+      };
+
+      beforeAll(async () => {
+        // A second variant of the same product/lot so "cart A + buy now B" can
+        // be told apart line by line.
+        const variantB = await prisma.productVariant.create({
+          data: {
+            productId,
+            sku: `${RUN_ID}-SKU-DON-B`,
+            name: 'Gói 2kg',
+            saleUnit: 'gói',
+            basePrice: 30000,
+          },
+        });
+        variantBId = variantB.id;
+        const balanceB = await prisma.inventoryBalance.create({
+          data: {
+            warehouseId: fixtures.warehouseId,
+            productLotId: lotId,
+            productVariantId: variantBId,
+            onHand: 100,
+            reserved: 0,
+            blocked: 0,
+            unit: 'kg',
+          },
+        });
+        balanceBId = balanceB.id;
+      });
+
+      /** Replace the fixture customer's cart with exactly the given lines. */
+      async function resetCart(lines: [number, number][]) {
+        await prisma.cartItem.deleteMany({
+          where: { cart: { customerId: fixtures.customerId } },
+        });
+        for (const [productVariantId, quantity] of lines) {
+          await post('/api/v1/carts/me/items', customerToken, { productVariantId, quantity }).expect(
+            201,
+          );
+        }
+      }
+
+      async function cartQuantities(): Promise<Map<number, number>> {
+        const cart = await prisma.cart.findUnique({
+          where: { customerId: fixtures.customerId },
+          include: { items: true },
+        });
+        return new Map(
+          (cart?.items ?? []).map((item) => [item.productVariantId, Number(item.quantity)]),
+        );
+      }
+
+      /** The order's persisted lines, flattened across its partner orders. */
+      async function orderLines(id: number) {
+        const detail = await get(`/api/v1/orders/${id}`, adminToken).expect(200);
+        const lines: { productVariantId: number; quantity: number }[] = [];
+        for (const partnerOrder of detail.body.partnerOrders as {
+          items: { productVariantId: number; quantity: string }[];
+        }[]) {
+          for (const item of partnerOrder.items) {
+            lines.push({ productVariantId: item.productVariantId, quantity: Number(item.quantity) });
+          }
+        }
+        return lines;
+      }
+
+      async function reservedOf(id: number) {
+        const balance = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id } });
+        return Number(balance.reserved);
+      }
+
+      /** Undo the reservations and remove the order a single test created. */
+      async function cleanupOrder(id: number) {
+        const allocations = await prisma.inventoryAllocation.findMany({
+          where: { orderItem: { partnerOrder: { orderId: id } } },
+        });
+        for (const alloc of allocations) {
+          const balance = await prisma.inventoryBalance.findUniqueOrThrow({
+            where: { id: alloc.inventoryBalanceId },
+          });
+          await prisma.inventoryBalance.update({
+            where: { id: balance.id },
+            data: { reserved: Number(balance.reserved) - Number(alloc.quantity) },
+          });
+        }
+        await prisma.inventoryAllocation.deleteMany({
+          where: { orderItem: { partnerOrder: { orderId: id } } },
+        });
+        await prisma.checkoutIdempotencyKey.deleteMany({ where: { orderId: id } });
+        await prisma.payment.deleteMany({ where: { orderId: id } });
+        await prisma.orderItem.deleteMany({ where: { partnerOrder: { orderId: id } } });
+        await prisma.partnerOrder.deleteMany({ where: { orderId: id } });
+        await prisma.order.deleteMany({ where: { id } });
+      }
+
+      it('Case 1 — giỏ A×2 + "Mua ngay" B×1: đơn chỉ có B, giỏ giữ nguyên A×2', async () => {
+        await resetCart([[variantId, 2]]);
+
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          items: [{ productVariantId: variantBId, quantity: 1 }],
+          source: 'BUY_NOW',
+        }).expect(201);
+
+        expect(await orderLines(res.body.id)).toEqual([
+          { productVariantId: variantBId, quantity: 1 },
+        ]);
+
+        const cart = await cartQuantities();
+        expect(cart.get(variantId)).toBe(2);
+        expect(cart.has(variantBId)).toBe(false);
+
+        // Stock was claimed for the bought line only.
+        expect(await reservedOf(balanceBId)).toBe(1);
+        expect(await reservedOf(balanceId)).toBe(0);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('Case 2 — giỏ B×3 + "Mua ngay" B×1: giỏ vẫn còn nguyên B×3', async () => {
+        await resetCart([[variantBId, 3]]);
+
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          items: [{ productVariantId: variantBId, quantity: 1 }],
+          source: 'BUY_NOW',
+        }).expect(201);
+
+        // The exact regression: the same variant that sat in the cart was
+        // bought directly, and the old code deleted the whole cart line.
+        expect(await orderLines(res.body.id)).toEqual([
+          { productVariantId: variantBId, quantity: 1 },
+        ]);
+        expect((await cartQuantities()).get(variantBId)).toBe(3);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('Case 3 — giỏ A×2 + B×3, "Mua ngay" B×1: đơn đúng một dòng B×1, giỏ nguyên vẹn', async () => {
+        await resetCart([
+          [variantId, 2],
+          [variantBId, 3],
+        ]);
+
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          items: [{ productVariantId: variantBId, quantity: 1 }],
+          source: 'BUY_NOW',
+        }).expect(201);
+
+        const lines = await orderLines(res.body.id);
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toEqual({ productVariantId: variantBId, quantity: 1 });
+
+        const cart = await cartQuantities();
+        expect(cart.get(variantId)).toBe(2);
+        expect(cart.get(variantBId)).toBe(3);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('khách cũ (không gửi source) mua dòng rời: mặc định an toàn, giỏ không đổi', async () => {
+        await resetCart([[variantBId, 3]]);
+
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          items: [{ productVariantId: variantBId, quantity: 1 }],
+          // No `source`: an older client. It must not be treated as a cart
+          // checkout, or the buy-now purchase would silently eat the cart.
+        }).expect(201);
+        expect(await orderLines(res.body.id)).toEqual([
+          { productVariantId: variantBId, quantity: 1 },
+        ]);
+
+        expect((await cartQuantities()).get(variantBId)).toBe(3);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('Case 4 — đặt cả giỏ (source CART): đơn đủ dòng và giỏ được trừ đúng số lượng', async () => {
+        await resetCart([
+          [variantId, 2],
+          [variantBId, 3],
+        ]);
+
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          source: 'CART',
+        }).expect(201);
+
+        const lines = await orderLines(res.body.id);
+        expect(lines).toHaveLength(2);
+        expect(lines.find((l) => l.productVariantId === variantId)?.quantity).toBe(2);
+        expect(lines.find((l) => l.productVariantId === variantBId)?.quantity).toBe(3);
+
+        // Every line was fully paid for: both cart lines disappear.
+        expect((await cartQuantities()).size).toBe(0);
+        expect(await reservedOf(balanceId)).toBe(2);
+        expect(await reservedOf(balanceBId)).toBe(3);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('Case 4 — đặt một phần giỏ: chỉ trừ dòng đã trả tiền, giữ phần chưa mua', async () => {
+        await resetCart([
+          [variantId, 2],
+          [variantBId, 3],
+        ]);
+
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          items: [{ productVariantId: variantId, quantity: 2 }],
+          source: 'CART',
+        }).expect(201);
+
+        expect(await orderLines(res.body.id)).toEqual([
+          { productVariantId: variantId, quantity: 2 },
+        ]);
+
+        const cart = await cartQuantities();
+        // A was paid in full → its line is gone; B was never ordered → B×3 stays.
+        expect(cart.has(variantId)).toBe(false);
+        expect(cart.get(variantBId)).toBe(3);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('checkout thất bại (thiếu tồn) không làm mất hoặc đổi giỏ', async () => {
+        await resetCart([[variantBId, 3]]);
+
+        await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          items: [{ productVariantId: variantBId, quantity: 9999 }],
+          source: 'CART',
+        }).expect(400);
+
+        expect((await cartQuantities()).get(variantBId)).toBe(3);
+      });
+
+      it('cờ BUY_NOW chỉ có thể "không ghi gì" vào giỏ, kể cả khi không gửi dòng nào', async () => {
+        await resetCart([[variantBId, 3]]);
+
+        // The server resolves the lines from its own cart state, but the flag
+        // forbids any cart write: the cart must survive untouched, whatever the
+        // client declares.
+        const res = await post('/api/v1/orders/checkout', customerToken, {
+          shippingAddress,
+          source: 'BUY_NOW',
+        }).expect(201);
+        expect(await orderLines(res.body.id)).toEqual([
+          { productVariantId: variantBId, quantity: 3 },
+        ]);
+        expect((await cartQuantities()).get(variantBId)).toBe(3);
+
+        await cleanupOrder(res.body.id);
+      });
+
+      it('khách hàng thường không được tự xác nhận đã thu tiền (403, dữ liệu không đổi)', async () => {
+        const payment = await prisma.payment.findFirstOrThrow({ where: { orderId } });
+
+        await patch(`/api/v1/payments/${payment.id}/status`, customerToken, {
+          status: 'PAID',
+          transactionReference: `${RUN_ID}-FORGED`,
+        }).expect(403);
+
+        const after = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+        expect(after.status).toBe(payment.status);
+      });
+
+      afterAll(async () => {
+        await prisma.cartItem.deleteMany({
+          where: { cart: { customerId: fixtures.customerId } },
+        });
+        // Every checkout also records a RESERVE movement for each bought line;
+        // the per-test order cleanup only removes the allocation rows, so the
+        // movements referencing variant B would otherwise block its deletion.
+        await prisma.inventoryMovement.deleteMany({ where: { productVariantId: variantBId } });
+        await prisma.inventoryAllocation.deleteMany({ where: { inventoryBalanceId: balanceBId } });
+        await prisma.inventoryBalance.deleteMany({ where: { id: balanceBId } });
+        await prisma.productVariant.deleteMany({ where: { id: variantBId } });
+      });
+    });
+
     afterAll(async () => {
       await prisma.inventoryAllocation.deleteMany({ where: { productLotId: lotId } });
       await prisma.refund.deleteMany({ where: { payment: { orderId } } });

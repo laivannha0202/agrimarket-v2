@@ -376,10 +376,30 @@ same numbers before submitting: `items[]` (with `unitPrice`, `priceSource`,
 `availableQuantity`, `available`), `subtotal`, `discountTotal`, `voucher`,
 `shippingFee` and `grandTotal`. It creates nothing and reserves no stock.
 
+**Checkout source — `source: "CART" | "BUY_NOW"`.** Says where the ordered lines
+came from, and therefore whether the cart may be touched once the order commits:
+
+| `source` | Lines | Effect on the cart |
+| -------- | ----- | ------------------ |
+| `CART` | The customer checked out the cart (or a selection of it) | The ordered quantity is subtracted from the matching cart line; the line is deleted only when nothing is left, so a partial checkout keeps the remainder |
+| `BUY_NOW` | "Mua ngay" — a direct purchase | The cart is **never** read, added to, decremented or cleared. Buying B leaves an existing B line untouched |
+
+The field is optional and defaults to the non-destructive branch: explicit
+`items[]` without a `source` (an older client) is treated as `BUY_NOW`, and only
+an omitted `items[]` — where the server resolved the lines from its own cart —
+defaults to `CART`. The value can only ever *suppress* a cart mutation, never
+unlock one: every cart write is derived from the server's own cart state plus the
+lines the order actually paid for, so a forged `CART` cannot delete a line the
+order did not include and a forged `BUY_NOW` can at worst leave the cart alone.
+`source` is part of the idempotency hash: replaying a key with a different source
+is a 409, not a silent rule change. The whole cart mutation runs inside the
+checkout transaction, so a failed checkout leaves the cart exactly as it was.
+
 **Idempotency.** Send an `Idempotency-Key` header (or `idempotencyKey` in the
 body; the body wins). The key is bound to the customer and to a hash of what the
-caller sent (address, voucher, payment method, note, and the explicit `items[]`
-when present — a cart-based checkout does not hash server-owned cart state). The
+caller sent (address, voucher, payment method, note, `source`, and the explicit
+`items[]` when present — a cart-based checkout does not hash server-owned cart
+state). The
 same key with the same payload returns the original order, the same key with a
 different payload is a 409, and a retry after a lost response cannot create a
 second order: the key is looked up *before* the cart is resolved, so a retry that

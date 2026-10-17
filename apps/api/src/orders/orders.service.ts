@@ -24,7 +24,7 @@ import {
   paginate,
   type PaginatedResult,
 } from '../common/dto/pagination-query.dto.js';
-import { CheckoutDto, CheckoutPreviewDto, type CheckoutAddressDto } from './dto/checkout.dto.js';
+import { CheckoutDto, CheckoutPreviewDto, CheckoutSource, type CheckoutAddressDto } from './dto/checkout.dto.js';
 import { calculateShippingFee } from './shipping-policy.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
@@ -43,6 +43,15 @@ const CODE_ATTEMPTS = 3;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Quantities are `Decimal(18,3)` (kg/gram precision), so cart arithmetic must
+ * round to three decimals — `0.3 - 0.1` is `0.19999999999999998` in binary
+ * floating point and would be written back as an off-by-an-epsilon quantity.
+ */
+function round3(n: number): number {
+  return Math.round(n * 1000) / 1000;
 }
 
 /**
@@ -421,6 +430,7 @@ export class OrdersService {
     const lines = await this.resolveLines(rawItems, customerId);
 
     const paymentMethod = dto.paymentMethod ?? PaymentMethod.COD;
+    const checkoutSource = resolveCheckoutSource(dto);
     const now = new Date();
 
     // READ COMMITTED is required, not cosmetic. The transaction claims scarce
@@ -631,13 +641,11 @@ export class OrdersService {
           },
         });
 
-        // Clear the cart for items that were purchased.
-        await tx.cartItem.deleteMany({
-          where: {
-            cart: { customerId },
-            productVariantId: { in: lines.map((l) => l.productVariantId) },
-          },
-        });
+        // Consume the cart lines this order actually paid for — and only when
+        // the caller declared the lines came from the cart. A "Mua ngay" order
+        // never touches the cart, so buying B leaves an existing B line (and
+        // every other line) exactly as it was.
+        await this.consumeCartLines(tx, customerId, lines, checkoutSource);
 
         await this.audit.record(
           {
@@ -654,6 +662,49 @@ export class OrdersService {
       },
       { isolationLevel: 'ReadCommitted' },
     );
+  }
+
+  /**
+   * Consume the ordered quantity from the customer's cart — never more.
+   *
+   * Runs inside the checkout transaction, so a failed checkout leaves the cart
+   * exactly as it was. `BUY_NOW` is a no-op: a direct purchase must not add,
+   * decrement or remove any cart line, even for the very variant being bought.
+   *
+   * For `CART` the rule is quantity-accurate rather than line-granular: the
+   * ordered quantity is subtracted from the matching cart line and the line is
+   * deleted only when nothing is left, so a partial cart checkout
+   * (`cart: 3 B`, `order: 1 B`) keeps the remaining 2 B. A line the order did
+   * not include is never touched, and a cart line the order did not actually
+   * pay for cannot be deleted — the mutation is derived from the server's own
+   * cart state plus the order's own lines.
+   */
+  private async consumeCartLines(
+    tx: Prisma.TransactionClient,
+    customerId: number,
+    lines: { productVariantId: number; quantity: number }[],
+    source: CheckoutSource,
+  ): Promise<void> {
+    if (source !== CheckoutSource.CART) return;
+
+    const cart = await tx.cart.findUnique({
+      where: { customerId },
+      include: { items: true },
+    });
+    if (!cart || cart.items.length === 0) return;
+
+    const ordered = new Map(lines.map((line) => [line.productVariantId, line.quantity]));
+    for (const item of cart.items) {
+      const paid = ordered.get(item.productVariantId);
+      if (paid === undefined) continue;
+
+      const remaining = round3(Number(item.quantity) - paid);
+      if (remaining <= 0) {
+        await tx.cartItem.delete({ where: { id: item.id } });
+      } else {
+        await tx.cartItem.update({ where: { id: item.id }, data: { quantity: remaining } });
+      }
+    }
   }
 
   /**
@@ -1146,11 +1197,33 @@ function assertTransition(from: OrderStatus, to: OrderStatus): void {
 }
 
 /**
+ * Which cart rule applies to this checkout.
+ *
+ * An explicit `source` always wins. Otherwise the caller's own request decides:
+ * lines the client sent explicitly could be a "Mua ngay" purchase, so they are
+ * treated as `BUY_NOW` — the conservative branch that never rewrites the cart.
+ * When the client sends no lines at all, the server resolved them from the cart
+ * itself, which is unambiguously `CART`.
+ *
+ * The value only ever decides *whether a cart mutation is allowed*. It cannot
+ * cause one that the cart state and the ordered lines do not already justify,
+ * so a forged `CART` cannot delete a line the order did not pay for and a
+ * forged `BUY_NOW` can only leave the cart untouched.
+ */
+function resolveCheckoutSource(dto: CheckoutDto): CheckoutSource {
+  if (dto.source !== undefined) return dto.source;
+  return dto.items && dto.items.length > 0 ? CheckoutSource.BUY_NOW : CheckoutSource.CART;
+}
+
+/**
  * Stable hash of the semantically relevant checkout request.
  *
  * Only what the caller actually sent is hashed (address, voucher, payment
- * method, note and — when the caller selected lines explicitly — those lines).
- * A cart-based checkout deliberately does NOT hash the cart contents: the
+ * method, note, the declared checkout source and — when the caller selected
+ * lines explicitly — those lines). The source is part of the identity because
+ * it decides whether the cart is consumed: replaying a `BUY_NOW` request for a
+ * `CART` one (or vice versa) would silently apply the wrong cart rule. A
+ * cart-based checkout deliberately does NOT hash the cart contents: the
  * server owns that state, the first request consumes it, and a retry after a
  * lost response must still match so it can replay the order it created. Two
  * different requests that share a key are therefore rejected instead of
@@ -1160,6 +1233,7 @@ function hashCheckoutRequest(customerId: number, dto: CheckoutDto): string {
   const address = dto.shippingAddress;
   const canonical = JSON.stringify({
     customerId,
+    source: dto.source ?? null,
     items: (dto.items ?? [])
       .map((item) => ({ productVariantId: item.productVariantId, quantity: item.quantity }))
       .sort((a, b) =>

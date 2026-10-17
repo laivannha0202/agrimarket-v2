@@ -43,6 +43,10 @@ Thumbs.db
 .playwright-mcp/
 .tmp-verify/
 
+# Expo local state (device history, dev-server settings) even if an app-level
+# .gitignore is ever removed: `npx expo-doctor` flags it, and it is machine-specific.
+.expo/
+
 # npm workspaces: the root package-lock.json is the single source of truth
 apps/*/package-lock.json
 packages/*/package-lock.json

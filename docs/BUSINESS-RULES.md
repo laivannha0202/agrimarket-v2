@@ -103,6 +103,29 @@ One customer order that spans several partners is split into one
 - Shipments, fulfillments and settlements all hang off the partner order, not
   the order.
 
+## 5b. "Mua ngay" never rewrites the cart; a cart checkout consumes what was paid
+
+- The checkout request declares `source`: `CART` (the lines are cart lines) or
+  `BUY_NOW` (a direct "Mua ngay" purchase).
+- `BUY_NOW` leaves the cart **byte-for-byte** as it was: buying B neither adds B
+  to the cart, nor decrements a B already there, nor deletes it. Browsing the
+  catalogue can therefore never empty a cart.
+- `CART` consumes **exactly the quantity that was paid for** from the matching
+  cart line: `cart 3 B` + order `1 B` leaves `2 B`; only a line that reaches zero
+  is deleted. A line the order did not include is never touched.
+- The flag is never trusted to *unlock* a deletion. Every cart write is derived
+  from the server's own cart state plus the order's own lines, so a forged `CART`
+  cannot delete a line the order did not pay for and a forged `BUY_NOW` can only
+  leave the cart untouched. An older client that sends explicit `items[]` without
+  `source` is treated as `BUY_NOW` (the non-destructive branch); only an omitted
+  `items[]`, resolved from the server's own cart, is `CART`.
+- The cart mutation runs inside the checkout transaction: a checkout that fails
+  (no stock, invalid voucher, price changed) leaves the cart unchanged, and the
+  order is created first — the cart is never emptied for an order that does not
+  exist.
+- `source` is part of the idempotency hash: the same key with a different source
+  is a 409 rather than a silent switch of cart rule.
+
 ## 6. COD is collected, not assumed
 
 - Every payment is created as `PENDING` at checkout, including COD.
@@ -125,6 +148,13 @@ One customer order that spans several partners is split into one
 - Non-COD (online) payments follow the same lifecycle through the payments
   module without the `DELIVERED` requirement: the gateway reference is the
   receipt, not the courier.
+- Confirming `PAID` is a **compare-and-set** on the status that was read
+  (`updateMany where status = <read status>`). Two operators, a double-tap or a
+  retried request running at the same time cannot both succeed: exactly one
+  claims the row, and the loser gets a **409** instead of re-stamping `paidAt`
+  and writing a second audit row for money that was collected once.
+- Re-applying the current status (`PAID` → `PAID`) is an idempotent no-op that
+  writes no audit row; a terminal payment (`REFUNDED`) is never moved backwards.
 
 ## 6b. Delivery consumes the reservation
 

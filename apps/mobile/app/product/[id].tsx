@@ -11,7 +11,10 @@
  * - the price, the discount and the stock come from `effectivePrice` /
  *   `availableQuantity`, which already resolve flash sale > discount > base;
  * - a trust badge is rendered only when the backend actually has the fact
- *   behind it (e.g. "Truy xuất" only when the product is tied to a farm).
+ *   behind it: a farm link shows origin INFORMATION, and the certificate badge
+ *   needs a farm certificate the API still reports as valid. The product's
+ *   category is never treated as evidence of quality (see
+ *   `@agrimarket/shared-domain/quality`).
  */
 
 import { Ionicons } from "@expo/vector-icons";
@@ -40,6 +43,7 @@ import { errorMessage, isNetworkError } from "../../src/lib/api-client";
 import { discountPercent, formatMoney, formatQuantity, formatWeight, variantSpecLabel } from "../../src/lib/format";
 import { displayVariant } from "../../src/lib/product-variant";
 import { galleryImages, resolveImageUrl } from "../../src/lib/promotions";
+import { productTrustBadges } from "../../src/lib/quality";
 import { resources } from "../../src/lib/resources";
 import { colors, radius, spacing, TOUCH } from "../../src/lib/theme";
 import type { PricedVariant } from "../../src/lib/types";
@@ -85,6 +89,23 @@ export default function ProductDetailScreen() {
   });
 
   const product = detail.data ?? null;
+
+  /**
+   * Valid certificates of the product's farm.
+   *
+   * `GET /certificates/farm/:id/valid` is the only source: the backend filters
+   * to VERIFIED + ACTIVE + inside the validity window + carrying a document, so
+   * an expired or revoked certificate can never reach the badge. The same query
+   * key the farm screen uses, so both share one request. Not enabled when the
+   * product has no farm — there is nothing to certify then.
+   */
+  const farmId = product?.farmId ?? null;
+  const farmCertificates = useQuery({
+    queryKey: ["farm-certs", farmId],
+    queryFn: () => resources.listValidCertificates(farmId as number),
+    enabled: farmId !== null,
+    staleTime: 5 * 60_000,
+  });
 
   /**
    * Gallery: real uploaded images only — the backend's primary first, then the
@@ -139,6 +160,18 @@ export default function ProductDetailScreen() {
   const clampedQty = Math.min(qty, maxQty);
 
   const loginRedirect = `/product/${productId}`;
+
+  /**
+   * What the product page is allowed to claim. The rule lives in
+   * `@agrimarket/shared-domain/quality` and cannot see the category, so the old
+   * "An toàn" (from `product.category`) claim cannot come back. A certificate
+   * badge needs at least one currently-valid farm certificate; a failed or
+   * still-loading request shows no badge.
+   */
+  const trustBadges = productTrustBadges({
+    farmId,
+    validCertificateCount: farmCertificates.data?.length,
+  });
 
   /** Blocks the action with a precise reason instead of a silent no-op. */
   const blockedReason = (): string | null => {
@@ -287,12 +320,20 @@ export default function ProductDetailScreen() {
         </View>
 
         {/* --------------------------------------------------- trust strip --- */}
-        {/* Only facts the backend actually supports for this product. */}
-        <View style={styles.trustRow}>
-          {product.farmId ? <TrustItem icon="leaf-outline" label="Nguồn gốc" /> : null}
-          {product.category ? <TrustItem icon="shield-checkmark-outline" label="An toàn" /> : null}
-          {product.farmId ? <TrustItem icon="qr-code-outline" label="Truy xuất" /> : null}
-        </View>
+        {/* Only facts the backend actually supports for this product. The labels
+            come from the shared `productTrustBadges`, which cannot see the
+            product's category — a catalogue grouping is not an inspection. */}
+        {trustBadges.length > 0 ? (
+          <View style={styles.trustRow}>
+            {trustBadges.map((badge) => (
+              <TrustItem
+                key={badge.kind}
+                icon={badge.kind === "certificate" ? "shield-checkmark-outline" : "leaf-outline"}
+                label={badge.label}
+              />
+            ))}
+          </View>
+        ) : null}
 
         {/* -------------------------------------------------------- variants -- */}
         <View style={styles.block}>

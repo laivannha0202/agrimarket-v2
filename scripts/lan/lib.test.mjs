@@ -103,8 +103,26 @@ describe("expo env propagation contract", () => {
     assert.ok(!/192\.168\.\d+\.\d+/.test(src));
     assert.ok(!/10\.\d+\.\d+\.\d+/.test(src));
   });
-  it("current machine actually has the Wi-Fi IPv4 visible to Node (no stale cache)", () => {
-    const addrs = candidatesFromOs().map((c) => c.address);
-    assert.ok(addrs.includes("10.218.208.43"));
+  it("reads the LIVE OS interface list, not a cached address (no stale cache)", () => {
+    // Machine-independent on purpose: asserting one hard-coded address would
+    // only pass on the machine the suite was written on, while a cache bug is
+    // what this test exists to catch. Enumerate the interfaces independently of
+    // `candidatesFromOs` and require the two views to agree — a cached result
+    // (an old IP after switching networks) shows up as a mismatch.
+    const live = Object.values(os.networkInterfaces())
+      .flatMap((list) => list ?? [])
+      .filter((a) => a.family === "IPv4" && !a.internal)
+      .map((a) => a.address);
+    assert.deepEqual(
+      new Set(candidatesFromOs().map((c) => c.address)),
+      new Set(live),
+      "candidatesFromOs() must mirror the OS interface list",
+    );
+
+    // Whatever this machine does have must be a real, usable LAN address.
+    for (const candidate of candidatesFromOs()) {
+      assert.equal(isValidIPv4(candidate.address), true, candidate.address);
+      assert.equal(isLoopbackIp(candidate.address), false, candidate.address);
+    }
   });
 });

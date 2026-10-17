@@ -80,17 +80,20 @@ describe("buildCheckoutPayload", () => {
       "",
       "",
       { grandTotal: 136000 },
+      "BUY_NOW",
     );
     expect(payload.items).toEqual([{ productVariantId: 42, quantity: 2 }]);
+    expect(payload.source).toBe("BUY_NOW");
   });
 
   it("echoes the preview total the customer actually saw", () => {
-    const payload = buildCheckoutPayload(verifiedAddress, [], "", "", { grandTotal: 250000 });
+    const payload = buildCheckoutPayload(verifiedAddress, [], "", "", { grandTotal: 250000 }, "CART");
     expect(payload.expectedGrandTotal).toBe(250000);
+    expect(payload.source).toBe("CART");
   });
 
   it("sends only official codes for a catalogue-verified address", () => {
-    const payload = buildCheckoutPayload(verifiedAddress, [], "", "", { grandTotal: 1 });
+    const payload = buildCheckoutPayload(verifiedAddress, [], "", "", { grandTotal: 1 }, "CART");
     expect(payload.shippingAddress.provinceCode).toBe("01");
     expect(payload.shippingAddress.wardCode).toBe("00001");
     // The backend re-resolves official names; stale free text must not ride along.
@@ -99,7 +102,7 @@ describe("buildCheckoutPayload", () => {
   });
 
   it("keeps the free text of a legacy address untouched", () => {
-    const payload = buildCheckoutPayload(legacyAddress, [], "", "", { grandTotal: 1 });
+    const payload = buildCheckoutPayload(legacyAddress, [], "", "", { grandTotal: 1 }, "CART");
     expect(payload.shippingAddress.district).toBe("Huyện Cũ");
     expect(payload.shippingAddress.ward).toBe("Xã Cũ");
     expect(payload.shippingAddress.provinceCode).toBeUndefined();
@@ -107,7 +110,7 @@ describe("buildCheckoutPayload", () => {
   });
 
   it("normalises an empty voucher/note to absent and defaults payment to COD", () => {
-    const payload = buildCheckoutPayload(verifiedAddress, [], "", "   ", { grandTotal: 1 });
+    const payload = buildCheckoutPayload(verifiedAddress, [], "", "   ", { grandTotal: 1 }, "CART");
     expect(payload.voucherCode).toBeUndefined();
     expect(payload.note).toBeUndefined();
     expect(payload.paymentMethod).toBe("COD");
@@ -116,7 +119,7 @@ describe("buildCheckoutPayload", () => {
   it("trims the note when one is present", () => {
     const payload = buildCheckoutPayload(verifiedAddress, [], "GIAM10", "  giao buổi sáng  ", {
       grandTotal: 1,
-    });
+    }, "CART");
     expect(payload.voucherCode).toBe("GIAM10");
     expect(payload.note).toBe("giao buổi sáng");
   });

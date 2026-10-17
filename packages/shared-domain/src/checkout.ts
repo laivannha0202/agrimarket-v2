@@ -282,12 +282,31 @@ export interface CheckoutPayloadLike {
   paymentMethod?: PaymentMethod;
   note?: string;
   expectedGrandTotal?: number;
+  source?: CheckoutSource;
 }
+
+/**
+ * Where the ordered lines came from — and therefore whether the backend may
+ * touch the cart once the order commits. Must stay in sync with the API's
+ * `CheckoutSource` (`apps/api/src/orders/dto/checkout.dto.ts`).
+ *
+ * - `CART`: the lines are cart lines; the backend consumes exactly what was
+ *   ordered and keeps any remainder.
+ * - `BUY_NOW`: a direct purchase ("Mua ngay"); the cart is never written, so
+ *   buying B never adds, decrements or removes a cart line — not even a B that
+ *   is already there.
+ */
+export type CheckoutSource = "CART" | "BUY_NOW";
 
 /**
  * Build the checkout payload from the chosen address, the exact lines being
  * ordered (cart selection OR a "Mua ngay" line — the caller decides, this
- * helper never reads the cart) and the backend preview.
+ * helper never reads the cart), the backend preview, and which of the two
+ * sources produced those lines.
+ *
+ * `source` is required on purpose: it is the only thing that decides whether
+ * the backend is allowed to consume cart lines, so no caller may leave it to a
+ * default and accidentally let a "Mua ngay" purchase rewrite the cart.
  *
  * A code-verified address sends the official `provinceCode`/`wardCode` pair and
  * no legacy district/ward text: the backend re-resolves the official names from
@@ -303,6 +322,7 @@ export function buildCheckoutPayload(
   voucherCode: string,
   note: string,
   preview: { grandTotal: number },
+  source: CheckoutSource,
   paymentMethod: PaymentMethod = "COD",
 ): CheckoutPayloadLike {
   const verified = Boolean(address.wardCode);
@@ -323,6 +343,7 @@ export function buildCheckoutPayload(
     paymentMethod,
     note: note.trim() || undefined,
     expectedGrandTotal: preview.grandTotal,
+    source,
   };
 }
 

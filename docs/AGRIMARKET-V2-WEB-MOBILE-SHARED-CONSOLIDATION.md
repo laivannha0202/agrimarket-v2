@@ -6,6 +6,12 @@ Thiết bị thật chưa có trong môi trường này — không ghi PASS thi�
 Phạm vi: `packages/shared-domain`, `packages/design-tokens`, P0 "Mua ngay"
 (Web), quy tắc COD (API + Admin), trang chủ Web/Mobile, hạ tầng test Web.
 
+> **Vòng sửa cuối (cùng ngày)** nằm ở **[§10](#10-vòng-sửa-cuối--nghiệm-thu-bằng-chứng-thực)**:
+> nguồn checkout `CART`/`BUY_NOW` ở backend, nhãn chất lượng có căn cứ, E2E
+> backend chạy thật trên DB TEST, build production Admin/Customer/API, export
+> Expo Android, và các lỗi phát hiện thêm. Các số liệu ở §7 là của vòng trước;
+> số liệu nghiệm thu cuối nằm ở §10.
+
 ---
 
 ## 1. Vấn đề trước thay đổi (vì sao phải hợp nhất)
@@ -138,11 +144,188 @@ Kèm theo: `needsTotalConfirm`, `carryPendingTotal` (bỏ xác nhận khi khách
 3. **Cảnh báo còn lại (không chặn):** 3 cảnh báo `require-array-sort-compare`
    trong 2 file test e2e của api — pre-existing, không đổi hành vi test.
 
-## 9. Hạn chế & việc còn lại
+## 9. Hạn chế & việc còn lại (cập nhật ở §10)
 
 - Chưa test trên thiết bị thật (Expo Go) trong môi trường này; bundle đã được
   chứng minh bằng `expo export`.
-- `git` không có trong PATH của môi trường — không thể commit/branch từ đây;
-  toàn bộ thay đổi nằm trong working tree.
+- `git` **có** trên máy nhưng không nằm trong PATH (`C:\Program Files\Git\cmd\git.exe`);
+  vòng trước kết luận nhầm là "không có git" nên mọi thay đổi nằm ở working tree.
+  Vòng cuối đã commit được — xem §10.9.
 - Các thư mục artifact cũ ở gốc repo (`backups/`, `node_modules_pnpm_broken/`,
   `AGRIMARKET_*`) được giữ nguyên, không xử lý trong phạm vi này.
+
+---
+
+## 10. Vòng sửa cuối — nghiệm thu bằng chứng thực tế
+
+Mọi kết quả dưới đây được chạy lại **sau** khi sửa, trên chính máy này, trong
+phiên làm việc cuối. Không có mục nào được đánh dấu PASS chỉ vì "vòng trước đã
+báo PASS".
+
+### 10.1. P0 — "Mua ngay" không được sửa giỏ hàng (đã sửa tận gốc)
+
+**Lỗi (đã xác minh trong code trước khi sửa).** Sau khi tạo đơn, `OrdersService`
+chạy `tx.cartItem.deleteMany({ productVariantId: { in: <các variant đã mua> } })`
+bất kể dòng hàng đến từ đâu. Hệ quả: mua ngay B khi giỏ đang có B sẽ **xoá nguyên
+dòng B** (cả số lượng), và mua ngay B khi giỏ có A cũng ghi vào giỏ dù khách
+không hề thêm B vào giỏ.
+
+**Cách sửa.** Thêm trường `source` vào hợp đồng checkout, phân biệt rõ hai nguồn:
+
+| Nguồn | Ý nghĩa | Backend làm gì với giỏ |
+| --- | --- | --- |
+| `CART` | Khách thanh toán từ giỏ | Trừ **đúng số lượng đã trả tiền** khỏi dòng giỏ khớp variant; xoá dòng chỉ khi số còn lại ≤ 0 |
+| `BUY_NOW` | Khách mua trực tiếp ("Mua ngay") | **Không đọc, không thêm, không trừ, không xoá** bất kỳ dòng giỏ nào |
+
+Quy tắc an toàn (đây là phần quan trọng nhất):
+
+1. Cờ `source` **chỉ có thể ngăn** một thao tác ghi vào giỏ, không bao giờ mở ra
+   một thao tác mới. Mọi thao tác ghi vẫn suy ra từ **giỏ do server đọc** và
+   **các dòng đơn đã thực trả tiền**.
+2. Client cũ **không gửi** `source` mà gửi `items` → mặc định là `BUY_NOW`
+   (nhánh không phá hoại). Chỉ khi client **không gửi `items`** (server tự đọc
+   giỏ) mới mặc định là `CART`.
+3. `source` là một phần của **chữ ký idempotency**: replay cùng key với nguồn
+   khác → 409, không âm thầm áp dụng sai luật giỏ.
+4. Ghi giỏ nằm **trong cùng transaction** với tạo đơn: checkout thất bại thì giỏ
+   không đổi. Checkout một phần (giỏ 3, mua 2) giữ lại 1.
+5. Làm tròn số lượng 3 chữ số thập phân (`Decimal(18,3)`) — tránh `0.3-0.1`.
+
+**File:** `apps/api/src/orders/dto/checkout.dto.ts` (enum `CheckoutSource`),
+`apps/api/src/orders/orders.service.ts` (`consumeCartLines`, `resolveCheckoutSource`,
+hash idempotency), `packages/shared-domain/src/checkout.ts` (`CheckoutSource` +
+tham số `source` **bắt buộc** trong `buildCheckoutPayload`), Web
+`CheckoutView.tsx`, Mobile `app/checkout.tsx`.
+
+**Kết quả 4 tình huống bắt buộc** (chạy thật, HTTP + DB TEST — §10.4):
+
+| Tình huống | Kỳ vọng | Kết quả |
+| --- | --- | --- |
+| Case 1: giỏ A, mua ngay B | Đơn chỉ có B; giỏ vẫn A; không thêm B | PASS |
+| Case 2: giỏ B×3, mua ngay B×1 | Đơn 1 B; giỏ vẫn 3 B; không trừ/xoá | PASS |
+| Case 3: giỏ A×2 + B×3, mua ngay B×1 | Đơn đúng 1 dòng B×1; giỏ nguyên vẹn | PASS |
+| Case 4: thanh toán từ giỏ | Chỉ trừ dòng đã trả; giữ phần chưa mua; không xoá khi lỗi | PASS |
+
+### 10.2. P1 — nhãn "An toàn" không có căn cứ (đã bỏ)
+
+**Lỗi.** Product Detail (Web + Mobile) hiển thị `An toàn` + `Truy xuất` chỉ vì
+`product.category` (và `product.farmId`) tồn tại — danh mục không chứng minh đã
+kiểm định, và "truy xuất" là thuộc tính của **lô**, không phải của sản phẩm.
+
+**Quy tắc mới** — hàm thuần tuý dùng chung `productTrustBadges`
+(`packages/shared-domain/src/quality.ts`):
+
+| Dữ liệu backend | Nhãn hiển thị |
+| --- | --- |
+| Sản phẩm gắn trang trại (`farmId` hợp lệ) | `Thông tin nguồn gốc` (thông tin, không phải chứng nhận) |
+| Trang trại có ≥ 1 chứng nhận **hợp lệ hiện tại** | `Chứng nhận trang trại` (nói về **trang trại**, không nói về lô) |
+| Chỉ có `category`, hoặc không có gì | **không hiển thị gì** |
+| Chứng nhận hết hạn / bị thu hồi / chưa xác minh / thiếu tài liệu | không tính — loại ở server (`GET /certificates/farm/:id/valid`) |
+| Request chứng nhận đang tải hoặc lỗi | không hiển thị (không có bằng chứng thì không khẳng định) |
+
+Kiểu đầu vào cố tình **không có** trường `category`, nên không thể tái xuất hiện
+kiểu `product.category ? "An toàn" : null`. Không tạo dữ liệu QC/chứng nhận giả;
+không đổi FEFO để phục vụ UI. Web và Mobile render **cùng một mảng nhãn** từ cùng
+một hàm.
+
+### 10.3. Lỗi phát hiện thêm trong vòng cuối
+
+1. **Chưa có chốt an toàn cho DB test.** `TEST_DATABASE_URL` không được đối
+   chiếu với `DATABASE_URL`; chỉ cần trỏ nhầm là `purgeStaleFixtures` +
+   `cleanupFixtures` sẽ xoá dữ liệu thật. Đã thêm interlock
+   `apps/api/test/helpers/db-safety.ts` (chặn khi **cùng host + cùng tên DB**,
+   coi `localhost` = `127.0.0.1`, không in mật khẩu) + 7 test.
+2. **Ghi nhận COD có thể trùng khi hai request đồng thời.** `PATCH
+   /payments/:id/status` trước đây `update` vô điều kiện: hai lần xác nhận song
+   song đều "thành công", ghi đè `paidAt` và ghi 2 dòng audit cho một khoản tiền
+   thực thu một lần. Đã chuyển PAID sang **compare-and-set** trên trạng thái đã
+   đọc (`updateMany where status = <đã đọc>`) → request thua nhận **409**.
+3. **`npm run lan:test` phụ thuộc máy.** Test cuối khẳng định IP Wi-Fi của máy
+   cũ (`10.218.208.43`) có trong danh sách interface — chỉ đúng trên máy tác giả.
+   Đã viết lại thành bất biến độc lập máy: so trực tiếp `candidatesFromOs()` với
+   `os.networkInterfaces()` (bắt được lỗi cache, không phụ thuộc mạng).
+4. **`.expo/` chưa bị ignore ở gốc repo** (`expo-doctor` báo). Đã thêm `.expo/`
+   vào `.gitignore` gốc (app mobile đã ignore sẵn, đây là chốt thứ hai).
+
+### 10.4. E2E backend trên database TEST (lần đầu chạy đủ)
+
+- Cô lập đã kiểm chứng: `agrimarket_v2` (dev) vs `agrimarket_v2_test` (test) —
+  **khác tên DB**, cùng server; đọc trực tiếp `SHOW DATABASES` trước khi chạy.
+- `TEST_DATABASE_URL` lấy từ `apps/api/.env`; interlock §10.3.1 đã chạy và cho
+  phép (vì khác DB).
+- Lệnh: `npm run test:e2e --workspace @agrimarket/api`
+- Kết quả: **12 file / 349 test PASS, 0 skip, 0 fail** (69s).
+- Riêng nhóm hồi quy P0 (`F2. Buy Now vs cart checkout`) 9/9 PASS ở tầng HTTP thật:
+  Case 1–4, khách cũ không gửi `source`, cờ `BUY_NOW` không ghi gì vào giỏ,
+  checkout lỗi không mất giỏ, khách thường không tự xác nhận thu tiền (403).
+- Bao phủ luồng khác trong bộ e2e: đăng nhập, catalog, checkout + giá backend,
+  giữ/trừ tồn kho, admin chuyển trạng thái, huỷ đơn + nhả tồn, voucher, giá đổi
+  (409), request đồng thời, idempotency (không double order), COD, return/refund,
+  review moderation, phân quyền.
+
+### 10.5. Build production
+
+| Ứng dụng | Lệnh | Kết quả |
+| --- | --- | --- |
+| Backend API | `npm run build --workspace @agrimarket/api` | PASS (`nest build`) |
+| Backend API (runtime) | `node dist/src/main.js` + `GET /api/v1/health` | PASS — `{"status":"ok","database":"up"}`; `GET /products` trả 14 bản ghi, `GET /categories` 5 |
+| Admin Web | `npm run build --workspace @agrimarket/admin-web` | **PASS** — 32 route (27 static + 5 dynamic). Đây là lần đầu build production Admin hoàn tất |
+| Customer Web | `npm run build --workspace @agrimarket/customer-web` | PASS — 29 route |
+| Mobile (Expo) | `npx expo export --platform android` | PASS — Hermes bundle 3.54 MB |
+
+Bằng chứng Metro/Next resolve đúng package dùng chung — chuỗi **chỉ có** trong
+`packages/shared-domain` xuất hiện trong bundle Android:
+`Thông tin nguồn gốc`, `Chứng nhận trang trại`, `parseBuyNowParam`,
+`isFlashSaleLive`; chuỗi `An toàn` **không còn** trong bundle (nhãn cũ đã biến mất
+khỏi app phát hành).
+
+### 10.6. Mobile — mức kiểm chứng được và không được
+
+Đã kiểm: `tsc --noEmit` PASS, `eslint` PASS, 175 unit test PASS (3 skip), export
+Android PASS, `expo-doctor` (xem dưới), cấu hình LAN đọc từ
+`EXPO_PUBLIC_API_BASE_URL` (test `scripts/lan/lib.test.mjs` 12/12 PASS).
+
+**Chưa kiểm:** mở app trên điện thoại thật / Expo Go, QR scanning, luồng
+đăng nhập–mua–nhận hàng bằng tay, safe area/keyboard/font scaling trên thiết bị
+thật. Đây là hạn chế môi trường (không có thiết bị trong phiên này) — **không**
+đánh dấu PASS.
+
+`npx expo-doctor` báo 4 mục, đã phân loại rõ:
+
+| Mục | Đánh giá |
+| --- | --- |
+| `.expo` not ignored | **Đã sửa** — thêm `.expo/` vào `.gitignore` gốc |
+| Multiple lock files (`pnpm-lock.yaml` + `package-lock.json`) | Tồn tại thật. Repo đã chuyển sang npm workspaces (`packageManager: npm@11.20.0`, commit `13181b4`); 2 file pnpm còn lại là di sản. **Không xoá trong vòng này** (quyết định thuộc chủ repo — xem §10.8) |
+| Duplicate `react` (19.2.3 trong `apps/mobile/node_modules`, 19.3.0 hoisted cho Next) | Đã kiểm chứng **không phải lỗi runtime**: bundle Android chỉ chứa `19.2.3`, không có `19.3.0`. Mobile khai báo đúng bản Expo SDK 57 yêu cầu |
+| `expo`/`expo-router` lệch patch (`57.0.28`↔`~57.0.30`, `57.0.27`↔`~57.0.28`) | Nhắc nâng patch; **không tự ý đổi** SDK/thư viện lớn trong vòng sửa lỗi (§8 của yêu cầu) |
+
+### 10.7. Kiểm chứng Admin + COD
+
+- Giao diện Admin chỉ cho bấm "Ghi nhận thu tiền" khi `method === COD` **và**
+  `payment.status === PENDING` **và** `order.status === DELIVERED`; các trường
+  hợp khác hiện "Chờ giao hàng"/"—".
+- Backend kiểm lại **độc lập** với giao diện: bắt buộc `transactionReference`;
+  cấm PAID cho đơn `CANCELLED`; COD chỉ PAID khi đơn `DELIVERED`;
+  compare-and-set chống thu trùng (§10.3.2).
+- Test: `payment-collection.spec.ts` 9 ca (thiếu mã giao dịch, COD chưa giao,
+  đơn huỷ kể cả đơn online, COD sau khi giao, online trả trước, **lặp request**,
+  **đồng thời → 409**, không hạ PAID→…, không nâng sai) + 1 ca 403 ở e2e.
+
+### 10.8. Việc còn lại (trung thực)
+
+1. **Thiết bị thật / Expo Go**: chưa mở app trên máy thật (P2 của yêu cầu).
+2. **`pnpm-lock.yaml`/`pnpm-workspace.yaml`**: nên xoá để EAS/CI không suy luận
+   sai package manager; chưa xoá vì là quyết định chính sách repo.
+3. **`expo`/`expo-router` patch**: nên `npx expo install --check` khi có chủ ý.
+4. **`apps/mobile/node_modules` còn 7 mục** (`.bin`, `.vite`, `react`,…): bình
+   thường với npm workspaces khi có xung đột version; đã loại trừ ảnh hưởng bằng
+   bundle.
+5. Cảnh báo lint còn lại: 3 warning `require-array-sort-compare` trong 2 file e2e
+   (không chặn, exit 0, không đổi hành vi test).
+
+### 10.9. Git (vòng cuối)
+
+- Branch: `main`. Không force-push, không merge, không deploy, **không push**
+  (chưa được yêu cầu rõ ràng trong phiên này).
+- Commit theo nhóm: xem báo cáo bàn giao kèm theo.
+

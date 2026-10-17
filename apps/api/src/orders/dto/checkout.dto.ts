@@ -88,6 +88,34 @@ export class CheckoutItemDto {
 }
 
 /**
+ * Where the ordered lines came from — and therefore whether the cart may be
+ * touched once the order commits.
+ *
+ * - `CART`: the lines are cart lines. The backend consumes exactly the ordered
+ *   quantity from the matching cart line and deletes a line only when it is
+ *   emptied, so a partial cart checkout leaves the remainder in place.
+ * - `BUY_NOW`: a direct purchase ("Mua ngay"). The cart is never read for the
+ *   order and never written: buying B does not add B to the cart, does not
+ *   decrement a B already there, and does not remove it.
+ *
+ * The flag can only ever *suppress* a cart mutation — it never unlocks one.
+ * Cart writes stay derived from the server's own cart state and from the lines
+ * actually ordered, so a forged `BUY_NOW` merely leaves the customer's cart
+ * untouched, and a forged `CART` cannot delete a line the order did not pay for.
+ *
+ * Declared as a const object + union (the shape Prisma generates) rather than a
+ * TypeScript `enum`, so plain `'BUY_NOW'` literals — which is what JSON bodies,
+ * the shared `CheckoutSource` type and the web/mobile payload builders use — are
+ * assignable without an import dance.
+ */
+export const CheckoutSource = {
+  CART: 'CART',
+  BUY_NOW: 'BUY_NOW',
+} as const;
+
+export type CheckoutSource = (typeof CheckoutSource)[keyof typeof CheckoutSource];
+
+/**
  * Checkout request.
  *
  * There is deliberately NO `shippingFee` field: the fee is decided by the
@@ -118,6 +146,22 @@ export class CheckoutDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  /**
+   * Declares whether `items` are cart lines or a direct "Mua ngay" purchase.
+   *
+   * Optional for backward compatibility, and the default is deliberately the
+   * non-destructive branch: explicit lines are treated as `BUY_NOW` (the cart is
+   * left alone) unless the caller says otherwise. An omitted `items` is always
+   * `CART`, because then the server itself resolved the lines from the cart.
+   */
+  @ApiPropertyOptional({
+    enum: CheckoutSource,
+    description: 'CART (default when items are omitted) or BUY_NOW',
+  })
+  @IsOptional()
+  @IsEnum(CheckoutSource)
+  source?: CheckoutSource;
 
   /**
    * The grand total the customer saw on the preview screen. When present the

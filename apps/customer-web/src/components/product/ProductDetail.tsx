@@ -57,6 +57,7 @@ import {
 } from "@/lib/format";
 import { variantDisplayPrice } from "@/lib/promotions";
 import { buyNowParam } from "@/lib/checkout";
+import { productTrustBadges } from "@/lib/quality";
 import { displayVariant } from "@/lib/product-variant";
 import { useAuth } from "@/lib/auth/useAuth";
 import { ProductImage } from "@/components/common/ProductImage";
@@ -424,21 +425,7 @@ export function ProductDetail({ productId }: { productId: number }) {
             </AppCard>
 
             {/* Trust strip — only facts the backend actually supports. */}
-            {(product.farmId || product.category) && (
-              <AppCard radius={0} py={12} style={{ borderLeft: "none", borderRight: "none" }}>
-                <Group gap={0} wrap="nowrap">
-                  {product.farmId ? (
-                    <TrustItem icon={<IconLeaf size={17} aria-hidden />} label="Nguồn gốc" />
-                  ) : null}
-                  {product.category ? (
-                    <TrustItem icon={<IconShieldCheck size={17} aria-hidden />} label="An toàn" />
-                  ) : null}
-                  {product.farmId ? (
-                    <TrustItem icon={<IconQrcode size={17} aria-hidden />} label="Truy xuất" />
-                  ) : null}
-                </Group>
-              </AppCard>
-            )}
+            <ProductTrustStrip farmId={product.farmId ?? null} />
 
             {/* Variants */}
             <AppCard radius={0} p={{ base: 12, sm: 16 }} style={{ borderLeft: "none", borderRight: "none" }}>
@@ -660,6 +647,56 @@ export function ProductDetail({ productId }: { productId: number }) {
         </BottomBar>
       ) : null}
     </Container>
+  );
+}
+
+/**
+ * Trust strip — only facts the backend actually supports.
+ *
+ * The labels come from the shared `productTrustBadges`, which cannot see the
+ * product's category: an item filed under "Rau củ" is not thereby inspected.
+ * A certificate badge needs at least one certificate that
+ * `GET /certificates/farm/:id/valid` currently reports as valid (VERIFIED +
+ * ACTIVE + inside its validity window + documented), and even then it speaks
+ * about the FARM — never about the specific lot FEFO will allocate to this
+ * order. A failed or still-loading request shows no badge: absence of evidence
+ * is not evidence.
+ */
+function ProductTrustStrip({ farmId }: { farmId: number | null }) {
+  const certificatesQuery = useQuery({
+    // The same key `FarmCertificates` uses, so React Query serves both from one
+    // request instead of fetching the farm's certificates twice.
+    queryKey: queryKeys.certificates.validForFarm(farmId ?? 0),
+    queryFn: () => resources.listValidCertificates(farmId as number),
+    enabled: farmId !== null,
+    staleTime: 5 * 60_000,
+  });
+
+  const badges = productTrustBadges({
+    farmId,
+    validCertificateCount: certificatesQuery.data?.length,
+  });
+
+  if (badges.length === 0) return null;
+
+  return (
+    <AppCard radius={0} py={12} style={{ borderLeft: "none", borderRight: "none" }}>
+      <Group gap={0} wrap="nowrap">
+        {badges.map((badge) => (
+          <TrustItem
+            key={badge.kind}
+            icon={
+              badge.kind === "certificate" ? (
+                <IconShieldCheck size={17} aria-hidden />
+              ) : (
+                <IconLeaf size={17} aria-hidden />
+              )
+            }
+            label={badge.label}
+          />
+        ))}
+      </Group>
+    </AppCard>
   );
 }
 

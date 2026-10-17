@@ -155,7 +155,7 @@ describe("buildCheckoutPayload", () => {
   };
 
   it("sends the verified code pair and official field for a catalogue address", () => {
-    const payload = buildCheckoutPayload(verifiedAddress, [{ productVariantId: 1, quantity: 2 }], "SAVE", " ghi chú ", { grandTotal: 50000 });
+    const payload = buildCheckoutPayload(verifiedAddress, [{ productVariantId: 1, quantity: 2 }], "SAVE", " ghi chú ", { grandTotal: 50000 }, "CART");
     expect(payload.shippingAddress.provinceCode).toBe("33");
     expect(payload.shippingAddress.wardCode).toBe("11953");
     // Legacy text would contradict the official names the backend resolves.
@@ -166,8 +166,23 @@ describe("buildCheckoutPayload", () => {
     expect(payload.note).toBe("ghi chú");
     expect(payload.expectedGrandTotal).toBe(50000);
     expect(payload.paymentMethod).toBe("COD");
+    // The declared source decides the backend's cart rule, so it must ride along.
+    expect(payload.source).toBe("CART");
     // The DTO has no shipping-fee field; the backend owns the fee.
     expect("shippingFee" in payload).toBe(false);
+  });
+
+  it("carries the buy-now source so the backend leaves the cart alone", () => {
+    const payload = buildCheckoutPayload(
+      verifiedAddress,
+      [{ productVariantId: 9, quantity: 1 }],
+      "",
+      "",
+      { grandTotal: 1000 },
+      "BUY_NOW",
+    );
+    expect(payload.source).toBe("BUY_NOW");
+    expect(payload.items).toEqual([{ productVariantId: 9, quantity: 1 }]);
   });
 
   it("keeps legacy free text for an address saved before the reorganisation", () => {
@@ -182,7 +197,7 @@ describe("buildCheckoutPayload", () => {
       village: null,
       detail: "Số 5",
     };
-    const payload = buildCheckoutPayload(legacyAddress, [{ productVariantId: 2, quantity: 1 }], "", "", { grandTotal: 30000 });
+    const payload = buildCheckoutPayload(legacyAddress, [{ productVariantId: 2, quantity: 1 }], "", "", { grandTotal: 30000 }, "BUY_NOW");
     expect(payload.shippingAddress.provinceCode).toBeUndefined();
     expect(payload.shippingAddress.wardCode).toBeUndefined();
     expect(payload.shippingAddress.district).toBe("Văn Lâm");

@@ -108,7 +108,7 @@ describe.skipIf(!up)("mobile payload → live API", () => {
     // whether to lock the submit button.
     expect(needsTotalConfirm(preview, null)).toBe(false);
 
-    const payload = buildCheckoutPayload(address, items, "", "", preview);
+    const payload = buildCheckoutPayload(address, items, "", "", preview, "BUY_NOW");
     expect(payload.paymentMethod).toBe("COD");
     expect(payload.expectedGrandTotal).toBe(preview.grandTotal);
     expect("shippingFee" in payload).toBe(false);
@@ -188,7 +188,7 @@ describe.skipIf(!up)("mobile payload → live API", () => {
     const items = [{ productVariantId: variant.id, quantity: 1 }];
     const previewRes = await call("POST", "/orders/checkout-preview", { token, body: { items } });
     const preview: CheckoutPreview = previewRes.body;
-    const payload = buildCheckoutPayload(address, items, "", "", preview);
+    const payload = buildCheckoutPayload(address, items, "", "", preview, "BUY_NOW");
 
     const stale = await call("POST", "/orders/checkout", {
       token,

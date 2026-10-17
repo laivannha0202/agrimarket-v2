@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
@@ -84,6 +84,10 @@ export class PaymentsService {
    * untouched, no audit row), while re-entering a terminal status (REFUNDED) is
    * refused. Terminal payments cannot be moved backwards, and a payment can
    * leave PENDING/FAILED only towards PAID.
+   *
+   * Confirming PAID is a compare-and-set on the status that was read, so two
+   * concurrent confirmations cannot both succeed: the loser gets a 409 instead
+   * of silently re-stamping `paidAt` and double-logging the collection.
    */
   async updateStatus(id: number, dto: UpdatePaymentStatusDto, actorUserId: number) {
     const payment = await this.findOne(id);
@@ -117,9 +121,31 @@ export class PaymentsService {
       }
     }
     const data: Prisma.PaymentUpdateInput = { status: dto.status };
-    if (dto.status === PaymentStatus.PAID) data.paidAt = new Date();
     if (dto.transactionReference) data.transactionReference = dto.transactionReference;
-    const updated = await this.prisma.payment.update({ where: { id }, data });
+
+    let updated: Payment;
+    if (dto.status === PaymentStatus.PAID) {
+      // Compare-and-set, exactly like the order state machine. Two operators (or
+      // one double-tap, or a retried request) can pass the guards above
+      // concurrently, and a plain `update` would let the loser overwrite
+      // `paidAt`/`transactionReference` and write a SECOND audit row for money
+      // that was only collected once. Claiming the row with the status it was
+      // read at means exactly one request can confirm the collection; the other
+      // is told to reload instead of being told it succeeded.
+      const claimed = await this.prisma.payment.updateMany({
+        where: { id, status: payment.status },
+        data: { ...data, paidAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The payment status changed while this request was being processed, please reload',
+        );
+      }
+      updated = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
+    } else {
+      updated = await this.prisma.payment.update({ where: { id }, data });
+    }
+
     await this.audit.record({
       actorUserId,
       action: `PAYMENT_${dto.status}`,

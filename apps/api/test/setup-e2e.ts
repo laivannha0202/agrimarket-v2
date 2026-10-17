@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { config as loadEnv } from 'dotenv';
+import { assertIsolatedTestDatabase } from './helpers/db-safety.js';
 
 /**
  * Loads the local environment for the e2e suite so that `npm run test:e2e` picks
@@ -13,3 +14,9 @@ for (const file of ['.env', '.env.local']) {
     loadEnv({ path: file, override: false, quiet: true });
   }
 }
+
+/**
+ * Hard interlock before any destructive SQL: a "test" database that is in fact
+ * the application database aborts the run (see `helpers/db-safety.ts`).
+ */
+assertIsolatedTestDatabase(process.env);

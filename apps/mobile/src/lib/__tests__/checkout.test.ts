@@ -79,17 +79,19 @@ describe("checkout helpers", () => {
   });
 
   it("builds a COD payload with the backend preview total", () => {
-    const payload = buildCheckoutPayload(catalogueAddress(), [{ productVariantId: 5, quantity: 1 }], "SALE10", "", preview());
+    const payload = buildCheckoutPayload(catalogueAddress(), [{ productVariantId: 5, quantity: 1 }], "SALE10", "", preview(), "CART");
     expect(payload.paymentMethod).toBe("COD");
     expect(payload.expectedGrandTotal).toBe(50000);
     expect(payload.shippingAddress.province).toBe("Hưng Yên");
+    // The declared source is what decides the backend's cart rule.
+    expect(payload.source).toBe("CART");
     // The client must never compute a fee: the DTO has no such field, and the
     // backend is the only place `calculateShippingFee` runs.
     expect("shippingFee" in payload).toBe(false);
   });
 
   it("sends the verified province/ward code pair for a catalogue address", () => {
-    const payload = buildCheckoutPayload(catalogueAddress(), [{ productVariantId: 5, quantity: 1 }], "", "", preview());
+    const payload = buildCheckoutPayload(catalogueAddress(), [{ productVariantId: 5, quantity: 1 }], "", "", preview(), "CART");
     expect(payload.shippingAddress.provinceCode).toBe("33");
     expect(payload.shippingAddress.wardCode).toBe("11953");
     // A district must never accompany a code pair: the 2025 model has no
@@ -99,7 +101,7 @@ describe("checkout helpers", () => {
   });
 
   it("carries a legacy address through unchanged", () => {
-    const payload = buildCheckoutPayload(legacyAddress(), [{ productVariantId: 5, quantity: 1 }], "", "", preview());
+    const payload = buildCheckoutPayload(legacyAddress(), [{ productVariantId: 5, quantity: 1 }], "", "", preview(), "BUY_NOW");
     expect(payload.shippingAddress.provinceCode).toBeUndefined();
     expect(payload.shippingAddress.wardCode).toBeUndefined();
     expect(payload.shippingAddress.district).toBe("Văn Lâm");

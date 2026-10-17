@@ -384,6 +384,10 @@ npm run test:e2e
 Nếu `TEST_DATABASE_URL` chưa cấu hình, bộ e2e **tự bỏ qua** — an toàn, không bao giờ
 đụng vào database dev.
 
+Nếu `TEST_DATABASE_URL` **trỏ nhầm vào chính database của `DATABASE_URL`**, bộ e2e
+**dừng ngay trước khi kết nối** (interlock `apps/api/test/helpers/db-safety.ts`)
+kèm thông báo host/schema — thà lỗi rõ còn hơn lặng lẽ xoá dữ liệu thật.
+
 Chạy test cho từng app:
 
 ```bash

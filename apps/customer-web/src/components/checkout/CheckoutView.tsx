@@ -351,8 +351,11 @@ export function CheckoutView({ buyNowRaw }: { buyNowRaw?: string }) {
       resources.checkout(payload, key),
     onSuccess: (order) => {
       idempotencyRef.current = null;
-      // The cart lines were consumed server-side; refresh derived state.
-      queryClient.invalidateQueries({ queryKey: queryKeys.cart.all });
+      // Only a cart checkout consumed cart lines. A "Mua ngay" order leaves the
+      // cart byte-for-byte as it was, so refetching it would be wasted work.
+      if (!hasBuyNow) {
+        queryClient.invalidateQueries({ queryKey: queryKeys.cart.all });
+      }
       queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
       router.replace(`/dat-hang-thanh-cong/${order.id}`);
     },
@@ -409,7 +412,15 @@ export function CheckoutView({ buyNowRaw }: { buyNowRaw?: string }) {
       void previewQuery.refetch();
       return;
     }
-    const payload = buildCheckoutPayload(selectedAddress, items, voucher, note, preview);
+    const payload = buildCheckoutPayload(
+      selectedAddress,
+      items,
+      voucher,
+      note,
+      preview,
+      // The one thing that decides whether the backend may consume cart lines.
+      hasBuyNow ? "BUY_NOW" : "CART",
+    );
     checkout.mutate({ payload, key: idempotencyKeyFor(payload) });
   };
 
