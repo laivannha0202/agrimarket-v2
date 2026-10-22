@@ -1,6 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
+import { IdempotencyService } from '../common/idempotency/idempotency.service.js';
+import { IDEMPOTENCY_SCOPES } from '../common/idempotency/idempotency.constants.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import {
   CreatePaymentDto,
@@ -24,6 +33,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly idempotency?: IdempotencyService,
   ) {}
 
   async create(dto: CreatePaymentDto) {
@@ -161,8 +171,57 @@ export class PaymentsService {
    * Refund validation:
    *  - amount > 0
    *  - total refunded (PENDING + COMPLETED) must not exceed the PAID amount
+   *
+   * CONCURRENCY
+   *
+   * The check-then-insert is a TOCTOU unless it is serialised: two requests
+   * that both read `already = 0` both passed the guard, both inserted, and the
+   * payment status was then derived from a stale total (double refund; the
+   * status could even regress from REFUNDED back to PARTIALLY_REFUNDED).
+   * Every refund therefore runs in one transaction that:
+   *
+   *  1. claims the parent payment row with `SELECT … FOR UPDATE` — all refunds
+   *     on the same payment queue on this lock;
+   *  2. RE-READS the refund total *after* the lock was granted, and re-checks
+   *     the remainder against the freshly locked status;
+   *  3. inserts the refund and derives the payment status from the locked
+   *     values only.
+   *
+   * The transaction runs with `ReadCommitted` on purpose. This codebase
+   * measured (docs/CONCURRENCY-AUDIT.md §2.2) that under the default
+   * REPEATABLE READ a transaction that read before the lock keeps its old
+   * snapshot, so the re-read would still see the pre-lock total and the guard
+   * would pass again. READ COMMITTED makes the post-lock aggregate observe
+   * every refund that committed before the lock was granted.
+   *
+   * A refused request is a plain 400; the loser of a race is told the exact
+   * remaining amount instead of getting a raw deadlock error (or, worse, both
+   * requests succeeding). `payments.service.refund` is the only code path that
+   * inserts `refund` rows, so every refund goes through this guard.
    */
-  async refund(dto: CreateRefundDto, actorUserId: number): Promise<Refund> {
+  async refund(
+    dto: CreateRefundDto,
+    actorUserId: number,
+    idempotencyKey?: string,
+  ): Promise<Refund> {
+    const payload = { paymentId: dto.paymentId, amount: dto.amount, reason: dto.reason };
+
+    // A retry must replay even after the first refund made the payment
+    // REFUNDED (the "PAID or PARTIALLY_REFUNDED" precondition below would
+    // otherwise reject the retry with a misleading business error).
+    if (idempotencyKey) {
+      if (!this.idempotency) {
+        throw new InternalServerErrorException('Idempotency service is not configured');
+      }
+      const replayed = await this.idempotency.replay<Refund>({
+        scope: IDEMPOTENCY_SCOPES.refundCreate,
+        actorUserId,
+        key: idempotencyKey,
+        payload,
+      });
+      if (replayed !== null) return replayed;
+    }
+
     if (dto.amount <= 0) {
       throw new BadRequestException('Refund amount must be greater than zero');
     }
@@ -171,52 +230,81 @@ export class PaymentsService {
       throw new BadRequestException('Only PAID or PARTIALLY_REFUNDED payments can be refunded');
     }
 
-    const refunded = await this.prisma.refund.aggregate({
-      where: {
-        paymentId: payment.id,
-        status: { in: [RefundStatus.PENDING, RefundStatus.COMPLETED] },
-      },
-      _sum: { amount: true },
-    });
-    const already = Number(refunded._sum.amount ?? 0);
-    const paid = Number(payment.amount);
-    if (already + dto.amount > paid) {
-      throw new BadRequestException(
-        `Refund total (${round2(already + dto.amount)}) would exceed paid amount (${paid})`,
-      );
-    }
+    const work = async (tx: Prisma.TransactionClient) => {
+        // Serialise every refund on the parent payment. The lock also blocks a
+        // concurrent `refund.create` (its FK takes a shared lock on this row),
+        // so the aggregate below cannot miss an uncommitted insert.
+        const locked = await tx.$queryRaw<{ id: number; amount: unknown; status: PaymentStatus }[]>`
+          SELECT id, amount, status FROM payments WHERE id = ${payment.id} FOR UPDATE
+        `;
+        if (locked.length === 0) throw new NotFoundException('Payment not found');
+        const current = locked[0];
+        if (
+          current.status !== PaymentStatus.PAID &&
+          current.status !== PaymentStatus.PARTIALLY_REFUNDED
+        ) {
+          throw new BadRequestException('Only PAID or PARTIALLY_REFUNDED payments can be refunded');
+        }
 
-    return this.prisma.$transaction(async (tx) => {
-      const refund = await tx.refund.create({
-        data: {
-          paymentId: payment.id,
-          amount: dto.amount,
-          reason: dto.reason,
-          status: RefundStatus.COMPLETED,
-          completedAt: new Date(),
-        },
-      });
-      const totalRefunded = round2(already + dto.amount);
-      await tx.payment.update({
-        where: { id: payment.id },
-        data: {
-          status:
-            totalRefunded >= paid ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
-        },
-      });
-      await this.audit.record(
-        {
-          actorUserId,
-          action: 'REFUND',
-          entityType: 'Payment',
-          entityId: String(payment.id),
-          afterJson: refund,
-          reason: dto.reason,
-        },
-        tx,
-      );
-      return refund;
-    });
+        const refunded = await tx.refund.aggregate({
+          where: {
+            paymentId: payment.id,
+            status: { in: [RefundStatus.PENDING, RefundStatus.COMPLETED] },
+          },
+          _sum: { amount: true },
+        });
+        const already = Number(refunded._sum.amount ?? 0);
+        const paid = Number(current.amount);
+        if (already + dto.amount > paid) {
+          throw new BadRequestException(
+            `Refund total (${round2(already + dto.amount)}) would exceed paid amount (${paid})`,
+          );
+        }
+
+        const refund = await tx.refund.create({
+          data: {
+            paymentId: payment.id,
+            amount: dto.amount,
+            reason: dto.reason,
+            status: RefundStatus.COMPLETED,
+            completedAt: new Date(),
+          },
+        });
+        const totalRefunded = round2(already + dto.amount);
+        await tx.payment.update({
+          where: { id: payment.id },
+          data: {
+            status:
+              totalRefunded >= paid ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED,
+          },
+        });
+        await this.audit.record(
+          {
+            actorUserId,
+            action: 'REFUND',
+            entityType: 'Payment',
+            entityId: String(payment.id),
+            afterJson: refund,
+            reason: dto.reason,
+          },
+          tx,
+        );
+        return refund;
+    };
+
+    if (!idempotencyKey) {
+      return this.prisma.$transaction(work, { isolationLevel: 'ReadCommitted' });
+    }
+    return this.idempotency!.run(
+      {
+        scope: IDEMPOTENCY_SCOPES.refundCreate,
+        actorUserId,
+        key: idempotencyKey,
+        payload,
+      },
+      work,
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   async listRefunds(query: { page?: number; limit?: number }) {

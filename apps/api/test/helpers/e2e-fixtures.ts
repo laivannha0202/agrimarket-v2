@@ -742,6 +742,11 @@ async function purgeRun(prisma: PrismaClient, runId: string, userIds: number[]):
   // (`PasswordResetToken.userId` is a foreign key with RESTRICT semantics), so
   // the run leaves nothing behind even when it created tokens.
   await prisma.passwordResetToken.deleteMany({ where: { userId: { in: scopedUserIds } } });
+  // Admin/finance idempotency keys reference the actor; explicit deletion keeps
+  // the fixture cleanup deterministic instead of relying on the FK cascade.
+  await prisma.appIdempotencyKey.deleteMany({
+    where: { actorUserId: { in: scopedUserIds } },
+  });
   // Idempotency keys reference both the customer (RESTRICT) and the order.
   await prisma.checkoutIdempotencyKey.deleteMany({
     where: {

@@ -1,0 +1,43 @@
+-- One partner order can be claimed by at most one settlement line, ever.
+--
+-- WHY
+-- `SettlementsService.create` filters partner orders with
+-- `settlementLines: { none: {} }`, but that filter is only a guard when two
+-- concurrent creates cannot both read the same unclaimed set. Before this
+-- index they could (measured: two concurrent creates produced 4 lines for 2
+-- partner orders), and the same order was paid twice.
+--
+-- PRE-CHECK — every existing environment MUST run this before applying; the
+-- ALTER below fails on duplicates (which is the safe behaviour: resolve them
+-- first, then deploy):
+--
+--   SELECT partner_order_id, COUNT(*) AS claims
+--     FROM settlement_lines
+--    GROUP BY partner_order_id
+--   HAVING claims > 1;
+--
+-- Corrections/splits are expressed through `settlements.adjustment_amount`,
+-- never by claiming one partner order twice, so a unique index matches the
+-- documented business rule ("each partner order contributes to at most one
+-- settlement line, across all periods").
+--
+-- Additive: no data is rewritten; `settlement_lines` only gains a secondary
+-- index on an existing column.
+--
+-- DEPLOY SEMANTICS — "idempotent" here means the Prisma migration runner
+-- applies this file once and records it in `_prisma_migrations`; it does NOT
+-- mean the SQL is re-runnable. MySQL/MariaDB has no
+-- `ADD UNIQUE INDEX IF NOT EXISTS`, so running the raw ALTER a second time
+-- fails with "Duplicate key name". Always deploy through
+-- `prisma migrate deploy` (the normal path). If an operator must run SQL
+-- manually, guard it first:
+--
+--   SELECT COUNT(*) FROM information_schema.statistics
+--    WHERE table_schema = DATABASE()
+--      AND table_name = 'settlement_lines'
+--      AND index_name = 'settlement_lines_partner_order_id_key';
+--
+-- and skip the ALTER when the count is 1.
+
+ALTER TABLE `settlement_lines`
+  ADD UNIQUE INDEX `settlement_lines_partner_order_id_key` (`partner_order_id`);

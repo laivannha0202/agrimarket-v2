@@ -1,6 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
+import { IdempotencyService } from '../common/idempotency/idempotency.service.js';
+import { IDEMPOTENCY_SCOPES } from '../common/idempotency/idempotency.constants.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import {
   AdjustInventoryDto,
@@ -14,6 +23,7 @@ import {
   QcResult,
   RecordStatus,
 } from '../../generated/prisma/enums.js';
+import { isUniqueViolationOn } from '../common/utils/code.util.js';
 
 type Tx = Prisma.TransactionClient;
 
@@ -33,6 +43,7 @@ export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly idempotency?: IdempotencyService,
   ) {}
 
   static available(onHand: number, reserved: number, blocked: number): number {
@@ -181,32 +192,133 @@ export class InventoryService {
     });
   }
 
-  /** Signed adjustment. Stock can never go negative. */
-  async adjust(dto: AdjustInventoryDto, actorUserId: number) {
+  /**
+   * Take the warehouse row lock WITHOUT the ACTIVE status gate.
+   *
+   * BL-07 (round 2, lock order): every other stock-writing path serialises on
+   * the warehouse row first (`requireActiveWarehouse`), so inbound / reserve /
+   * document flows hold X(warehouse) while they wait for the balance row lock.
+   * An `adjust` that claimed the balance row first and then inserted its
+   * movement — whose `warehouse_id` FK forces a shared lock on that same
+   * warehouse row — inverted the order and formed a real InnoDB deadlock
+   * against the inbound path (reproduced on the test DB: Prisma P2034 on the
+   * inbound `update`, 2/40 interleavings; the rollback silently dropped one
+   * increment). Taking the warehouse lock up front gives `adjust` the same
+   * warehouse → balance order.
+   *
+   * Adjustments remain the documented exception that may run at an INACTIVE
+   * warehouse, so this takes the lock only and never checks the status.
+   */
+  static async lockWarehouse(tx: Tx, warehouseId: number): Promise<void> {
+    await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM warehouses WHERE id = ${warehouseId} FOR UPDATE
+    `;
+  }
+
+  /**
+   * Take a SHARED warehouse lock before claiming balances in a path that only
+   * inserts child rows referencing the warehouse (checkout reservations).
+   *
+   * The checkout path does not modify the warehouse, but its movement insert
+   * takes an implicit S lock on `warehouses.id` through the FK. Taking that
+   * lock explicitly FIRST gives checkout the same `warehouse → balance` order
+   * as every warehouse writer, so an inbound/document/adjust transaction that
+   * already holds X(warehouse) can never wait on a balance the checkout holds
+   * while the checkout waits for S(warehouse) — the cycle reproduced in round 4
+   * (`.tmp-verify/round4/checkout-reserve-lock.mts`: 10/10 rounds, inbound and
+   * adjust lost with P2034 / 1213).
+   *
+   * `FOR SHARE` (not `FOR UPDATE`) is deliberate: checkout never changes the
+   * warehouse, and shared locks do not conflict with each other, so concurrent
+   * checkouts on the same warehouse still run in parallel. It does conflict
+   * with the writers' X lock, which is exactly the queueing point we need.
+   */
+  static async lockWarehouseShared(tx: Tx, warehouseId: number): Promise<void> {
+    await tx.$queryRaw<{ id: number }[]>`
+      SELECT id FROM warehouses WHERE id = ${warehouseId} FOR SHARE
+    `;
+  }
+
+  /**
+   * Signed adjustment (add/subtract a delta). Stock can never go negative and
+   * can never undercut `reserved + blocked`.
+   *
+   * CONCURRENCY (BL-07): the admin adjust path used to read the balance,
+   * compute `after = before + delta` in JS and write that absolute value back.
+   * Two adjustments racing (e.g. +5 and −3 on on-hand 10) both computed from
+   * the same `before`, so one increment was clobbered (lost update). The
+   * check-and-write is now a single conditional UPDATE whose guard is
+   * re-evaluated by the database while it holds the row's exclusive lock:
+   *
+   *   on_hand = on_hand + ?
+   *   WHERE on_hand + ? >= 0            (never negative)
+   *     AND on_hand + ? >= reserved + blocked  (never undercuts commitments)
+   *
+   * Because the arithmetic runs on the current column values, concurrent
+   * adjustments (and inbound/checkout changes interleaving) can never lose an
+   * increment, and the movement + audit rows — recorded in the same
+   * transaction with values read back AFTER the claimed update — always
+   * describe exactly what the balance shows. Plain Prisma transactions do not
+   * retry a rejected guard: a rejected update has zero affected rows, and the
+   * caller is told the business reason instead of a number computed from a
+   * stale snapshot.
+   */
+  async adjust(dto: AdjustInventoryDto, actorUserId: number, idempotencyKey?: string) {
     if (dto.quantityDelta === 0) {
       throw new BadRequestException('quantityDelta must not be zero');
     }
-    return this.prisma.$transaction(async (tx) => {
-      const balance = await this.getOrCreateBalance(
-        tx,
-        dto.warehouseId,
-        dto.productLotId,
-        dto.productVariantId,
-      );
-      const before = Number(balance.onHand);
-      const after = before + dto.quantityDelta;
-      if (after < 0) {
-        throw new BadRequestException('Adjustment would make on-hand quantity negative');
+    const work = async (tx: Tx) => {
+      // Same lock order as every other stock-writing path (see lockWarehouse):
+      // without it this transaction can deadlock against a concurrent inbound.
+      await InventoryService.lockWarehouse(tx, dto.warehouseId);
+      let balance: InventoryBalance;
+      try {
+        balance = await this.getOrCreateBalance(
+          tx,
+          dto.warehouseId,
+          dto.productLotId,
+          dto.productVariantId,
+        );
+      } catch (error) {
+        // Two admins adjusting a balance that did not exist yet both ran the
+        // get-or-create; the DB unique index makes exactly one of them the
+        // creator. The loser re-reads the winner's row and proceeds with the
+        // same guarded update instead of failing with a raw P2002.
+        if (!isUniqueViolationOn(error, 'warehouseid', 'warehouse_id')) throw error;
+        balance = await this.requireBalance(
+          tx,
+          dto.warehouseId,
+          dto.productLotId,
+          dto.productVariantId,
+        );
       }
-      if (after < Number(balance.reserved) + Number(balance.blocked)) {
+      const affected = await tx.$executeRaw`
+        UPDATE inventory_balances
+           SET on_hand = on_hand + ${dto.quantityDelta}, updated_at = UTC_TIMESTAMP(3)
+         WHERE id = ${balance.id}
+           AND on_hand + ${dto.quantityDelta} >= 0
+           AND on_hand + ${dto.quantityDelta} >= reserved + blocked
+      `;
+      if (affected === 0) {
+        // The guard rejected the change (or the row moved under us). Name the
+        // business reason from the current values instead of failing with a
+        // raw constraint error.
+        const current = await tx.inventoryBalance.findUniqueOrThrow({
+          where: { id: balance.id },
+        });
+        const after = Number(current.onHand) + dto.quantityDelta;
+        if (after < 0) {
+          throw new BadRequestException('Adjustment would make on-hand quantity negative');
+        }
         throw new BadRequestException(
           'Adjustment would make on-hand lower than reserved + blocked quantity',
         );
       }
-      const updated = await tx.inventoryBalance.update({
+      const updated = await tx.inventoryBalance.findUniqueOrThrow({
         where: { id: balance.id },
-        data: { onHand: after },
       });
+      const after = Number(updated.onHand);
+      const before = after - dto.quantityDelta;
       await this.recordMovement(tx, {
         warehouseId: dto.warehouseId,
         productLotId: dto.productLotId,
@@ -231,7 +343,30 @@ export class InventoryService {
         tx,
       );
       return this.withAvailable(updated);
-    });
+    };
+
+    // Without a key the behaviour is unchanged (the caller explicitly asked
+    // for two independent operations). With a key, the claim and the entire
+    // stock write commit or roll back together.
+    if (!idempotencyKey) return this.prisma.$transaction(work);
+    if (!this.idempotency) {
+      throw new InternalServerErrorException('Idempotency service is not configured');
+    }
+    return this.idempotency.run(
+      {
+        scope: IDEMPOTENCY_SCOPES.inventoryAdjust,
+        actorUserId,
+        key: idempotencyKey,
+        payload: {
+          warehouseId: dto.warehouseId,
+          productLotId: dto.productLotId,
+          productVariantId: dto.productVariantId,
+          quantityDelta: dto.quantityDelta,
+          note: dto.note ?? null,
+        },
+      },
+      work,
+    );
   }
 
   /**
@@ -391,6 +526,23 @@ export class InventoryService {
    * `remaining_quantity` is decremented in the same transaction so the lot
    * balance shown to customers tracks real deliveries.
    *
+   * CONCURRENCY (lock order, round 3): before any balance is touched, every
+   * distinct warehouse of the order's allocations is locked (ascending id), so
+   * this path holds X(warehouse) → X(balance) like every other stock writer
+   * (inbound / document complete / adjust — see `lockWarehouse`). Round 3
+   * reproduced the resulting InnoDB deadlock on the test DB: with only
+   * X(balance) held here, this path's movement insert needs only a shared FK
+   * lock on the same warehouse row the inbound path already holds exclusively,
+   * while inbound waits for the balance row — the victim got a raw P2034/1213
+   * and its operation was lost (reproducer: `.tmp-verify/round3/`,
+   * 30/30 rounds each in modes B and C before the fix). The motif is shared
+   * with `OrdersService.releaseOrderReservations` (quarantine/release on
+   * cancel) and the manual `release` endpoint, which take the same locks.
+   *
+   * `lockWarehouse` (not `requireActiveWarehouse`) on purpose: delivering an
+   * order must stay possible even if the warehouse was deactivated mid-flight,
+   * and this path must not gate on warehouse status it does not judge.
+   *
    * Throws `ConflictException` when a balance no longer holds the reservation
    * (a concurrent writer changed it): the caller's transaction rolls back and
    * the operator can reload, instead of fabricating a shipment of stock the
@@ -401,6 +553,15 @@ export class InventoryService {
       where: { orderItem: { partnerOrder: { orderId } } },
       include: { inventoryBalance: true },
     });
+    // Lock every touched warehouse FIRST (ascending ids keep two concurrent
+    // order transitions from claiming opposite warehouse orders), so the
+    // movement inserts below can never deadlock with inbound/document paths.
+    const warehouseIds = [...new Set(allocations.map((a) => a.inventoryBalance.warehouseId))].sort(
+      (a, b) => a - b,
+    );
+    for (const warehouseId of warehouseIds) {
+      await InventoryService.lockWarehouse(tx, warehouseId);
+    }
     for (const alloc of allocations) {
       const quantity = Number(alloc.quantity);
       const consumed = await this.consumeStock(tx, alloc.inventoryBalanceId, quantity);
@@ -513,9 +674,21 @@ export class InventoryService {
     });
   }
 
-  /** Release a reservation (e.g. order cancelled). */
+  /**
+   * Release a reservation (e.g. order cancelled).
+   *
+   * CONCURRENCY (lock order, round 3): the warehouse row is locked FIRST (same
+   * shared practice as inbound / documents / adjust — see `lockWarehouse`).
+   * Without it this path held only X(balance) while its movement insert needed
+   * a shared FK lock on the warehouse row an inbound/document path may already
+   * hold exclusively (the same reproduced deadlock shape as
+   * `consumeOrderStock` / `releaseOrderReservations`; round 3 mode B/C on the
+   * test DB). Manual releases at an INACTIVE warehouse stay allowed — this
+   * lock deliberately has no status gate.
+   */
   async release(dto: ReserveInventoryDto, actorUserId?: number) {
     return this.prisma.$transaction(async (tx) => {
+      await InventoryService.lockWarehouse(tx, dto.warehouseId);
       const balance = await this.requireBalance(
         tx,
         dto.warehouseId,

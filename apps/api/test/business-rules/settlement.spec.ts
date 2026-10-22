@@ -100,4 +100,64 @@ describe('Settlement formula', () => {
       ),
     ).rejects.toThrow(/periodEnd must be after periodStart/);
   });
+
+  it('still retries a code collision (unique index on settlements.code)', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([]);
+    prisma.settlement.findMany.mockResolvedValue([{ code: 'SET-0001' }]);
+    prisma.settlement.create
+      .mockRejectedValueOnce(
+        Object.assign(new Error('duplicate'), {
+          code: 'P2002',
+          meta: { target: 'settlements_code_key' },
+        }),
+      )
+      .mockImplementationOnce(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 2,
+        ...data,
+      }));
+
+    const settlement = await service.create(
+      {
+        partnerId: 1,
+        periodStart: '2026-04-01T00:00:00.000Z',
+        periodEnd: '2026-04-30T23:59:59.000Z',
+      },
+      99,
+    );
+    expect(settlement.id).toBe(2);
+    expect(prisma.settlement.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('maps a concurrent double-claim (P2002 on partner_order_id) to a 409, not a raw error', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      {
+        id: 7,
+        partnerId: 1,
+        subtotal: 100000,
+        discountTotal: 0,
+        commissionAmount: 0,
+        payableAmount: 100000,
+        status: PartnerOrderStatus.DELIVERED,
+      },
+    ]);
+    prisma.settlement.findMany.mockResolvedValue([]);
+    // The shape @prisma/adapter-mariadb produces for the new unique index.
+    prisma.settlement.create.mockRejectedValue(
+      Object.assign(new Error('Unique constraint failed'), {
+        code: 'P2002',
+        meta: { target: 'settlement_lines_partner_order_id_key' },
+      }),
+    );
+
+    await expect(
+      service.create(
+        {
+          partnerId: 1,
+          periodStart: '2026-04-01T00:00:00.000Z',
+          periodEnd: '2026-04-30T23:59:59.000Z',
+        },
+        99,
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+  });
 });

@@ -131,7 +131,10 @@ export const resources = {
   movements: (p?: ListParams) =>
     api.get<Paginated<InventoryMovement>>("/inventory/movements", toQuery(p)),
   inboundInventory: (body: unknown) => api.post<InventoryBalance>("/inventory/inbound", body),
-  adjustInventory: (body: unknown) => api.post<InventoryBalance>("/inventory/adjust", body),
+  adjustInventory: (body: unknown, idempotencyKey: string) =>
+    api.post<InventoryBalance>("/inventory/adjust", body, {
+      "Idempotency-Key": idempotencyKey,
+    }),
   warehouseDocuments: (p?: ListParams) =>
     api.get<Paginated<WarehouseDocument>>("/warehouse-documents", toQuery(p)),
   warehouseDocument: (id: number | string) =>
@@ -181,7 +184,8 @@ export const resources = {
   createSettlement: (body: unknown) => api.post<Settlement>("/settlements", body),
   confirmSettlement: (id: number | string) => api.post<Settlement>(`/settlements/${id}/confirm`),
   payouts: (p?: ListParams) => api.get<Paginated<Payout>>("/payouts", toQuery(p)),
-  createPayout: (body: unknown) => api.post<Payout>("/payouts", body),
+  createPayout: (body: unknown, idempotencyKey: string) =>
+    api.post<Payout>("/payouts", body, { "Idempotency-Key": idempotencyKey }),
   payPayout: (id: number | string) => api.post<Payout>(`/payouts/${id}/pay`),
 
   // Payments & shipments (order context)

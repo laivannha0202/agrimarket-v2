@@ -10,7 +10,8 @@ import { inflateSync } from 'node:zlib';
  * font (`Tf`), and decodes each run with the right map.
  *
  * It is deliberately small: page content streams + three CMap range forms is
- * everything PDFKit emits. Anything fancier belongs in a real PDF library.
+ * everything PDFKit emits (with multi-unit destination tokens for ligature or
+ * astral glyphs). Anything fancier belongs in a real PDF library.
  */
 
 function inflateIfNeeded(raw: Buffer): Buffer {
@@ -21,23 +22,45 @@ function inflateIfNeeded(raw: Buffer): Buffer {
   }
 }
 
+/**
+ * One ToUnicode destination token: one or more 4-digit hex UTF-16 units in a
+ * single `<…>`. PDFKit emits one token per subset glyph id, and a ligature
+ * glyph or astral character is a MULTI-unit token — e.g. the DejaVu `liga`
+ * "fl" ligature is `<0066 006c>` for exactly ONE glyph. Treating that token as
+ * two glyph entries silently shifts every later bfrange entry by one and
+ * mis-decodes all subsequent text (e.g. `…-ORDEXP1` -> `…-REDXP·`), so
+ * destination tokens must be grouped, never split per unit.
+ */
+const DEST_TOKEN = /<([0-9a-fA-F]{4}(?:\s+[0-9a-fA-F]{4})*)>/g;
+
+/** UTF-16 units in one destination token -> string (BMP chars + astral pairs). */
+function toUnicode(dst: string): string {
+  return dst
+    .split(/\s+/)
+    .reduce((s, u) => s + String.fromCharCode(parseInt(u, 16)), '');
+}
+
 function parseCMap(cmap: string): Map<number, string> {
   const map = new Map<number, string>();
   for (const bf of cmap.matchAll(/beginbfchar([\s\S]*?)endbfchar/g)) {
-    for (const line of bf[1].matchAll(/<([0-9a-fA-F]+)>\s+<([0-9a-fA-F]+)>/g)) {
-      map.set(parseInt(line[1], 16), String.fromCodePoint(parseInt(line[2], 16)));
+    for (const line of bf[1].matchAll(/<([0-9a-fA-F]{4})>\s+<([0-9a-fA-F]{4}(?:\s+[0-9a-fA-F]{4})*)>/g)) {
+      map.set(parseInt(line[1], 16), toUnicode(line[2]));
     }
   }
   for (const bf of cmap.matchAll(/beginbfrange([\s\S]*?)endbfrange/g)) {
     let body = bf[1];
     // Array form first, then strip it so the pair/triple patterns cannot
-    // match *inside* destination arrays.
+    // match *inside* destination arrays. Every `[…]` slide must hold exactly
+    // one destination token per glyph id in the ascending range.
     for (const line of body.matchAll(
       /<([0-9a-fA-F]+)>\s+<([0-9a-fA-F]+)>\s+\[([0-9a-fA-F<>\s]+)\]/g,
     )) {
       const lo = parseInt(line[1], 16);
-      const dsts = [...line[3].matchAll(/<([0-9a-fA-F]+)>/g)].map((d) => parseInt(d[1], 16));
-      dsts.forEach((d, i) => map.set(lo + i, String.fromCodePoint(d)));
+      let gid = lo;
+      for (const tok of line[3].matchAll(DEST_TOKEN)) {
+        map.set(gid, toUnicode(tok[1]));
+        gid += 1;
+      }
     }
     body = body.replace(/<([0-9a-fA-F]+)>\s+<([0-9a-fA-F]+)>\s+\[[0-9a-fA-F<>\s]+\]/g, '');
     for (const line of body.matchAll(/<([0-9a-fA-F]+)>\s+<([0-9a-fA-F]+)>\s+<([0-9a-fA-F]+)>/g)) {

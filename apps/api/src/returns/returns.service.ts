@@ -82,36 +82,59 @@ export class ReturnsService {
      * customer could ask for the whole line, and then ask for the whole line
      * again: each request passed on its own and the customer ended up promised
      * twice the goods they ever received. Subtracting the active requests makes
-     * the second one fail here, and the check runs inside the same transaction
-     * as the insert so two simultaneous requests cannot both see the old sum.
+     * the second one fail here — but only if the two requests cannot both read
+     * the old sum. A transaction alone does NOT provide that: under
+     * REPEATABLE READ each transaction keeps its snapshot and both pass
+     * (measured: two concurrent full-quantity requests, both accepted).
+     *
+     * The serialisation point is the parent order-item row: the transaction
+     * claims it with `SELECT … FOR UPDATE` before reading the active claims, so
+     * a second create for the same item waits at that lock. The concurrent
+     * create's insert also takes a shared FK lock on this same row, so it
+     * cannot slip an uncommitted request into the sum. The read happens AFTER
+     * the lock, under READ COMMITTED (docs/CONCURRENCY-AUDIT.md §2.2), so the
+     * loser sees the winner's committed row and is refused with the exact
+     * remaining quantity.
+     *
+     * Scope note: only the create path is serialised here. A status transition
+     * that moves a REJECTED request back into an active status could still
+     * raise the claimed sum afterwards — that is the missing state machine
+     * (BL-03), tracked separately.
      */
-    const created = await this.prisma.$transaction(async (tx) => {
-      const active = await tx.returnRequest.findMany({
-        where: { orderItemId: orderItem.id, status: { in: ACTIVE_RETURN_STATUSES } },
-        select: { quantity: true },
-      });
-      const alreadyClaimed = active.reduce((sum, r) => sum + Number(r.quantity), 0);
-      const returnable = Number(orderItem.quantity) - alreadyClaimed;
-      if (dto.quantity > returnable) {
-        throw new BadRequestException(
-          returnable <= 0
-            ? 'This item has already been fully claimed in another return request'
-            : `You can return at most ${returnable} of this item`,
-        );
-      }
-      const request = await tx.returnRequest.create({
-        data: {
-          orderId: order.id,
-          orderItemId: orderItem.id,
-          customerId,
-          quantity: dto.quantity,
-          reason: dto.reason,
-          status: ReturnRequestStatus.REQUESTED,
-        },
-      });
-      await this.evidence.bind(tx, customerId, dto.evidenceIds, { returnId: request.id });
-      return request;
-    });
+    const created = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await tx.$queryRaw<{ id: number; quantity: unknown }[]>`
+          SELECT id, quantity FROM order_items WHERE id = ${orderItem.id} FOR UPDATE
+        `;
+        if (locked.length === 0) throw new NotFoundException('Order item not found');
+        const active = await tx.returnRequest.findMany({
+          where: { orderItemId: orderItem.id, status: { in: ACTIVE_RETURN_STATUSES } },
+          select: { quantity: true },
+        });
+        const alreadyClaimed = active.reduce((sum, r) => sum + Number(r.quantity), 0);
+        const returnable = Number(locked[0].quantity) - alreadyClaimed;
+        if (dto.quantity > returnable) {
+          throw new BadRequestException(
+            returnable <= 0
+              ? 'This item has already been fully claimed in another return request'
+              : `You can return at most ${returnable} of this item`,
+          );
+        }
+        const request = await tx.returnRequest.create({
+          data: {
+            orderId: order.id,
+            orderItemId: orderItem.id,
+            customerId,
+            quantity: dto.quantity,
+            reason: dto.reason,
+            status: ReturnRequestStatus.REQUESTED,
+          },
+        });
+        await this.evidence.bind(tx, customerId, dto.evidenceIds, { returnId: request.id });
+        return request;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
 
     return created;
   }

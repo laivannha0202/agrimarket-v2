@@ -225,6 +225,9 @@ describe('Return quantity is bounded by what is left', () => {
       quantity: 5,
       partnerOrder: { order: { id: 10, customerId: 42, status: 'DELIVERED' } },
     });
+    // The `SELECT … FOR UPDATE` that serialises concurrent creates on the
+    // parent order item; it returns the locked row the quantity check uses.
+    prisma.$queryRaw.mockResolvedValue([{ id: 1, quantity: '5' }]);
   });
 
   it('subtracts active requests before checking the requested quantity', async () => {

@@ -605,6 +605,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
         // Delivery consumes the reservation: on_hand 10 -> 7, reserved 3 -> 0,
         // and an OUTBOUND movement records the goods leaving the warehouse.
         expect(Number(bal.reserved)).toBe(0);
+        expect(Number(bal.blocked)).toBe(0);
         expect(Number(bal.onHand)).toBe(7);
         expect(released).toBe(0);
         // Delivery never settles COD by itself: cash is confirmed separately.
@@ -614,11 +615,189 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
         });
         expect(outbound).toBe(1);
       } else {
+        // Cancelling from SHIPPING quarantines the reservation instead of
+        // re-selling it: reserved -> blocked, on_hand untouched, one
+        // QUARANTINE movement and never a RELEASE (see the dedicated test
+        // below). The old assertion here expected the pre-quarantine RELEASE
+        // semantics and made this branch fail whenever cancel won the race.
         expect(final.status).toBe('CANCELLED');
         expect(Number(bal.reserved)).toBe(0);
+        expect(Number(bal.blocked)).toBe(3);
         expect(Number(bal.onHand)).toBe(10);
-        expect(released).toBe(1);
+        expect(released).toBe(0);
+        const quarantined = await prisma.inventoryMovement.count({
+          where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'QUARANTINE' },
+        });
+        expect(quarantined).toBe(1);
+        expect(payment.status).toBe('PENDING');
       }
+      // Both outcomes keep the same invariant: available is unchanged.
+      expect(Number(bal.onHand) - Number(bal.reserved) - Number(bal.blocked)).toBe(7);
+    }
+  });
+
+  it('cancel-wins SHIPPING race (deterministic): cancel quarantines, the late delivery is refused', async () => {
+    for (let r = 0; r < ROUNDS; r += 1) {
+      const b = await world.base(10, `CW${r}`);
+      const [cid] = await world.customers(1);
+      const adminId = await world.admin(`cw${r}`);
+      const order = await prisma.order.create({
+        data: {
+          code: world.t(`OW${r}`),
+          customerId: cid,
+          shippingAddressSnapshot: address,
+          subtotal: 30000,
+          discountTotal: 0,
+          shippingFee: 0,
+          grandTotal: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const po = await prisma.partnerOrder.create({
+        data: {
+          code: world.t(`POW${r}`),
+          orderId: order.id,
+          partnerId: b.partnerId,
+          subtotal: 30000,
+          discountTotal: 0,
+          commissionAmount: 0,
+          payableAmount: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const item = await prisma.orderItem.create({
+        data: {
+          partnerOrderId: po.id,
+          productVariantId: b.variantId,
+          productNameSnapshot: 'p',
+          skuSnapshot: 's',
+          unitPriceSnapshot: 30000,
+          quantity: 3,
+          subtotal: 90000,
+          discountAmount: 0,
+        },
+      });
+      await prisma.inventoryBalance.update({
+        where: { id: b.balanceId },
+        data: { reserved: 3 },
+      });
+      await prisma.inventoryAllocation.create({
+        data: {
+          orderItemId: item.id,
+          inventoryBalanceId: b.balanceId,
+          productLotId: b.lotId,
+          quantity: 3,
+        },
+      });
+      const payment = await prisma.payment.create({
+        data: { orderId: order.id, method: 'COD', amount: 30000, status: 'PENDING' },
+      });
+
+      // Cancel first, then try to deliver: the state machine refuses the
+      // late transition and the quarantine side effect has already run.
+      const cancelled = await orders.cancelForCustomer(order.id, cid, cid);
+      expect(cancelled.status).toBe('CANCELLED');
+      await expect(orders.updateStatus(order.id, 'DELIVERED' as never, adminId)).rejects.toThrow();
+
+      const bal = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: b.balanceId } });
+      expect(Number(bal.reserved)).toBe(0);
+      expect(Number(bal.blocked)).toBe(3);
+      expect(Number(bal.onHand)).toBe(10);
+      expect(
+        await prisma.inventoryMovement.count({
+          where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'QUARANTINE' },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.inventoryMovement.count({
+          where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'RELEASE' },
+        }),
+      ).toBe(0);
+      expect(
+        (await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status,
+      ).toBe('PENDING');
+    }
+  });
+
+  it('deliver-wins SHIPPING race (deterministic): delivery consumes, the late cancel is refused', async () => {
+    for (let r = 0; r < ROUNDS; r += 1) {
+      const b = await world.base(10, `DW${r}`);
+      const [cid] = await world.customers(1);
+      const adminId = await world.admin(`dw${r}`);
+      const order = await prisma.order.create({
+        data: {
+          code: world.t(`ODW${r}`),
+          customerId: cid,
+          shippingAddressSnapshot: address,
+          subtotal: 30000,
+          discountTotal: 0,
+          shippingFee: 0,
+          grandTotal: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const po = await prisma.partnerOrder.create({
+        data: {
+          code: world.t(`PODW${r}`),
+          orderId: order.id,
+          partnerId: b.partnerId,
+          subtotal: 30000,
+          discountTotal: 0,
+          commissionAmount: 0,
+          payableAmount: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const item = await prisma.orderItem.create({
+        data: {
+          partnerOrderId: po.id,
+          productVariantId: b.variantId,
+          productNameSnapshot: 'p',
+          skuSnapshot: 's',
+          unitPriceSnapshot: 30000,
+          quantity: 3,
+          subtotal: 90000,
+          discountAmount: 0,
+        },
+      });
+      await prisma.inventoryBalance.update({
+        where: { id: b.balanceId },
+        data: { reserved: 3 },
+      });
+      await prisma.inventoryAllocation.create({
+        data: {
+          orderItemId: item.id,
+          inventoryBalanceId: b.balanceId,
+          productLotId: b.lotId,
+          quantity: 3,
+        },
+      });
+      const payment = await prisma.payment.create({
+        data: { orderId: order.id, method: 'COD', amount: 30000, status: 'PENDING' },
+      });
+
+      // Deliver first, then try to cancel: the cancellation finds a terminal
+      // order and must not release/consume anything a second time.
+      await orders.updateStatus(order.id, 'DELIVERED' as never, adminId);
+      await expect(orders.cancelForCustomer(order.id, cid, cid)).rejects.toThrow();
+
+      const bal = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: b.balanceId } });
+      expect(Number(bal.reserved)).toBe(0);
+      expect(Number(bal.blocked)).toBe(0);
+      expect(Number(bal.onHand)).toBe(7);
+      expect(
+        await prisma.inventoryMovement.count({
+          where: { referenceType: 'Order', referenceId: order.id, type: 'OUTBOUND' },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.inventoryMovement.count({
+          where: { referenceType: 'OrderCancel', referenceId: order.id },
+        }),
+      ).toBe(0);
+      expect(
+        (await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).status,
+      ).toBe('PENDING');
     }
   });
 
@@ -691,6 +870,189 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
       });
       expect(quarantineMoves).toBe(1);
       expect(releaseMoves).toBe(0);
+    }
+  });
+
+  it('cancel SHIPPING + concurrent inbound on the same balance: both survive (lock order), ledger matches', async () => {
+    // Round 3: the cancel path used to claim only X(balance) and then need a
+    // shared FK lock on the warehouse row an inbound path can already hold
+    // exclusively (reproduced 90/90 gated rounds in
+    // `.tmp-verify/round3/cancel-inbound-deadlock.mts` modes B/C — Prisma P2034
+    // / MySQL 1213). Both order-stock paths now claim X(warehouse) first, so
+    // the two operations queue instead of closing the cycle and both commit.
+    for (let r = 0; r < ROUNDS; r += 1) {
+      const b = await world.base(10, `CR${r}`);
+      const [cid] = await world.customers(1);
+      const order = await prisma.order.create({
+        data: {
+          code: world.t(`OCR${r}`),
+          customerId: cid,
+          shippingAddressSnapshot: address,
+          subtotal: 30000,
+          discountTotal: 0,
+          shippingFee: 0,
+          grandTotal: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const po = await prisma.partnerOrder.create({
+        data: {
+          code: world.t(`POCR${r}`),
+          orderId: order.id,
+          partnerId: b.partnerId,
+          subtotal: 30000,
+          discountTotal: 0,
+          commissionAmount: 0,
+          payableAmount: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const item = await prisma.orderItem.create({
+        data: {
+          partnerOrderId: po.id,
+          productVariantId: b.variantId,
+          productNameSnapshot: 'p',
+          skuSnapshot: 's',
+          unitPriceSnapshot: 30000,
+          quantity: 4,
+          subtotal: 120000,
+          discountAmount: 0,
+        },
+      });
+      await prisma.inventoryBalance.update({
+        where: { id: b.balanceId },
+        data: { reserved: 4 },
+      });
+      await prisma.inventoryAllocation.create({
+        data: { orderItemId: item.id, inventoryBalanceId: b.balanceId, productLotId: b.lotId, quantity: 4 },
+      });
+
+      const [cancel, inbound] = await Promise.all([
+        orders.cancelForCustomer(order.id, cid, cid).then(
+          () => 'ok' as const,
+          (e) => e,
+        ),
+        inventory.inbound(
+          { warehouseId: b.warehouseId, productLotId: b.lotId, productVariantId: b.variantId, quantity: 5 } as never,
+          cid,
+        ).then(
+          () => 'ok' as const,
+          (e) => e,
+        ),
+      ]);
+      expect(cancel).toBe('ok');
+      expect(inbound).toBe('ok');
+
+      const bal = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: b.balanceId } });
+      expect(Number(bal.onHand)).toBe(15);
+      expect(Number(bal.reserved)).toBe(0);
+      expect(Number(bal.blocked)).toBe(4);
+      const inbMoves = await prisma.inventoryMovement.count({
+        where: { productVariantId: b.variantId, type: 'INBOUND' },
+      });
+      const quaMoves = await prisma.inventoryMovement.count({
+        where: { productVariantId: b.variantId, type: 'QUARANTINE' },
+      });
+      expect(inbMoves).toBe(1);
+      expect(quaMoves).toBe(1);
+      const final = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+      expect(final.status).toBe('CANCELLED');
+    }
+  });
+
+  it('cancel SHIPPING + concurrent inbound document complete: both survive (lock order)', async () => {
+    // Same reproduced pair as above, with the DRAFT-document completion as the
+    // inbound writer (`WarehouseDocumentsService.complete`).
+    for (let r = 0; r < ROUNDS; r += 1) {
+      const b = await world.base(10, `CS${r}`);
+      const adminId = await world.admin(`doc${r}`);
+      const doc = await docs.create(
+        {
+          warehouseId: b.warehouseId,
+          type: 'INBOUND',
+          sourceType: null,
+          note: 'cancel race',
+          lines: [{ productLotId: b.lotId, productVariantId: b.variantId, quantity: 5, unit: 'kg' }],
+        } as never,
+        adminId,
+      );
+      const [cid] = await world.customers(1);
+      const order = await prisma.order.create({
+        data: {
+          code: world.t(`OCS${r}`),
+          customerId: cid,
+          shippingAddressSnapshot: address,
+          subtotal: 30000,
+          discountTotal: 0,
+          shippingFee: 0,
+          grandTotal: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const po = await prisma.partnerOrder.create({
+        data: {
+          code: world.t(`POCS${r}`),
+          orderId: order.id,
+          partnerId: b.partnerId,
+          subtotal: 30000,
+          discountTotal: 0,
+          commissionAmount: 0,
+          payableAmount: 30000,
+          status: 'SHIPPING',
+        },
+      });
+      const item = await prisma.orderItem.create({
+        data: {
+          partnerOrderId: po.id,
+          productVariantId: b.variantId,
+          productNameSnapshot: 'p',
+          skuSnapshot: 's',
+          unitPriceSnapshot: 30000,
+          quantity: 4,
+          subtotal: 120000,
+          discountAmount: 0,
+        },
+      });
+      await prisma.inventoryBalance.update({
+        where: { id: b.balanceId },
+        data: { reserved: 4 },
+      });
+      await prisma.inventoryAllocation.create({
+        data: { orderItemId: item.id, inventoryBalanceId: b.balanceId, productLotId: b.lotId, quantity: 4 },
+      });
+
+      const [cancel, complete] = await Promise.all([
+        orders.cancelForCustomer(order.id, cid, cid).then(
+          () => 'ok' as const,
+          (e) => e,
+        ),
+        docs.complete(doc.id, adminId).then(
+          () => 'ok' as const,
+          (e) => e,
+        ),
+      ]);
+      expect(cancel).toBe('ok');
+      expect(complete).toBe('ok');
+
+      const bal = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: b.balanceId } });
+      expect(Number(bal.onHand)).toBe(15);
+      expect(Number(bal.reserved)).toBe(0);
+      expect(Number(bal.blocked)).toBe(4);
+      const inbMoves = await prisma.inventoryMovement.count({
+        where: { productVariantId: b.variantId, type: 'INBOUND' },
+      });
+      const quaMoves = await prisma.inventoryMovement.count({
+        where: { productVariantId: b.variantId, type: 'QUARANTINE' },
+      });
+      expect(inbMoves).toBe(1);
+      expect(quaMoves).toBe(1);
+      const docAfter = await prisma.warehouseDocument.findUniqueOrThrow({
+        where: { id: doc.id },
+        select: { status: true },
+      });
+      expect(docAfter.status).toBe('COMPLETED');
+      const final = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+      expect(final.status).toBe('CANCELLED');
     }
   });
 

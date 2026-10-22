@@ -71,11 +71,13 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     }
   });
 
-  const post = (path: string, token: string, body?: unknown) =>
-    request(app.getHttpServer())
+  const post = (path: string, token: string, body?: unknown, idempotencyKey?: string) => {
+    const req = request(app.getHttpServer())
       .post(path)
-      .set('Authorization', `Bearer ${token}`)
-      .send(body as object);
+      .set('Authorization', `Bearer ${token}`);
+    if (idempotencyKey) req.set('Idempotency-Key', idempotencyKey);
+    return req.send(body as object);
+  };
 
   const patch = (path: string, token: string, body?: unknown) =>
     request(app.getHttpServer())
@@ -586,7 +588,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         productVariantId: variantId,
         quantityDelta: -20,
         note: 'Hao hụt E2E',
-      }).expect(201);
+      }, `${RUN_ID}-adjust-1`).expect(201);
       expect(Number(res.body.onHand)).toBe(80);
     });
 
@@ -596,7 +598,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         productLotId: lotId,
         productVariantId: variantId,
         quantityDelta: -9999,
-      }).expect(400);
+      }, `${RUN_ID}-adjust-negative`).expect(400);
       expect(res.body.message).toMatch(/negative/i);
     });
 
@@ -606,7 +608,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         productLotId: lotId,
         productVariantId: variantId,
         quantityDelta: 0,
-      }).expect(400);
+      }, `${RUN_ID}-adjust-zero`).expect(400);
     });
 
     it('reserves stock and reduces available', async () => {
@@ -1941,7 +1943,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         paymentId: fixtures.paymentId,
         amount: 25000,
         reason: `Hoàn tiền E2E ${RUN_ID}`,
-      }).expect(201);
+      }, `${RUN_ID}-refund-1`).expect(201);
       expect(refund.body.status).toBe('COMPLETED');
 
       const updated = await patch(`/api/v1/returns/${returnId}`, adminToken, {
@@ -1956,7 +1958,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         paymentId: fixtures.paymentId,
         amount: 9999999,
         reason: 'Quá lớn',
-      }).expect(400);
+      }, `${RUN_ID}-refund-too-large`).expect(400);
       expect(res.body.message).toMatch(/exceed paid amount/i);
     });
 
@@ -1965,7 +1967,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         paymentId: fixtures.paymentId,
         amount: 0,
         reason: 'Không hợp lệ',
-      }).expect(400);
+      }, `${RUN_ID}-refund-zero`).expect(400);
     });
 
     it('lists my own returns and re-reads one after logging in again', async () => {
@@ -2172,7 +2174,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     it('refuses a payout before the settlement is confirmed', async () => {
       const res = await post('/api/v1/payouts', adminToken, {
         settlementId,
-      }).expect(400);
+      }, `${RUN_ID}-payout-preconfirm`).expect(400);
       expect(res.body.message).toMatch(/must be CONFIRMED/i);
     });
 
@@ -2190,7 +2192,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       const res = await post('/api/v1/payouts', adminToken, {
         settlementId,
         reference: `E2E-REF-${RUN_ID}`,
-      }).expect(201);
+      }, `${RUN_ID}-payout-1`).expect(201);
       payoutId = res.body.id;
       expect(res.body.status).toBe('PENDING');
       expect(Number(res.body.amount)).toBe(476000);
@@ -2200,7 +2202,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       const res = await post('/api/v1/payouts', adminToken, {
         settlementId,
         amount: 1,
-      }).expect(400);
+      }, `${RUN_ID}-payout-too-large`).expect(400);
       expect(res.body.message).toMatch(/exceed settlement payable/i);
     });
 

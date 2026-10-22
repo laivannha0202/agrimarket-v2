@@ -236,6 +236,7 @@ model User {
   returnRequests     ReturnRequest[]
   voucherRedemptions VoucherRedemption[]
   checkoutKeys       CheckoutIdempotencyKey[]
+  appIdempotencyKeys AppIdempotencyKey[]
   passwordResetTokens PasswordResetToken[]
   qcInspections      QcInspection[]      @relation("QcInspector")
   warehouseDocuments WarehouseDocument[] @relation("WarehouseDocCreator")
@@ -881,6 +882,43 @@ model CheckoutIdempotencyKey {
   @@map("checkout_idempotency_keys")
 }
 
+/// DB-backed idempotency ledger for admin/finance state-changing endpoints
+/// (`POST /inventory/adjust`, `POST /payouts`, `POST /refunds`).
+///
+/// WHY: those endpoints had no retry identity. A client whose response was
+/// lost (timeout, network drop, double click) retried the same request and the
+/// business write ran twice: +10 stock instead of +5, two payouts, two refunds.
+///
+/// HOW: the row is claimed by a UNIQUE INSERT inside the SAME transaction as
+/// the business write, and the response body is written before that transaction
+/// commits. Therefore:
+///   * committed key -> response body present -> retry replays it;
+///   * business write fails/rolls back -> the claim rolls back too, so the same
+///     key can be retried and there is never a visible PENDING/stuck claim;
+///   * same key + different payload -> 409 (the stored hash differs);
+///   * scope + actor are part of the unique key, so two admins (or two
+///     endpoints) may use the same client-generated key independently.
+///
+/// `expiresAt` is the retention horizon (default 30 days). Rows are purged by
+/// `IdempotencyService.purgeExpired`; an expired key is reusable.
+model AppIdempotencyKey {
+  id             Int      @id @default(autoincrement())
+  scope          String   @db.VarChar(64)
+  actorUserId    Int      @map("actor_user_id")
+  key            String   @db.VarChar(100)
+  requestHash    String   @map("request_hash") @db.VarChar(64)
+  responseStatus Int?     @map("response_status")
+  responseJson   Json?    @map("response_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  expiresAt      DateTime @map("expires_at")
+
+  actor User @relation(fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@unique([scope, actorUserId, key])
+  @@index([expiresAt])
+  @@map("app_idempotency_keys")
+}
+
 /// Daily business-code counters, one row per `<PREFIX>-<YYYYMMDD>-`.
 ///
 /// WHY: `nextOrderCode` used to derive the next number from the highest
@@ -1355,6 +1393,13 @@ model SettlementLine {
   settlement   Settlement   @relation(fields: [settlementId], references: [id])
   partnerOrder PartnerOrder @relation(fields: [partnerOrderId], references: [id])
 
+  // One partner order is claimed by at most one settlement line, ever (across
+  // all settlements and periods). This is the database-level guard behind the
+  // "already claimed" filter in SettlementsService.create: two concurrent
+  // creates can both read the same unclaimed set, and this unique index makes
+  // the loser fail instead of paying the same order twice. Corrections use the
+  // settlement-level adjustmentAmount.
+  @@unique([partnerOrderId])
   @@index([settlementId])
   @@map("settlement_lines")
 }

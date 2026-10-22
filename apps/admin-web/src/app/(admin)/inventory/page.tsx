@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Form, Input, InputNumber, Select, Tabs } from "antd";
@@ -14,6 +14,7 @@ import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { useLotOptions, useVariantOptions, useWarehouseOptions } from "@/hooks/useOptions";
 import { resources } from "@/lib/api/resources";
+import { idempotencyKeyFor, type IdempotencyStore } from "@/lib/api/idempotency";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDateTime, formatQuantity } from "@/lib/format";
 import { toNumeric } from "@/lib/format/form";
@@ -29,6 +30,7 @@ function BalancesTab() {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"inbound" | "adjust">("inbound");
   const [form] = Form.useForm();
+  const adjustIdempotency = useRef<IdempotencyStore["current"]>(null);
   const warehouses = useWarehouseOptions();
   const lots = useLotOptions();
   const variants = useVariantOptions();
@@ -50,12 +52,13 @@ function BalancesTab() {
       ]);
       return vars.mode === "inbound"
         ? resources.inboundInventory(body)
-        : resources.adjustInventory(body);
+        : resources.adjustInventory(body, idempotencyKeyFor(adjustIdempotency, body));
     },
     {
       invalidate: [["inventory"], ["movements"]],
       successMessage: "Đã cập nhật tồn kho.",
       onSuccess: () => {
+        adjustIdempotency.current = null;
         setOpen(false);
         form.resetFields();
       },
@@ -63,6 +66,7 @@ function BalancesTab() {
   );
 
   const openDialog = (next: "inbound" | "adjust") => {
+    adjustIdempotency.current = null;
     setMode(next);
     form.resetFields();
     setOpen(true);

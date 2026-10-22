@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Button, DatePicker, Form, Input, InputNumber, Select, Tabs } from "antd";
 import { PlusOutlined, DollarOutlined } from "@ant-design/icons";
@@ -14,6 +14,7 @@ import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { usePartnerOptions } from "@/hooks/useOptions";
 import { resources } from "@/lib/api/resources";
+import { idempotencyKeyFor, type IdempotencyStore } from "@/lib/api/idempotency";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { num } from "@/lib/format/form";
@@ -177,6 +178,7 @@ function PayoutsTab() {
   const list = useListState();
   const [open, setOpen] = useState(false);
   const [form] = Form.useForm();
+  const payoutIdempotency = useRef<IdempotencyStore["current"]>(null);
   // Payouts can only be created for CONFIRMED (or already PAID) settlements, so
   // the lookup runs two server-side filtered queries and merges them.
   const confirmed = useListQuery<Settlement>(
@@ -199,16 +201,19 @@ function PayoutsTab() {
   );
 
   const create = useAction(
-    (values: { settlementId: number; amount?: number; reference?: string }) =>
-      resources.createPayout({
+    (values: { settlementId: number; amount?: number; reference?: string }) => {
+      const body = {
         settlementId: num(values.settlementId),
         amount: num(values.amount),
         reference: values.reference,
-      }),
+      };
+      return resources.createPayout(body, idempotencyKeyFor(payoutIdempotency, body));
+    },
     {
       invalidate: [["payouts"], ["settlements"]],
       successMessage: "Đã tạo lệnh chi trả.",
       onSuccess: () => {
+        payoutIdempotency.current = null;
         setOpen(false);
         form.resetFields();
       },

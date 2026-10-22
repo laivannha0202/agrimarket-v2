@@ -303,7 +303,23 @@ describe('Inventory rules', () => {
   });
 
   describe('adjust', () => {
+    // BL-07: adjust is one guarded UPDATE (`on_hand = on_hand + delta WHERE
+    // on_hand + delta >= 0 AND on_hand + delta >= reserved + blocked`). A
+    // rejected guard reports zero affected rows; the service then re-reads the
+    // current values to name the business reason, so the mock must provide the
+    // row state the database would report.
     it('rejects an adjustment that would make stock negative', async () => {
+      prisma.$executeRaw.mockResolvedValue(0);
+      prisma.inventoryBalance.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        onHand: 5,
+        reserved: 0,
+        blocked: 0,
+        unit: 'kg',
+      });
       prisma.inventoryBalance.findUnique.mockResolvedValue({
         id: 1,
         warehouseId: 1,
@@ -322,6 +338,87 @@ describe('Inventory rules', () => {
           1,
         ),
       ).rejects.toThrow(/negative/);
+    });
+
+    it('rejects an adjustment that would undercut reserved + blocked', async () => {
+      prisma.$executeRaw.mockResolvedValue(0);
+      prisma.inventoryBalance.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        // on_hand 5 - 3 = 2 < reserved 3 + blocked 1 → guard rejects the
+        // corrected math but the balance itself would stay non-negative.
+        onHand: 5,
+        reserved: 3,
+        blocked: 1,
+        unit: 'kg',
+      });
+      prisma.inventoryBalance.findUnique.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        onHand: 5,
+        reserved: 3,
+        blocked: 1,
+        unit: 'kg',
+      });
+
+      const { service } = makeService(prisma);
+      await expect(
+        service.adjust(
+          { warehouseId: 1, productLotId: 1, productVariantId: 1, quantityDelta: -3 },
+          1,
+        ),
+      ).rejects.toThrow(/reserved \+ blocked/);
+    });
+
+    it('adds a delta and records the movement from the post-update read-back', async () => {
+      prisma.inventoryBalance.findUnique.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        onHand: 10,
+        reserved: 0,
+        blocked: 0,
+        unit: 'kg',
+      });
+      // The mock reports the post-update balance: +5 was applied atomically.
+      prisma.$executeRaw.mockResolvedValue(1);
+      prisma.inventoryBalance.findUniqueOrThrow.mockResolvedValue({
+        id: 1,
+        warehouseId: 1,
+        productLotId: 1,
+        productVariantId: 1,
+        onHand: 15,
+        reserved: 0,
+        blocked: 0,
+        unit: 'kg',
+      });
+      prisma.inventoryMovement.create.mockResolvedValue({});
+
+      const { service, audit } = makeService(prisma);
+      const result = await service.adjust(
+        { warehouseId: 1, productLotId: 1, productVariantId: 1, quantityDelta: 5 },
+        1,
+      );
+
+      // Exactly one guarded statement performs the check-and-add.
+      expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+      expect(result.onHand).toBe('15');
+      // beforeQuantity comes from the read-back (after - delta), not a stale
+      // pre-read: 15 - 5 = 10.
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'INVENTORY_ADJUSTMENT',
+          beforeJson: { onHand: 10 },
+          afterJson: { onHand: 15 },
+        }),
+        // written inside the same transaction as the guarded update
+        expect.anything(),
+      );
     });
   });
 });

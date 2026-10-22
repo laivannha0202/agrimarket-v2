@@ -43,6 +43,8 @@ export interface RequestOptions {
   params?: Record<string, QueryValue>;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Extra request headers, e.g. `Idempotency-Key` on retry-safe writes. */
+  headers?: Record<string, string>;
 }
 
 function buildUrl(path: string, params?: Record<string, QueryValue>): string {
@@ -106,7 +108,15 @@ function fallbackMessage(status: number): string {
   }
 }
 
-export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {  const { method = "GET", body, params, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
+export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const {
+    method = "GET",
+    body,
+    params,
+    signal,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    headers: extraHeaders,
+  } = options;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -118,6 +128,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (extraHeaders) Object.assign(headers, extraHeaders);
 
   let res: Response;
   try {
@@ -157,7 +168,8 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 export const api = {
   get: <T>(path: string, params?: Record<string, QueryValue>, signal?: AbortSignal) =>
     apiFetch<T>(path, { method: "GET", params, signal }),
-  post: <T>(path: string, body?: unknown) => apiFetch<T>(path, { method: "POST", body }),
+  post: <T>(path: string, body?: unknown, headers?: Record<string, string>) =>
+    apiFetch<T>(path, { method: "POST", body, headers }),
   patch: <T>(path: string, body?: unknown) => apiFetch<T>(path, { method: "PATCH", body }),
   del: <T>(path: string) => apiFetch<T>(path, { method: "DELETE" }),
   /**

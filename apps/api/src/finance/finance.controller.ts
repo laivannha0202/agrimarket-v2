@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CommissionService } from './commission.service.js';
 import { PayoutsService, SettlementsService } from './settlements.service.js';
@@ -16,6 +16,7 @@ import {
 } from './dto/finance.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 
 @ApiTags('finance')
@@ -126,9 +127,20 @@ export class FinanceController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Post('payouts')
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description:
+      'Stable client-generated key per logical payout. Reusing it with the same payload replays ' +
+      'the original payout instead of creating a second one; a different payload is rejected with 409.',
+  })
   @ApiOperation({ summary: 'Create a payout for a confirmed settlement (ADMIN)' })
-  createPayout(@Body() dto: CreatePayoutDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.payoutsService.create(dto, user.id);
+  createPayout(
+    @Body() dto: CreatePayoutDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @IdempotencyKey() idempotencyKey: string,
+  ) {
+    return this.payoutsService.create(dto, user.id, idempotencyKey);
   }
 
   @Roles('ADMIN')

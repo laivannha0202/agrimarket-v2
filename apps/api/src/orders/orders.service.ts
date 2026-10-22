@@ -36,6 +36,7 @@ import {
   PartnerOrderStatus,
   PaymentMethod,
   PaymentStatus,
+  RecordStatus,
 } from '../../generated/prisma/enums.js';
 
 const MAX_IDEMPOTENCY_KEY_LENGTH = 100;
@@ -550,6 +551,13 @@ export class OrdersService {
           });
         }
 
+        // Pre-lock every warehouse that currently holds a balance this checkout
+        // could reserve from, BEFORE any balance is claimed (see
+        // `lockCheckoutWarehouses`). The whole order's lines are covered by one
+        // sorted set; a balance created after this query is covered by the
+        // per-slice shared lock in `reserveLine`.
+        await this.lockCheckoutWarehouses(tx, lines);
+
         let partnerIndex = 0;
         for (const [partnerId, partnerLines] of byPartner) {
           partnerIndex += 1;
@@ -708,6 +716,45 @@ export class OrdersService {
   }
 
   /**
+   * Take shared warehouse locks for every warehouse this checkout could touch,
+   * in ascending id order, BEFORE the first balance is claimed.
+   *
+   * Round 4 reproduced the deadlock this prevents (`.tmp-verify/round4/`):
+   * `reserveLine` held X(balance) after `reserveStock`, then its RESERVE
+   * movement insert needed S(warehouse) through the FK, while inbound/adjust
+   * held X(warehouse) and waited for that same balance. Inbound and adjust
+   * lost all 10/10 forced rounds with P2034 / MySQL 1213.
+   *
+   * The set covers every warehouse that holds a balance of the ordered variants
+   * at this point in the transaction. A balance created by a concurrent inbound
+   * after this query is covered by the per-slice `lockWarehouseShared` call in
+   * `reserveLine`, so the `warehouse -> balance` order still holds.
+   * `FOR SHARE` keeps concurrent checkouts parallel; it only serialises against
+   * writers holding X(warehouse).
+   */
+  private async lockCheckoutWarehouses(
+    tx: Prisma.TransactionClient,
+    lines: ResolvedLine[],
+  ): Promise<void> {
+    const productVariantIds = [...new Set(lines.map((line) => line.productVariantId))];
+    if (productVariantIds.length === 0) return;
+    const balances = await tx.inventoryBalance.findMany({
+      where: {
+        productVariantId: { in: productVariantIds },
+        warehouse: { status: RecordStatus.ACTIVE },
+      },
+      select: { warehouseId: true },
+      distinct: ['warehouseId'],
+    });
+    const warehouseIds = [...new Set(balances.map((balance) => balance.warehouseId))].sort(
+      (a, b) => a - b,
+    );
+    for (const warehouseId of warehouseIds) {
+      await InventoryService.lockWarehouseShared(tx, warehouseId);
+    }
+  }
+
+  /**
    * Claim `line.quantity` units for one order line, FEFO.
    *
    * The FEFO plan (`allocateFefo`) is a read; claiming is an atomic conditional
@@ -720,6 +767,13 @@ export class OrdersService {
    * `allocateFefo` throws when the sellable total is short, which is the final
    * answer: the checkout rolls back with a clear "insufficient stock" error and
    * no partial reservation survives (the caller's transaction is rolled back).
+   *
+   * LOCK ORDER: `createOrder` calls `lockCheckoutWarehouses` first, which takes
+   * S(warehouse) for every warehouse these lines can allocate from, in
+   * ascending order. The `recordMovement` inserts below therefore already hold
+   * the S lock their `warehouse_id` FK needs, instead of acquiring it *after*
+   * X(balance) and closing a cycle with inbound/adjust/document-complete
+   * (reproduced 10/10 in `.tmp-verify/round4/checkout-reserve-lock.mts`).
    */
   private async reserveLine(
     tx: Prisma.TransactionClient,
@@ -738,6 +792,15 @@ export class OrdersService {
 
       let claimed = 0;
       for (const slice of plan) {
+        // `lockCheckoutWarehouses` covered every warehouse that had a balance
+        // when the transaction started. A concurrent inbound can create a new
+        // balance in another warehouse after that query (READ COMMITTED gives
+        // this statement a fresh snapshot), so take this warehouse's shared
+        // lock before the balance's X lock as well. That keeps the
+        // `warehouse -> balance` order for balances that did not exist at
+        // pre-lock time; re-locking a warehouse already in the pre-lock set is
+        // a no-op for conflict purposes.
+        await InventoryService.lockWarehouseShared(tx, slice.warehouseId);
         const reserved = await this.inventory.reserveStock(tx, slice.balanceId, slice.available);
         if (!reserved) continue; // another checkout took this slice: re-plan
         await tx.inventoryAllocation.create({
@@ -1124,6 +1187,25 @@ export class OrdersService {
       where: { orderItem: { partnerOrder: { orderId } } },
       include: { inventoryBalance: true },
     });
+    // CONCURRENCY (lock order, round 3): lock every touched warehouse FIRST
+    // (ascending ids), mirroring `InventoryService.lockWarehouse` and the rest
+    // of the stock writers (inbound / documents / adjust / delivery consume —
+    // `consumeOrderStock`). With only X(balance) held, this path inserts its
+    // QUARANTINE/RELEASE movement below and needs a shared FK lock on the very
+    // warehouse row an inbound/document path can already hold exclusively —
+    // round 3 reproduced that InnoDB deadlock 30/30 rounds each mode
+    // (Prisma P2034 on the inbound update; MySQL 1213 on the document path):
+    // the victim lost its committed work and surfaced a raw DB error. Claiming
+    // the warehouse rows up front puts every path on the same `warehouse →
+    // balance` order, so both sides queue instead of closing a cycle.
+    // `lockWarehouse` only (no status gate): cancelling an order at a
+    // deactivated warehouse must still be possible.
+    const warehouseIds = [...new Set(allocations.map((a) => a.inventoryBalance.warehouseId))].sort(
+      (a, b) => a - b,
+    );
+    for (const warehouseId of warehouseIds) {
+      await InventoryService.lockWarehouse(tx, warehouseId);
+    }
     for (const alloc of allocations) {
       const balance = alloc.inventoryBalance;
       const quantity = Number(alloc.quantity);

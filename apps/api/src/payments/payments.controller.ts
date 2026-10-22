@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service.js';
 import {
   CreatePaymentDto,
@@ -10,6 +10,7 @@ import {
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 
 @ApiTags('payments')
@@ -64,8 +65,19 @@ export class PaymentsController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Post('refunds')
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    required: true,
+    description:
+      'Stable client-generated key per logical refund. Reusing it with the same payload replays ' +
+      'the original refund instead of refunding twice; a different payload is rejected with 409.',
+  })
   @ApiOperation({ summary: 'Refund a payment (ADMIN) — cannot exceed paid amount' })
-  refund(@Body() dto: CreateRefundDto, @CurrentUser() user: AuthenticatedUser) {
-    return this.paymentsService.refund(dto, user.id);
+  refund(
+    @Body() dto: CreateRefundDto,
+    @CurrentUser() user: AuthenticatedUser,
+    @IdempotencyKey() idempotencyKey: string,
+  ) {
+    return this.paymentsService.refund(dto, user.id, idempotencyKey);
   }
 }

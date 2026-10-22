@@ -257,8 +257,23 @@ export async function purgeCreated(
   await prisma.inventoryAllocation.deleteMany({
     where: { inventoryBalance: { productVariantId: { in: variants } } },
   });
+  await prisma.appIdempotencyKey.deleteMany({ where: { actorUserId: { in: users } } });
   await prisma.checkoutIdempotencyKey.deleteMany({ where: { customerId: { in: users } } });
   await prisma.voucherRedemption.deleteMany({ where: { customerId: { in: users } } });
+  // After-sales rows must go before the payments/order items/partner orders
+  // they point at (FKs are RESTRICT): return requests reference both a refund
+  // and an order item; refunds reference a payment.
+  await prisma.returnRequest.deleteMany({ where: { customerId: { in: users } } });
+  await prisma.refund.deleteMany({
+    where: { payment: { order: { customerId: { in: users } } } },
+  });
+  // Settlement lines/payouts reference partner orders and the settlement
+  // header, so they must be removed before either.
+  await prisma.payout.deleteMany({ where: { partnerId: { in: created.partners } } });
+  await prisma.settlementLine.deleteMany({
+    where: { partnerOrder: { partnerId: { in: created.partners } } },
+  });
+  await prisma.settlement.deleteMany({ where: { partnerId: { in: created.partners } } });
   await prisma.payment.deleteMany({ where: { order: { customerId: { in: users } } } });
   await prisma.orderItem.deleteMany({ where: { productVariantId: { in: variants } } });
   await prisma.partnerOrder.deleteMany({ where: { order: { customerId: { in: users } } } });
