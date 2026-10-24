@@ -52,6 +52,14 @@ const hasTestDb = Boolean(TEST_URL);
 const ROUNDS = Number(process.env.CONCURRENCY_ROUNDS ?? 5);
 const RUN_ID = makeConcurrencyRunId();
 
+/** Unwrap the fulfilled result of a race, failing the test on a rejection. */
+function fulfilledValue<T>(result: PromiseSettledResult<T> | undefined): T {
+  if (!result || result.status !== 'fulfilled') {
+    throw result?.status === 'rejected' ? result.reason : new Error('No fulfilled result');
+  }
+  return result.value;
+}
+
 describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e2e)', () => {
   let prisma: PrismaClient;
   let world: ConcurrencyWorld;
@@ -150,6 +158,20 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
     return { order, po, item };
   };
 
+  /**
+   * Refunds are now a two-step money movement: the create only records the
+   * decision (PENDING), and only approve -> complete moves the payment and the
+   * settlement. Tests that assert a refunded balance must walk both steps.
+   */
+  const completeRefund = async (
+    refundId: number,
+    adminId: number,
+    reference = `RF-${refundId}`,
+  ) => {
+    await payments.approveRefund(refundId, adminId);
+    return payments.completeRefund(refundId, { reference } as never, adminId);
+  };
+
   // -------------------------------------------------------------------------
   // BL-01 — refund serialisation on the parent payment
   // -------------------------------------------------------------------------
@@ -177,6 +199,9 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         expect(ok).toBe(1);
         expect(rejected[0]?.reason?.message).toMatch(/would exceed paid amount/);
 
+        const winner = fulfilledValue(res.find((x) => x.status === 'fulfilled'));
+        await completeRefund(winner.id, adminId);
+
         const sum = await prisma.refund.aggregate({
           where: { paymentId: payment.id, status: 'COMPLETED' },
           _sum: { amount: true },
@@ -187,10 +212,60 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         expect(final.status).toBe('PARTIALLY_REFUNDED');
 
         // The audit trail must describe exactly the refund that committed.
-        const audits = await prisma.auditLog.count({
-          where: { entityType: 'Payment', entityId: String(payment.id), action: 'REFUND' },
+        expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(1);
+        const completionAudits = await prisma.auditLog.count({
+          where: {
+            entityType: 'Refund',
+            entityId: String(winner.id),
+            action: 'REFUND_COMPLETE',
+          },
         });
-        expect(audits).toBe(1);
+        expect(completionAudits).toBe(1);
+      }
+    });
+
+    it('complete and fail racing on one APPROVED refund: exactly one wins and the payment matches it', async () => {
+      for (let r = 0; r < ROUNDS; r += 1) {
+        const b = await world.base(1, `RC${r}`);
+        const [cid] = await world.customers(1);
+        const adminId = await world.admin(`rc${r}`);
+        const { order } = await deliveredOrder(b, cid, `RC${r}`, 1);
+        const payment = await prisma.payment.create({
+          data: { orderId: order.id, method: 'COD', amount: 100000, status: 'PAID', paidAt: new Date() },
+        });
+        const refund = await payments.refund(
+          { paymentId: payment.id, amount: 40000, reason: 'race' },
+          adminId,
+        );
+        await payments.approveRefund(refund.id, adminId);
+
+        const res = await Promise.allSettled([
+          payments.completeRefund(
+            refund.id,
+            { reference: `RC-${refund.id}` } as never,
+            adminId,
+          ),
+          payments.failRefund(
+            refund.id,
+            { failureReason: 'Ngân hàng từ chối' } as never,
+            adminId,
+          ),
+        ]);
+        expect(res.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+
+        const finalRefund = await prisma.refund.findUniqueOrThrow({ where: { id: refund.id } });
+        const finalPayment = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+        if (finalRefund.status === 'COMPLETED') {
+          expect(finalRefund.reference).toBe(`RC-${refund.id}`);
+          expect(finalPayment.status).toBe('PARTIALLY_REFUNDED');
+        } else {
+          expect(finalRefund.status).toBe('FAILED');
+          expect(finalPayment.status).toBe('PAID');
+        }
+        // Either outcome is a decision, never a settlement liability.
+        expect(
+          await prisma.settlementAdjustment.count({ where: { refundId: refund.id } }),
+        ).toBe(0);
       }
     });
 
@@ -222,11 +297,14 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         ]);
 
         expect(res.filter((x) => x.status === 'fulfilled').length).toBe(1);
+        const winner = fulfilledValue(res.find((x) => x.status === 'fulfilled'));
+        await completeRefund(winner.id, adminId);
         const sum = await prisma.refund.aggregate({
           where: { paymentId: payment.id, status: 'COMPLETED' },
           _sum: { amount: true },
         });
         expect(Number(sum._sum.amount ?? 0)).toBeLessThanOrEqual(100000);
+        expect(Number(sum._sum.amount ?? 0)).toBe(70000);
         const final = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
         expect(final.status).toBe('PARTIALLY_REFUNDED');
       }
@@ -243,13 +321,19 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         });
 
         // 60k goes through first (sequential), leaving 40k.
-        await payments.refund({ paymentId: payment.id, amount: 60000, reason: 'first' }, adminId);
+        const firstRefund = await payments.refund(
+          { paymentId: payment.id, amount: 60000, reason: 'first' },
+          adminId,
+        );
+        await completeRefund(firstRefund.id, adminId);
 
         const res = await Promise.allSettled([
           payments.refund({ paymentId: payment.id, amount: 40000, reason: 'r1' }, adminId),
           payments.refund({ paymentId: payment.id, amount: 40000, reason: 'r2' }, adminId),
         ]);
         expect(res.filter((x) => x.status === 'fulfilled').length).toBe(1);
+        const winner = fulfilledValue(res.find((x) => x.status === 'fulfilled'));
+        await completeRefund(winner.id, adminId);
 
         const sum = await prisma.refund.aggregate({
           where: { paymentId: payment.id, status: 'COMPLETED' },
@@ -270,11 +354,19 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         data: { orderId: order.id, method: 'COD', amount: 100000, status: 'PAID', paidAt: new Date() },
       });
 
-      await payments.refund({ paymentId: payment.id, amount: 50000, reason: 'half 1' }, adminId);
+      const firstHalf = await payments.refund(
+        { paymentId: payment.id, amount: 50000, reason: 'half 1' },
+        adminId,
+      );
+      await completeRefund(firstHalf.id, adminId);
       let current = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
       expect(current.status).toBe('PARTIALLY_REFUNDED');
 
-      await payments.refund({ paymentId: payment.id, amount: 50000, reason: 'half 2' }, adminId);
+      const secondHalf = await payments.refund(
+        { paymentId: payment.id, amount: 50000, reason: 'half 2' },
+        adminId,
+      );
+      await completeRefund(secondHalf.id, adminId);
       current = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
       expect(current.status).toBe('REFUNDED');
 
@@ -353,6 +445,19 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         const second = await deliveredOrder(b, cid, `ST${r}B`, 1);
         const orderIds = [first.po.id, second.po.id].sort((a, b2) => a - b2);
 
+        // Settlement only claims orders with an actual payment (paidAt set).
+        for (const row of [first, second]) {
+          await prisma.payment.create({
+            data: {
+              orderId: row.order.id,
+              method: 'COD',
+              amount: 30000,
+              status: 'PAID',
+              paidAt: new Date(),
+            },
+          });
+        }
+
         const periodStart = new Date(Date.now() - 3600_000).toISOString();
         const periodEnd = new Date(Date.now() + 3600_000).toISOString();
         const res = await Promise.allSettled([
@@ -387,6 +492,102 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         }
         expect([...claimCount.values()]).toEqual([1, 1]);
       }
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // OPEN reconciliation — a late refund-after-settlement adjustment must stop
+  // confirmation, payout creation and marking an already-requested payout paid
+  // until a human records the recovery decision.
+  // -------------------------------------------------------------------------
+
+  describe('OPEN reconciliation guards', () => {
+    it('blocks confirm, payout create and mark-paid until the adjustment is reviewed', async () => {
+      const b = await world.base(1, 'OR');
+      const adminId = await world.admin('or');
+      const settlement = await prisma.settlement.create({
+        data: {
+          code: world.t('SETOR'),
+          partnerId: b.partnerId,
+          periodStart: new Date(Date.now() - 3600_000),
+          periodEnd: new Date(Date.now() + 3600_000),
+          grossAmount: 100000,
+          refundAmount: 0,
+          commissionAmount: 0,
+          adjustmentAmount: 0,
+          payableAmount: 100000,
+          status: 'DRAFT',
+        },
+      });
+
+      // 1. A DRAFT settlement with an OPEN adjustment cannot be confirmed.
+      const confirmBlocker = await prisma.settlementAdjustment.create({
+        data: {
+          partnerId: b.partnerId,
+          settlementId: settlement.id,
+          amount: 30000,
+          type: 'REFUND_AFTER_SETTLEMENT',
+          status: 'OPEN',
+          reason: 'Hoàn tiền sau khi lập bảng kê',
+        },
+      });
+      await expect(settlements.confirm(settlement.id, adminId)).rejects.toThrow(
+        /OPEN reconciliation adjustment/,
+      );
+      expect(
+        (await prisma.settlement.findUniqueOrThrow({ where: { id: settlement.id } })).status,
+      ).toBe('DRAFT');
+
+      // 2. After the human decision the same settlement confirms normally.
+      await settlements.reviewAdjustment(
+        confirmBlocker.id,
+        { resolution: 'DEDUCT_NEXT', note: 'Trừ vào kỳ sau' },
+        adminId,
+      );
+      const confirmed = await settlements.confirm(settlement.id, adminId);
+      expect(confirmed.status).toBe('CONFIRMED');
+
+      const payout = await payouts.create(
+        { settlementId: settlement.id, amount: 40000 } as never,
+        adminId,
+      );
+      expect(payout.status).toBe('PENDING');
+
+      // 3. A late refund arrives after the payout was requested: creating a
+      // second payout and paying the first must both be refused.
+      const payoutBlocker = await prisma.settlementAdjustment.create({
+        data: {
+          partnerId: b.partnerId,
+          settlementId: settlement.id,
+          amount: 20000,
+          type: 'REFUND_AFTER_SETTLEMENT',
+          status: 'OPEN',
+          reason: 'Hoàn tiền muộn sau khi đã tạo lệnh chi',
+        },
+      });
+      await expect(
+        payouts.create({ settlementId: settlement.id, amount: 10000 } as never, adminId),
+      ).rejects.toThrow(/OPEN reconciliation adjustment/);
+      expect(await prisma.payout.count({ where: { settlementId: settlement.id } })).toBe(1);
+
+      await expect(payouts.markPaid(payout.id, adminId)).rejects.toThrow(
+        /OPEN reconciliation adjustment/,
+      );
+      expect((await prisma.payout.findUniqueOrThrow({ where: { id: payout.id } })).status).toBe(
+        'PENDING',
+      );
+      expect(
+        (await prisma.settlement.findUniqueOrThrow({ where: { id: settlement.id } })).status,
+      ).toBe('CONFIRMED');
+
+      // 4. Reviewing the second adjustment releases the hold.
+      await settlements.reviewAdjustment(
+        payoutBlocker.id,
+        { resolution: 'MANUAL', note: 'Kế toán thu hồi thủ công' },
+        adminId,
+      );
+      const paid = await payouts.markPaid(payout.id, adminId);
+      expect(paid.status).toBe('PAID');
     });
   });
 

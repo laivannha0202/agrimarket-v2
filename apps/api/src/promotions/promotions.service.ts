@@ -30,9 +30,25 @@ export interface ResolvedPrice extends PriceBreakdown {
 export class PromotionsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private validateDiscountValue(type: DiscountType, value: unknown): void {
+    if (type !== DiscountType.FIXED && type !== DiscountType.PERCENT) {
+      throw new BadRequestException('discountType must be FIXED or PERCENT');
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new BadRequestException('discountValue must be a finite number');
+    }
+    if (value < 0) {
+      throw new BadRequestException('discountValue must not be negative');
+    }
+    if (type === DiscountType.PERCENT && value > 100) {
+      throw new BadRequestException('PERCENT discountValue must not exceed 100');
+    }
+  }
+
   // ----- Vouchers -----------------------------------------------------------
 
-  createVoucher(dto: CreateVoucherDto) {
+  async createVoucher(dto: CreateVoucherDto) {
+    this.validateDiscountValue(dto.discountType, dto.discountValue);
     return this.prisma.voucher.create({
       data: {
         code: dto.code.toUpperCase(),
@@ -181,31 +197,45 @@ export class PromotionsService {
     if (now < voucher.startsAt || now > voucher.endsAt) {
       throw new BadRequestException('Voucher is not within its valid period');
     }
-    if (subtotal < Number(voucher.minOrderAmount)) {
+    const minOrderAmount = toNonNegativeNumber(voucher.minOrderAmount);
+    if (subtotal < minOrderAmount) {
       throw new BadRequestException(
-        `Order subtotal must be at least ${Number(voucher.minOrderAmount)} to use this voucher`,
+        `Order subtotal must be at least ${minOrderAmount} to use this voucher`,
       );
     }
   }
 
-  /** Discount for a subtotal, capped by `maxDiscount` and by the subtotal. */
+  /**
+   * Discount for a subtotal, capped by `maxDiscount` and by the subtotal.
+   *
+   * Reads are defensive because rows created before the P0-A validation existed
+   * may contain invalid values. Nothing is rewritten: a legacy PERCENT > 100 is
+   * treated as 100%, a negative/NaN value as 0, and the result can never be
+   * negative or larger than the subtotal.
+   */
   private static computeVoucherDiscount(
     voucher: { discountType: DiscountType; discountValue: unknown; maxDiscount: unknown },
     subtotal: number,
   ): number {
+    const safeSubtotal = Math.max(0, toFiniteNumber(subtotal, 0));
+
     let discount =
       voucher.discountType === DiscountType.PERCENT
-        ? (subtotal * Number(voucher.discountValue)) / 100
-        : Number(voucher.discountValue);
-    if (voucher.maxDiscount !== null) {
-      discount = Math.min(discount, Number(voucher.maxDiscount));
+        ? (safeSubtotal * clampPercent(voucher.discountValue)) / 100
+        : toNonNegativeNumber(voucher.discountValue);
+
+    if (voucher.maxDiscount !== null && voucher.maxDiscount !== undefined) {
+      const maxDiscount = toNonNegativeNumber(voucher.maxDiscount);
+      discount = Math.min(discount, maxDiscount);
     }
-    return round2(Math.min(discount, subtotal));
+
+    return round2(Math.min(Math.max(0, discount), safeSubtotal));
   }
 
   // ----- Product discounts (auto-applied) -----------------------------------
 
-  createProductDiscount(dto: CreateProductDiscountDto) {
+  async createProductDiscount(dto: CreateProductDiscountDto) {
+    this.validateDiscountValue(dto.discountType, dto.discountValue);
     return this.prisma.productDiscount.create({
       data: {
         productVariantId: dto.productVariantId,
@@ -356,7 +386,7 @@ export class PromotionsService {
     // Only a flash price that is actually *lower* than the base price is used.
     const flashItem = flashItems.find((i) => Number(i.flashPrice) < basePrice);
     if (flashItem) {
-      const flashPrice = Number(flashItem.flashPrice);
+      const flashPrice = Math.max(0, toFiniteNumber(flashItem.flashPrice, 0));
       return {
         basePrice,
         unitPrice: flashPrice,
@@ -376,11 +406,11 @@ export class PromotionsService {
       orderBy: { id: 'desc' },
     });
     if (discount) {
-      const unitPrice =
-        discount.discountType === DiscountType.PERCENT
-          ? basePrice * (1 - Number(discount.discountValue) / 100)
-          : Math.max(0, basePrice - Number(discount.discountValue));
-      const rounded = round2(unitPrice);
+      const rounded = applyProductDiscount(
+        basePrice,
+        discount.discountType,
+        discount.discountValue,
+      );
       return {
         basePrice,
         unitPrice: rounded,
@@ -454,7 +484,7 @@ export class PromotionsService {
       orderBy: [{ flashPrice: 'asc' }, { id: 'asc' }],
     });
     for (const item of flashItems) {
-      const flashPrice = Number(item.flashPrice);
+      const flashPrice = Math.max(0, toFiniteNumber(item.flashPrice, 0));
       if (!(flashPrice < basePrice)) continue;
       if (item.soldQuantity + quantity > item.quota) continue;
       const purchased = await db.orderItem.aggregate({
@@ -499,11 +529,11 @@ export class PromotionsService {
       orderBy: { id: 'desc' },
     });
     if (discount) {
-      const unitPrice =
-        discount.discountType === DiscountType.PERCENT
-          ? basePrice * (1 - Number(discount.discountValue) / 100)
-          : Math.max(0, basePrice - Number(discount.discountValue));
-      const rounded = round2(unitPrice);
+      const rounded = applyProductDiscount(
+        basePrice,
+        discount.discountType,
+        discount.discountValue,
+      );
       return {
         basePrice,
         unitPrice: rounded,
@@ -569,7 +599,7 @@ export class PromotionsService {
       const basePrice = Number(variant.basePrice);
       const flashItem = flashByVariant.get(variant.id);
       if (flashItem && Number(flashItem.flashPrice) < basePrice) {
-        const flashPrice = Number(flashItem.flashPrice);
+        const flashPrice = Math.max(0, toFiniteNumber(flashItem.flashPrice, 0));
         result.set(variant.id, {
           basePrice,
           unitPrice: flashPrice,
@@ -580,11 +610,11 @@ export class PromotionsService {
       }
       const discount = discountByVariant.get(variant.id);
       if (discount) {
-        const unitPrice =
-          discount.discountType === DiscountType.PERCENT
-            ? basePrice * (1 - Number(discount.discountValue) / 100)
-            : Math.max(0, basePrice - Number(discount.discountValue));
-        const rounded = round2(unitPrice);
+        const rounded = applyProductDiscount(
+          basePrice,
+          discount.discountType,
+          discount.discountValue,
+        );
         result.set(variant.id, {
           basePrice,
           unitPrice: rounded,
@@ -770,4 +800,41 @@ export class PromotionsService {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Converts a Prisma Decimal/number-like value, or returns `fallback`. */
+function toFiniteNumber(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toNonNegativeNumber(value: unknown): number {
+  return Math.max(0, toFiniteNumber(value, 0));
+}
+
+/** PERCENT values are clamped to [0, 100] for legacy rows, never rewritten. */
+function clampPercent(value: unknown): number {
+  return Math.min(100, toNonNegativeNumber(value));
+}
+
+/**
+ * Single implementation of product-discount arithmetic used by the catalog
+ * (single + batch) and checkout paths.
+ *
+ * The result is always a finite, non-negative unit price. A legacy PERCENT row
+ * above 100 is treated as 100% (unit 0); a negative/NaN value as no discount.
+ * FIXED amounts are capped by the base price so they cannot produce a negative
+ * price either.
+ */
+function applyProductDiscount(
+  basePrice: number,
+  type: DiscountType,
+  value: unknown,
+): number {
+  const base = toNonNegativeNumber(basePrice);
+  if (type === DiscountType.PERCENT) {
+    const unitPrice = base * (1 - clampPercent(value) / 100);
+    return round2(Math.max(0, unitPrice));
+  }
+  return round2(Math.max(0, base - toNonNegativeNumber(value)));
 }

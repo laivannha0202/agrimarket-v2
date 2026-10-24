@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service.js';
@@ -10,6 +11,8 @@ import { AuditService } from '../common/audit/audit.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
 import { PromotionsService } from '../promotions/promotions.service.js';
 import { CommissionService } from '../finance/commission.service.js';
+import { QuarantineService, QUARANTINE_SOURCES } from '../quarantine/quarantine.service.js';
+import { ShipmentsService, SHIPMENT_LEFT_WAREHOUSE_STATUSES } from '../shipments/shipments.service.js';
 import {
   buildDatedCode,
   datedCodePrefix,
@@ -29,6 +32,7 @@ import { calculateShippingFee } from './shipping-policy.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
 import { normalizeWhitespace } from '../common/utils/vietnamese-text.js';
+import { orderReservationTtlMs } from './reservation-policy.js';
 import type { Order, Prisma } from '../../generated/prisma/client.js';
 import {
   InventoryMovementType,
@@ -41,6 +45,13 @@ import {
 
 const MAX_IDEMPOTENCY_KEY_LENGTH = 100;
 const CODE_ATTEMPTS = 3;
+
+/** A payment in one of these states means real money is already involved. */
+const SETTLED_PAYMENT_STATUSES: PaymentStatus[] = [
+  PaymentStatus.PAID,
+  PaymentStatus.PARTIALLY_REFUNDED,
+  PaymentStatus.REFUNDED,
+];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -260,6 +271,8 @@ export class OrdersService {
     private readonly commission: CommissionService,
     private readonly audit: AuditService,
     private readonly locations: LocationsService,
+    @Optional() private readonly quarantine?: QuarantineService,
+    @Optional() private readonly shipments?: ShipmentsService,
   ) {}
 
   /**
@@ -539,6 +552,12 @@ export class OrdersService {
             shippingFee,
             grandTotal,
             status: OrderStatus.PENDING_CONFIRMATION,
+            // The reservation has a deadline from the moment it is created. The
+            // sweep only cancels orders whose deadline has passed AND that have
+            // no paid payment and no shipment.
+            reservationExpiresAt: new Date(
+              now.getTime() + orderReservationTtlMs(process.env.ORDER_RESERVATION_TTL_MINUTES),
+            ),
             note: dto.note,
           },
         });
@@ -638,8 +657,8 @@ export class OrdersService {
           });
         }
 
-        // Payment record. COD is created as PENDING and only marked PAID on
-        // delivery confirmation.
+        // Payment record. COD starts PENDING; delivery does not change it.
+        // An ADMIN confirms the cash collection separately with a reference.
         await tx.payment.create({
           data: {
             orderId: order.id,
@@ -1048,8 +1067,9 @@ export class OrdersService {
   }
 
   /**
-   * Order state machine. Keeps PartnerOrder statuses in sync. Moving to
-   * DELIVERED settles COD payments; CANCELLED releases reservations.
+   * Order state machine. Keeps PartnerOrder statuses in sync. DELIVERED
+   * consumes stock but does not settle COD; CANCELLED releases/quarantines
+   * reservations.
    */
   async updateStatus(id: number, status: OrderStatus, actorUserId: number): Promise<Order> {
     const order = await this.findOne(id);
@@ -1087,7 +1107,7 @@ export class OrdersService {
   private async applyStatusChange(
     id: number,
     status: OrderStatus,
-    actorUserId: number,
+    actorUserId: number | null,
     previousStatus: OrderStatus,
     auditAction: string,
   ): Promise<Order> {
@@ -1101,7 +1121,10 @@ export class OrdersService {
       } else {
         const claimed = await tx.order.updateMany({
           where: { id, status: previousStatus },
-          data: { status },
+          // The deadline belongs to the PENDING_CONFIRMATION reservation only.
+          // Once the order moves on, clearing it keeps the sweep from ever
+          // looking at a live order again.
+          data: { status, reservationExpiresAt: null },
         });
         if (claimed.count === 0) {
           throw new ConflictException(
@@ -1130,17 +1153,41 @@ export class OrdersService {
       }
 
       if (status === OrderStatus.CANCELLED) {
-        // Goods that have already left the warehouse (the order was SHIPPING)
-        // must NOT be released back to sellable stock: physically they are in
-        // transit, so making the reservation available again would oversell
-        // stock the warehouse no longer holds. Their reservation is converted to
-        // a blocked (quarantine) quantity instead, keeping `available = on_hand -
-        // reserved - blocked` unchanged; the units then wait for the return /
-        // re-inspection flow (see the delivery-failure and return rules).
-        // Everything still in the warehouse (PENDING_CONFIRMATION … READY_TO_SHIP)
-        // is released as before.
-        const goodsLeftWarehouse = previousStatus === OrderStatus.SHIPPING;
-        await this.releaseOrderReservations(tx, id, goodsLeftWarehouse);
+        // Goods that have already left the warehouse must NOT be released back
+        // to sellable stock: physically they are in transit, so making the
+        // reservation available again would oversell stock the warehouse no
+        // longer holds. Their reservation is converted to blocked stock and one
+        // quarantine case per allocation is opened; the units then wait for the
+        // return / re-inspection flow. Everything still in the warehouse is
+        // released as before.
+        //
+        // The order status is not the only signal: an operator can cancel an
+        // order whose shipment already left while the order row still says
+        // READY_TO_SHIP. Any shipment in a left-warehouse state counts.
+        const shipments = await tx.shipment.findMany({
+          where: { partnerOrder: { orderId: id } },
+          select: { status: true },
+        });
+        const goodsLeftWarehouse =
+          previousStatus === OrderStatus.SHIPPING ||
+          shipments.some((s) => SHIPMENT_LEFT_WAREHOUSE_STATUSES.includes(s.status));
+        if (goodsLeftWarehouse) {
+          if (!this.quarantine) {
+            throw new ConflictException('Quarantine service is not configured');
+          }
+          await this.quarantine.quarantineOrderReservations(tx, {
+            orderId: id,
+            sourceType: QUARANTINE_SOURCES.orderCancel,
+            sourceId: id,
+            reason: 'Đơn hàng bị hủy khi hàng đã rời kho — chờ kiểm định lại',
+            actorUserId,
+          });
+        } else {
+          await this.releaseOrderReservations(tx, id);
+        }
+        // Keep shipment history in step: pre-handover -> CANCELLED, in-transit
+        // -> RETURNING. Never delete the timeline.
+        await this.shipments?.syncOrderCancellation(tx, id, actorUserId ?? undefined);
       }
 
       await this.audit.record(
@@ -1159,8 +1206,66 @@ export class OrdersService {
   }
 
   /**
-   * Give an order's reserved stock back — or, when the goods have already left
-   * the warehouse, quarantine it instead.
+   * Cancel one order whose reservation deadline has passed.
+   *
+   * Deliberately conservative: only PENDING_CONFIRMATION orders are eligible,
+   * and an order with a paid/refunded payment or any shipment is left alone.
+   * The cancellation itself goes through `applyStatusChange`, so it uses the
+   * same compare-and-set and the same guarded stock release as an operator
+   * cancellation — a concurrent confirm/cancel wins and the sweep reports a
+   * race instead of releasing twice.
+   *
+   * Returns a result instead of throwing for the ordinary "not eligible"
+   * cases: the scheduler must be able to walk a batch without one stale row
+   * aborting the whole sweep.
+   */
+  async expireReservation(
+    id: number,
+    now: Date = new Date(),
+  ): Promise<{ expired: boolean; reason?: string }> {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        reservationExpiresAt: true,
+        payments: { select: { status: true } },
+        partnerOrders: { select: { shipments: { select: { id: true } } } },
+      },
+    });
+    if (!order) return { expired: false, reason: 'NOT_FOUND' };
+    if (order.status !== OrderStatus.PENDING_CONFIRMATION) {
+      return { expired: false, reason: 'NOT_PENDING' };
+    }
+    if (!order.reservationExpiresAt || order.reservationExpiresAt > now) {
+      return { expired: false, reason: 'NOT_DUE' };
+    }
+    if (order.payments.some((payment) => SETTLED_PAYMENT_STATUSES.includes(payment.status))) {
+      return { expired: false, reason: 'PAID' };
+    }
+    if (order.partnerOrders.some((partnerOrder) => partnerOrder.shipments.length > 0)) {
+      return { expired: false, reason: 'SHIPMENT' };
+    }
+
+    try {
+      await this.applyStatusChange(
+        id,
+        OrderStatus.CANCELLED,
+        null,
+        OrderStatus.PENDING_CONFIRMATION,
+        'ORDER_RESERVATION_EXPIRED',
+      );
+      return { expired: true };
+    } catch (error) {
+      if (error instanceof ConflictException) {
+        return { expired: false, reason: 'RACED' };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Give a still-warehoused order's reserved stock back.
    *
    * Each release is the atomic guarded `releaseStock`
    * (`reserved = reserved - ? WHERE reserved >= ?`), never a read-then-write
@@ -1172,16 +1277,13 @@ export class OrdersService {
    * longer holds (a lost race rolls back with 409 instead of fabricating
    * stock).
    *
-   * `quarantine` is set for a cancellation from `SHIPPING`: the physical goods
-   * are in transit, so releasing them as sellable would oversell stock the
-   * warehouse no longer holds. `quarantineStock` moves the reserved units into
-   * `blocked` in one statement, so `available` does not change and the units
-   * wait for the return / re-inspection flow.
+   * Cancellations after the goods left the warehouse do NOT call this: they go
+   * through `QuarantineService.quarantineOrderReservations`, which converts the
+   * reservation to blocked stock and opens a quarantine case.
    */
   private async releaseOrderReservations(
     tx: Prisma.TransactionClient,
     orderId: number,
-    quarantine = false,
   ) {
     const allocations = await tx.inventoryAllocation.findMany({
       where: { orderItem: { partnerOrder: { orderId } } },
@@ -1209,44 +1311,25 @@ export class OrdersService {
     for (const alloc of allocations) {
       const balance = alloc.inventoryBalance;
       const quantity = Number(alloc.quantity);
-      let moved: { before: number; after: number };
-      if (quarantine) {
-        // The reservation is only converted when the balance still holds it.
-        // `null` means a concurrent writer already released/changed it, so the
-        // order's stock state no longer matches its allocation and proceeding
-        // would fabricate blocked stock. Throw so the transaction rolls back
-        // (the order is not cancelled, the caller can reload and retry).
-        const quarantined = await this.inventory.quarantineStock(tx, balance.id, quantity);
-        if (!quarantined) {
-          throw new ConflictException(
-            'The order stock changed while this request was being processed, please reload',
-          );
-        }
-        moved = quarantined;
-      } else {
-        // Guarded release: `null` means a concurrent writer already
-        // consumed/released the reservation the allocation points at. The
-        // order's stock state no longer matches its allocation, so the whole
-        // cancellation rolls back (the order is not cancelled) instead of
-        // fabricating a release of stock the balance never had.
-        const released = await this.inventory.releaseStock(tx, balance.id, quantity);
-        if (!released) {
-          throw new ConflictException(
-            'The order stock changed while this request was being processed, please reload',
-          );
-        }
-        moved = released;
+      // Guarded release: `null` means a concurrent writer already
+      // consumed/released the reservation the allocation points at. The order's
+      // stock state no longer matches its allocation, so the whole cancellation
+      // rolls back (the order is not cancelled) instead of fabricating a
+      // release of stock the balance never had.
+      const released = await this.inventory.releaseStock(tx, balance.id, quantity);
+      if (!released) {
+        throw new ConflictException(
+          'The order stock changed while this request was being processed, please reload',
+        );
       }
       await this.inventory.recordMovement(tx, {
         warehouseId: balance.warehouseId,
         productLotId: balance.productLotId,
         productVariantId: balance.productVariantId,
-        type: quarantine
-          ? InventoryMovementType.QUARANTINE
-          : InventoryMovementType.RELEASE,
+        type: InventoryMovementType.RELEASE,
         quantityDelta: 0,
-        beforeQuantity: moved.before,
-        afterQuantity: moved.after,
+        beforeQuantity: released.before,
+        afterQuantity: released.after,
         referenceType: 'OrderCancel',
         referenceId: orderId,
       });

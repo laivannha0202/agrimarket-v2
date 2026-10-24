@@ -10,6 +10,8 @@ import {
   CreatePayoutDto,
   CreateSettlementDto,
   PayoutQueryDto,
+  ReviewSettlementAdjustmentDto,
+  SettlementAdjustmentQueryDto,
   SettlementExportQueryDto,
   SettlementQueryDto,
   UpdateCommissionRuleStatusDto,
@@ -113,6 +115,32 @@ export class FinanceController {
   @ApiOperation({ summary: 'Confirm a settlement (ADMIN)' })
   confirmSettlement(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
     return this.settlementsService.confirm(id, user.id);
+  }
+
+  // Settlement adjustments (refunds completed after the period was settled)
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('settlement-adjustments')
+  @ApiOperation({ summary: 'List refund-after-settlement reconciliation rows (status filter, ADMIN)' })
+  listSettlementAdjustments(@Query() query: SettlementAdjustmentQueryDto) {
+    return this.settlementsService.findAdjustments(query);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('settlement-adjustments/:id/review')
+  @ApiOperation({
+    summary: 'Record the recovery decision for an OPEN adjustment (ADMIN)',
+    description:
+      'Resolution DEDUCT_NEXT / WRITE_OFF / MANUAL plus a required note. Closing the row unblocks ' +
+      'settlement confirmation and payouts; the original settlement is not rewritten.',
+  })
+  reviewSettlementAdjustment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReviewSettlementAdjustmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.settlementsService.reviewAdjustment(id, dto, user.id);
   }
 
   // Payouts

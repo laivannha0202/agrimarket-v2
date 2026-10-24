@@ -29,7 +29,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('jwtSecret') ?? 'CHANGE_ME',
+      // Verification uses the same validated configuration key as signing.
+      // `getOrThrow` is the second fail-closed guard after `configuration.ts`.
+      secretOrKey: config.getOrThrow<string>('jwtSecret'),
     });
   }
 

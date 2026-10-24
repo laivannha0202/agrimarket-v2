@@ -1,10 +1,38 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { EvidenceService } from '../evidence/evidence.service.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateComplaintDto, UpdateComplaintDto } from './dto/complaint.dto.js';
 import type { Complaint, Prisma } from '../../generated/prisma/client.js';
 import { ComplaintStatus } from '../../generated/prisma/enums.js';
+
+/**
+ * Explicit complaint state machine, mirroring the Admin UI.
+ *
+ *   OPEN -> PROCESSING -> RESOLVED | REJECTED
+ *   OPEN -> REJECTED
+ *
+ * RESOLVED and REJECTED are terminal: a closed complaint cannot be reopened or
+ * silently flipped to the other outcome. A terminal transition must carry the
+ * resolution text — the customer is owed a reason, and an operator should not
+ * be able to close a case with an empty explanation.
+ */
+const COMPLAINT_TRANSITIONS: Record<ComplaintStatus, ComplaintStatus[]> = {
+  OPEN: [ComplaintStatus.PROCESSING, ComplaintStatus.REJECTED],
+  PROCESSING: [ComplaintStatus.RESOLVED, ComplaintStatus.REJECTED],
+  RESOLVED: [],
+  REJECTED: [],
+};
+
+const TERMINAL_COMPLAINT_STATUSES: ComplaintStatus[] = [
+  ComplaintStatus.RESOLVED,
+  ComplaintStatus.REJECTED,
+];
 
 @Injectable()
 export class ComplaintsService {
@@ -150,18 +178,51 @@ export class ComplaintsService {
     return complaint;
   }
 
+  /**
+   * Advance a complaint through its explicit state machine.
+   *
+   * The status is claimed with a compare-and-set on the value that was read, so
+   * two operators cannot both close the same complaint with different outcomes
+   * (the loser gets 409 instead of overwriting the first decision). Re-applying
+   * the current status is an idempotent replay and writes nothing.
+   */
   async update(id: number, dto: UpdateComplaintDto): Promise<Complaint> {
-    await this.findOne(id);
-    return this.prisma.complaint.update({
-      where: { id },
-      data: {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.complaint.findUnique({ where: { id } });
+      if (!current) throw new NotFoundException('Complaint not found');
+
+      if (current.status === dto.status) return current;
+
+      const allowed = COMPLAINT_TRANSITIONS[current.status] ?? [];
+      if (!allowed.includes(dto.status)) {
+        throw new BadRequestException(
+          `Cannot change complaint status from ${current.status} to ${dto.status}`,
+        );
+      }
+
+      const isTerminal = TERMINAL_COMPLAINT_STATUSES.includes(dto.status);
+      const resolution = dto.resolution?.trim();
+      if (isTerminal && !resolution) {
+        throw new BadRequestException(
+          `A resolution is required to move a complaint to ${dto.status}`,
+        );
+      }
+
+      const data: Prisma.ComplaintUpdateManyMutationInput = {
         status: dto.status,
-        resolution: dto.resolution,
-        resolvedAt:
-          dto.status === ComplaintStatus.RESOLVED || dto.status === ComplaintStatus.REJECTED
-            ? new Date()
-            : null,
-      },
+        ...(resolution ? { resolution } : {}),
+        resolvedAt: isTerminal ? new Date() : null,
+      };
+      const claimed = await tx.complaint.updateMany({
+        where: { id, status: current.status },
+        data,
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The complaint status changed while this request was being processed, please reload',
+        );
+      }
+      return tx.complaint.findUniqueOrThrow({ where: { id } });
     });
   }
 }

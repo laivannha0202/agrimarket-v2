@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Button, DatePicker, Form, Input, InputNumber, Select, Tabs } from "antd";
+import { Button, DatePicker, Form, Input, InputNumber, Select, Tabs, Tag } from "antd";
 import { PlusOutlined, DollarOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -21,11 +21,20 @@ import { num } from "@/lib/format/form";
 import {
   PAYOUT_STATUS,
   SETTLEMENT_STATUS,
+  SETTLEMENT_ADJUSTMENT_STATUS,
+  SETTLEMENT_ADJUSTMENT_RESOLUTION,
   payoutStatus,
   settlementStatus,
+  settlementAdjustmentStatus,
+  settlementAdjustmentResolution,
   statusOptions,
 } from "@/lib/status";
-import type { Payout, Settlement } from "@/types/api";
+import type {
+  Payout,
+  Settlement,
+  SettlementAdjustment,
+  SettlementAdjustmentResolution,
+} from "@/types/api";
 
 type SettlementForm = {
   partnerId: number;
@@ -169,6 +178,209 @@ function SettlementsTab() {
         <Form.Item label="Điều chỉnh" name="adjustmentAmount" extra="Có thể âm. Để trống nếu không điều chỉnh.">
           <InputNumber style={{ width: "100%" }} placeholder="VD: 0" />
         </Form.Item>
+      </FormModal>
+    </>
+  );
+}
+
+function AdjustmentsTab() {
+  const list = useListState();
+  const [editing, setEditing] = useState<SettlementAdjustment | null>(null);
+  const [form] = Form.useForm<{
+    resolution: SettlementAdjustmentResolution;
+    note: string;
+  }>();
+
+  const { data, isLoading, isError, refetch } = useListQuery<SettlementAdjustment>(
+    queryKeys.settlementAdjustments(list.params),
+    resources.settlementAdjustments,
+    list.params,
+  );
+
+  const review = useAction(
+    (vars: { id: number; resolution: SettlementAdjustmentResolution; note: string }) =>
+      resources.reviewSettlementAdjustment(vars.id, {
+        resolution: vars.resolution,
+        note: vars.note,
+      }),
+    {
+      invalidate: [["settlement-adjustments"], ["settlements"]],
+      successMessage: "Đã ghi nhận hướng xử lý điều chỉnh.",
+      onSuccess: () => {
+        setEditing(null);
+        form.resetFields();
+      },
+    },
+  );
+
+  const columns: ColumnsType<SettlementAdjustment> = [
+    {
+      title: "Đối tác",
+      render: (_, row) => row.partner?.name ?? `#${row.partnerId}`,
+    },
+    {
+      title: "Kỳ đối soát",
+      render: (_, row) =>
+        row.settlement ? (
+          <Link href={`/settlements/${row.settlement.id}`} className="agri-link agri-mono">
+            {row.settlement.code}
+          </Link>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Đơn đối tác",
+      render: (_, row) =>
+        row.partnerOrder ? <span className="agri-mono">{row.partnerOrder.code}</span> : "—",
+    },
+    {
+      title: "Hoàn tiền",
+      align: "right",
+      render: (_, row) =>
+        row.refund ? <span className="agri-nowrap">{formatMoney(row.refund.amount)}</span> : "—",
+    },
+    {
+      title: "Số tiền điều chỉnh",
+      dataIndex: "amount",
+      align: "right",
+      render: (v: string) => <strong className="agri-nowrap">{formatMoney(v)}</strong>,
+    },
+    { title: "Lý do", dataIndex: "reason", ellipsis: true },
+    {
+      title: "Trạng thái",
+      dataIndex: "status",
+      render: (s: string) => <StatusTag status={settlementAdjustmentStatus(s)} />,
+    },
+    {
+      title: "Hướng xử lý",
+      render: (_, row) =>
+        row.resolution ? (
+          <StatusTag status={settlementAdjustmentResolution(row.resolution)} />
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Ngày tạo",
+      dataIndex: "createdAt",
+      render: (v: string) => <span className="agri-nowrap">{formatDateTime(v)}</span>,
+    },
+    {
+      title: "Thao tác",
+      width: 110,
+      fixed: "right",
+      render: (_, row) =>
+        row.status === "OPEN" ? (
+          <Button
+            type="link"
+            size="small"
+            onClick={() => setEditing(row)}
+            style={{ paddingInline: 0 }}
+          >
+            Xử lý
+          </Button>
+        ) : (
+          <Tag>Đã xử lý</Tag>
+        ),
+    },
+  ];
+
+  return (
+    <>
+      <ListPage<SettlementAdjustment>
+        title="Điều chỉnh đối soát"
+        searchValue={list.search}
+        onSearchChange={list.setSearch}
+        hideSearch
+        filters={[
+          {
+            key: "status",
+            placeholder: "Trạng thái",
+            value: list.filters.status,
+            options: statusOptions(SETTLEMENT_ADJUSTMENT_STATUS),
+          },
+        ]}
+        onFilterChange={list.setFilter}
+        onReset={list.reset}
+        columns={columns}
+        data={data?.data ?? []}
+        loading={isLoading}
+        error={isError ? new Error("Không tải được danh sách điều chỉnh đối soát.") : undefined}
+        onRetry={() => void refetch()}
+        emptyText="Không có điều chỉnh đối soát"
+        total={data?.meta.total ?? 0}
+        page={list.page}
+        limit={list.limit}
+        onPageChange={list.setPage}
+        onLimitChange={list.setLimit}
+        scrollX={1280}
+        itemLabel="điều chỉnh"
+      />
+
+      <FormModal
+        open={!!editing}
+        title="Xử lý điều chỉnh đối soát"
+        form={form}
+        onCancel={() => {
+          setEditing(null);
+          form.resetFields();
+        }}
+        onSubmit={(values) => {
+          if (!editing) return;
+          review.mutate({ id: editing.id, ...values });
+        }}
+        submitting={review.isPending}
+        okText="Ghi nhận"
+        width={560}
+      >
+        {editing ? (
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ marginTop: 0 }}>
+              <strong>Đối tác:</strong> {editing.partner?.name ?? `#${editing.partnerId}`}
+            </p>
+            {editing.settlement ? (
+              <p>
+                <strong>Kỳ đối soát:</strong> {editing.settlement.code}
+              </p>
+            ) : null}
+            {editing.refund ? (
+              <p>
+                <strong>Hoàn tiền:</strong> {formatMoney(editing.refund.amount)}
+              </p>
+            ) : null}
+            <p>
+              <strong>Số tiền điều chỉnh:</strong> {formatMoney(editing.amount)}
+            </p>
+            <p>
+              <strong>Lý do:</strong> {editing.reason}
+            </p>
+          </div>
+        ) : null}
+        <Form.Item
+          label="Hướng xử lý"
+          name="resolution"
+          rules={[{ required: true, message: "Chọn hướng xử lý." }]}
+        >
+          <Select
+            options={statusOptions(SETTLEMENT_ADJUSTMENT_RESOLUTION)}
+            placeholder="Chọn hướng xử lý"
+          />
+        </Form.Item>
+        <Form.Item
+          label="Căn cứ / ghi chú"
+          name="note"
+          rules={[{ required: true, whitespace: true, message: "Nhập căn cứ xử lý." }]}
+        >
+          <Input.TextArea
+            rows={3}
+            placeholder="VD: Trừ vào kỳ đối soát kế tiếp theo xác nhận của kế toán"
+          />
+        </Form.Item>
+        <p className="agri-muted" style={{ margin: 0 }}>
+          Kỳ đối soát gốc không bị sửa; quyết định chỉ đóng khoản điều chỉnh và mở khóa xác
+          nhận/chi trả.
+        </p>
       </FormModal>
     </>
   );
@@ -360,6 +572,7 @@ export default function SettlementsPage() {
       defaultActiveKey="settlements"
       items={[
         { key: "settlements", label: "Đối soát", children: <SettlementsTab /> },
+        { key: "adjustments", label: "Điều chỉnh đối soát", children: <AdjustmentsTab /> },
         { key: "payouts", label: "Chi trả", children: <PayoutsTab /> },
       ]}
     />

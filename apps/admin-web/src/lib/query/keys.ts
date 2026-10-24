@@ -11,6 +11,7 @@ export const queryKeys = {
 
   returns: (params?: ListParams) => ["returns", params ?? {}] as const,
   return: (id: number | string) => ["return", String(id)] as const,
+  eligibleRefunds: (id: number | string) => ["returns", String(id), "eligible-refunds"] as const,
   complaints: (params?: ListParams) => ["complaints", params ?? {}] as const,
   complaint: (id: number | string) => ["complaint", String(id)] as const,
 
@@ -25,11 +26,14 @@ export const queryKeys = {
   seasons: (params?: ListParams) => ["seasons", params ?? {}] as const,
   season: (id: number | string) => ["season", String(id)] as const,
   harvests: (params?: ListParams) => ["harvests", params ?? {}] as const,
+  farmingEvents: (seasonId: number | string) => ["farming-events", String(seasonId)] as const,
 
   qc: (params?: ListParams) => ["qc", params ?? {}] as const,
   lots: (params?: ListParams) => ["lots", params ?? {}] as const,
   lot: (id: number | string) => ["lot", String(id)] as const,
   certificates: (params?: ListParams) => ["certificates", params ?? {}] as const,
+  quarantineCases: (params?: ListParams) => ["quarantine-cases", params ?? {}] as const,
+  quarantineCase: (id: number | string) => ["quarantine-case", String(id)] as const,
 
   inventory: (params?: ListParams) => ["inventory", params ?? {}] as const,
   movements: (params?: ListParams) => ["movements", params ?? {}] as const,
@@ -48,7 +52,14 @@ export const queryKeys = {
   commissionRules: (params?: ListParams) => ["commission-rules", params ?? {}] as const,
   settlements: (params?: ListParams) => ["settlements", params ?? {}] as const,
   settlement: (id: number | string) => ["settlement", String(id)] as const,
+  settlementAdjustments: (params?: ListParams) =>
+    ["settlement-adjustments", params ?? {}] as const,
   payouts: (params?: ListParams) => ["payouts", params ?? {}] as const,
+  refunds: (params?: ListParams) => ["refunds", params ?? {}] as const,
+  refund: (id: number | string) => ["refund", String(id)] as const,
+  shipments: (params?: ListParams) => ["shipments", params ?? {}] as const,
+  shipment: (id: number | string) => ["shipment", String(id)] as const,
+  auditLogs: (params?: ListParams) => ["audit-logs", params ?? {}] as const,
 
   reportsSummary: (params?: ListParams) => ["reports-summary", params ?? {}] as const,
   reportsDaily: (params?: ListParams) => ["reports-daily", params ?? {}] as const,

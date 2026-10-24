@@ -612,8 +612,10 @@ export interface PaymentRefund {
   id: number;
   paymentId: number;
   amount: string;
-  status: "PENDING" | "COMPLETED" | "FAILED";
+  status: "PENDING" | "APPROVED" | "COMPLETED" | "FAILED";
   reason: string | null;
+  reference?: string | null;
+  failureReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

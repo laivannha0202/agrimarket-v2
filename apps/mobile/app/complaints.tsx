@@ -12,11 +12,11 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Badge, EmptyView, ErrorView, LinkPress, LoadingView, PrimaryButton } from "../src/components/ui";
+import { Badge, EmptyView, ErrorView, GhostButton, LinkPress, LoadingView, PrimaryButton } from "../src/components/ui";
 import { errorMessage, isNetworkError } from "../src/lib/api-client";
 import { formatDateTime } from "../src/lib/format";
 import { resources } from "../src/lib/resources";
@@ -39,9 +39,12 @@ export default function ComplaintsScreen() {
     }
   }, [orderId, router]);
 
-  const list = useQuery({
-    queryKey: ["complaints"],
-    queryFn: () => resources.listMyComplaints({ page: 1, limit: 20 }),
+  const list = useInfiniteQuery({
+    queryKey: ["complaints", "infinite"],
+    queryFn: ({ pageParam }) => resources.listMyComplaints({ page: pageParam, limit: 20 }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
     enabled: hydrated && token !== null,
   });
 
@@ -87,7 +90,8 @@ export default function ComplaintsScreen() {
     );
   }
 
-  const complaints = list.data.data;
+  const complaints = list.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = list.data?.pages[0]?.meta.total ?? 0;
 
   return (
     <ScrollView
@@ -144,6 +148,18 @@ export default function ComplaintsScreen() {
           );
         })
       )}
+      {complaints.length > 0 && list.hasNextPage ? (
+        <GhostButton
+          label={list.isFetchingNextPage ? "Đang tải…" : "Xem thêm"}
+          icon="chevron-down"
+          disabled={list.isFetchingNextPage}
+          onPress={() => void list.fetchNextPage()}
+          style={styles.loadMore}
+        />
+      ) : null}
+      {complaints.length > 0 && total > complaints.length ? (
+        <Text style={styles.moreNote}>Hiển thị {complaints.length}/{total} khiếu nại.</Text>
+      ) : null}
       <View style={styles.bottomPad} />
     </ScrollView>
   );
@@ -171,4 +187,6 @@ const styles = StyleSheet.create({
   code: { flex: 1, fontSize: 14, fontWeight: "700", color: colors.textStrong },
   reason: { fontSize: 12.5, color: colors.text, marginTop: spacing.xs, fontStyle: "italic" },
   section: { fontSize: 15, fontWeight: "700", color: colors.textStrong, marginBottom: spacing.sm },
+  loadMore: { marginBottom: spacing.sm },
+  moreNote: { fontSize: 12, color: colors.muted, textAlign: "center", paddingVertical: spacing.sm },
 });

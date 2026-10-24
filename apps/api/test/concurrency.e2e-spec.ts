@@ -6,6 +6,8 @@ import { PromotionsService } from '../src/promotions/promotions.service.js';
 import { CommissionService } from '../src/finance/commission.service.js';
 import { LocationsService } from '../src/locations/locations.service.js';
 import { WarehouseDocumentsService } from '../src/inventory/warehouse-documents.service.js';
+import { QuarantineService } from '../src/quarantine/quarantine.service.js';
+import { AuditService } from '../src/common/audit/audit.service.js';
 import {
   cleanupConcurrencyWorld,
   createConcurrencyPrisma,
@@ -54,10 +56,11 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
     await purgeStaleConcurrencyFixtures(prisma);
     world = await createConcurrencyWorld(prisma, RUN_ID);
 
-    const audit = { record: async () => undefined };
+    const audit = new AuditService(prisma as never);
     inventory = new InventoryService(prisma as never, audit as never);
     promotions = new PromotionsService(prisma as never);
     const commission = new CommissionService(prisma as never);
+    const quarantine = new QuarantineService(prisma as never, audit, inventory);
     orders = new OrdersService(
       prisma as never,
       inventory,
@@ -65,6 +68,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
       commission,
       audit as never,
       new LocationsService(prisma as never),
+      quarantine,
     );
     docs = new WarehouseDocumentsService(prisma as never, inventory, audit as never);
   });
@@ -626,7 +630,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
         expect(Number(bal.onHand)).toBe(10);
         expect(released).toBe(0);
         const quarantined = await prisma.inventoryMovement.count({
-          where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'QUARANTINE' },
+          where: { referenceType: 'ORDER_CANCEL', referenceId: order.id, type: 'QUARANTINE' },
         });
         expect(quarantined).toBe(1);
         expect(payment.status).toBe('PENDING');
@@ -705,7 +709,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
       expect(Number(bal.onHand)).toBe(10);
       expect(
         await prisma.inventoryMovement.count({
-          where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'QUARANTINE' },
+          where: { referenceType: 'ORDER_CANCEL', referenceId: order.id, type: 'QUARANTINE' },
         }),
       ).toBe(1);
       expect(
@@ -863,7 +867,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
       expect(Number(bal.reserved)).toBe(0);
       expect(Number(bal.blocked)).toBe(4);
       const quarantineMoves = await prisma.inventoryMovement.count({
-        where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'QUARANTINE' },
+        where: { referenceType: 'ORDER_CANCEL', referenceId: order.id, type: 'QUARANTINE' },
       });
       const releaseMoves = await prisma.inventoryMovement.count({
         where: { referenceType: 'OrderCancel', referenceId: order.id, type: 'RELEASE' },

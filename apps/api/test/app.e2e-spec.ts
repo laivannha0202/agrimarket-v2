@@ -157,19 +157,38 @@ describe.skipIf(!hasTestDb)('AgriMarket API (e2e)', () => {
     });
 
     it('filters products by status', async () => {
-      const res = await request(app.getHttpServer()).get('/api/v1/products?status=INACTIVE').expect(200);
+      // The public catalogue only ever exposes ACTIVE products, so the
+      // INACTIVE filter is an ADMIN capability served by /products/admin.
+      const res = await asAdmin('/api/v1/products/admin?status=INACTIVE').expect(200);
       expect(res.body.data.every((p: { status: string }) => p.status === 'INACTIVE')).toBe(true);
       expect(res.body.data.some((p: { id: number }) => p.id === fixtures.productBId)).toBe(true);
+
+      const publicRes = await request(app.getHttpServer())
+        .get('/api/v1/products?status=INACTIVE')
+        .expect(200);
+      // The public list ignores the status filter and always exposes ACTIVE only.
+      expect(
+        publicRes.body.data.every((p: { status: string }) => p.status === 'ACTIVE'),
+      ).toBe(true);
+      expect(publicRes.body.data.some((p: { id: number }) => p.id === fixtures.productBId)).toBe(
+        false,
+      );
     });
 
     it('searches products by name token', async () => {
       const res = await request(app.getHttpServer())
         .get(`/api/v1/products?search=${encodeURIComponent(fixtures.searchToken)}`)
         .expect(200);
-      expect(res.body.meta.total).toBe(2);
+      // Only the ACTIVE product is public; the INACTIVE one stays hidden.
+      expect(res.body.meta.total).toBe(1);
       expect(
         res.body.data.every((p: { name: string }) => p.name.includes(fixtures.searchToken)),
       ).toBe(true);
+
+      const adminRes = await asAdmin(
+        `/api/v1/products/admin?search=${encodeURIComponent(fixtures.searchToken)}`,
+      ).expect(200);
+      expect(adminRes.body.meta.total).toBe(2);
     });
 
     it('filters categories by search (name/slug) and status', async () => {

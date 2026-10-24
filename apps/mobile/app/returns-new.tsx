@@ -24,7 +24,7 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -43,7 +43,7 @@ import {
   uploadEvidence,
   type PickedEvidence,
 } from "../src/components/EvidencePicker";
-import { Card, EmptyView, ErrorView, LoadingView, PrimaryButton } from "../src/components/ui";
+import { Card, EmptyView, ErrorView, GhostButton, LoadingView, PrimaryButton } from "../src/components/ui";
 import { ApiError, errorMessage, isNetworkError } from "../src/lib/api-client";
 import { formatQuantity } from "../src/lib/format";
 import { resources } from "../src/lib/resources";
@@ -74,9 +74,12 @@ export default function ReturnsNewScreen() {
   const [fieldErrors, setFieldErrors] = useState<AfterSalesFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
 
-  const eligible = useQuery({
-    queryKey: ["returnable-items"],
-    queryFn: () => resources.listReturnableItems({ page: 1, limit: 30 }),
+  const eligible = useInfiniteQuery({
+    queryKey: ["returnable-items", "infinite"],
+    queryFn: ({ pageParam }) => resources.listReturnableItems({ page: pageParam, limit: 20 }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
     enabled: hydrated && token !== null,
   });
 
@@ -87,10 +90,12 @@ export default function ReturnsNewScreen() {
    * the selection is always one of the rows actually on screen, and the
    * quantity cap always belongs to the row being shown.
    */
+  const returnableItems = eligible.data?.pages.flatMap((page) => page.data) ?? [];
+
   const selected =
-    eligible.data?.data.find((i) => i.orderItemId === pickedId) ??
+    returnableItems.find((i) => i.orderItemId === pickedId) ??
     (presetId
-      ? (eligible.data?.data.find((i) => i.orderItemId === Number(presetId)) ?? null)
+      ? (returnableItems.find((i) => i.orderItemId === Number(presetId)) ?? null)
       : null);
 
   const fail = (message: string | string[] | undefined, fallback: string) => {
@@ -204,7 +209,8 @@ export default function ReturnsNewScreen() {
     );
   }
 
-  const returnable = eligible.data.data;
+  const returnable = returnableItems;
+  const eligibleTotal = eligible.data?.pages[0]?.meta.total ?? 0;
   const hint = submitDisabledReason();
 
   return (
@@ -272,6 +278,21 @@ export default function ReturnsNewScreen() {
                   </Pressable>
                 );
               })}
+
+              {returnable.length > 0 && eligible.hasNextPage ? (
+                <GhostButton
+                  label={eligible.isFetchingNextPage ? "Đang tải…" : "Xem thêm sản phẩm"}
+                  icon="chevron-down"
+                  disabled={eligible.isFetchingNextPage}
+                  onPress={() => void eligible.fetchNextPage()}
+                  style={styles.loadMore}
+                />
+              ) : null}
+              {returnable.length > 0 && eligibleTotal > returnable.length ? (
+                <Text style={styles.moreNote}>
+                  Hiển thị {returnable.length}/{eligibleTotal} sản phẩm có thể trả.
+                </Text>
+              ) : null}
 
               {selected ? (
                 <>
@@ -404,4 +425,6 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1 },
   itemName: { fontSize: 13.5, fontWeight: "600", color: colors.text, lineHeight: 18 },
   itemMeta: { fontSize: 12, color: colors.muted, marginTop: 2 },
+  loadMore: { marginBottom: spacing.sm },
+  moreNote: { fontSize: 12, color: colors.muted, textAlign: "center", paddingVertical: spacing.sm },
 });

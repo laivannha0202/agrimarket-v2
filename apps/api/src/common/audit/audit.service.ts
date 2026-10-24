@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../database/prisma.service.js';
-import type { Prisma } from '../../../generated/prisma/client.js';
+import type { AuditLog, Prisma } from '../../../generated/prisma/client.js';
+import {
+  buildPagination,
+  normalizeSearch,
+  paginate,
+  type PaginatedResult,
+} from '../dto/pagination-query.dto.js';
+import type { AuditLogQueryDto } from './dto/audit-log.dto.js';
 
 export interface AuditRecordInput {
   actorUserId?: number | null;
@@ -42,5 +49,52 @@ export class AuditService {
         reason: input.reason ?? null,
       },
     });
+  }
+
+  /**
+   * Read side of the audit trail. The trail is append-only: this exposes the
+   * recorded history to an ADMIN and never mutates or deletes a row.
+   */
+  async findAll(query: AuditLogQueryDto): Promise<
+    PaginatedResult<
+      AuditLog & { actorUser: { id: number; fullName: string; email: string } | null }
+    >
+  > {
+    const { skip, take, page, limit } = buildPagination(query.page, query.limit);
+    const search = normalizeSearch(query.search);
+    const where: Prisma.AuditLogWhereInput = {
+      ...(query.action ? { action: query.action } : {}),
+      ...(query.entityType ? { entityType: query.entityType } : {}),
+      ...(query.entityId ? { entityId: query.entityId } : {}),
+      ...(query.actorUserId ? { actorUserId: query.actorUserId } : {}),
+      ...(query.from || query.to
+        ? {
+            createdAt: {
+              ...(query.from ? { gte: new Date(query.from) } : {}),
+              ...(query.to ? { lte: new Date(query.to) } : {}),
+            },
+          }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { action: { contains: search } },
+              { entityType: { contains: search } },
+              { entityId: { contains: search } },
+            ],
+          }
+        : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where,
+        skip,
+        take,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: { actorUser: { select: { id: true, fullName: true, email: true } } },
+      }),
+      this.prisma.auditLog.count({ where }),
+    ]);
+    return paginate(data, total, page, limit);
   }
 }

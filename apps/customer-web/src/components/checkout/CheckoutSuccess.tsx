@@ -124,8 +124,8 @@ export function CheckoutSuccess({ orderId }: { orderId: number }) {
         </AppCard>
 
         <Text fz={12.5} c="var(--agri-muted)" ta="center" style={{ lineHeight: "18px" }}>
-          Đơn hàng COD được thanh toán khi bạn nhận hàng. Trạng thái thanh toán sẽ cập nhật
-          sau khi giao thành công.
+          Bạn thanh toán tiền mặt khi nhận hàng. Trạng thái thanh toán sẽ được cập nhật
+          sau khi cửa hàng xác nhận đã thu tiền từ đơn vị vận chuyển.
         </Text>
 
         {/* --------------------------------------------------------- actions -- */}

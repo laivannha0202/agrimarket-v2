@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Table } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import type { ColumnsType, TableProps } from "antd/es/table";
 import { PageHeader } from "@/components/common/PageHeader";
 import { SearchToolbar, ListPagination, type SelectFilter } from "@/components/common/Toolbar";
 import { ErrorState } from "@/components/common/States";
@@ -32,6 +32,7 @@ interface ListPageProps<T> {
   onLimitChange: (limit: number) => void;
   scrollX?: number;
   itemLabel?: string;
+  expandable?: TableProps<T>["expandable"];
 }
 
 /**
@@ -63,6 +64,7 @@ export function ListPage<T extends object>({
   onLimitChange,
   scrollX,
   itemLabel = "bản ghi",
+  expandable,
 }: ListPageProps<T>) {
   return (
     <>
@@ -90,6 +92,7 @@ export function ListPage<T extends object>({
               scroll={scrollX ? { x: scrollX } : undefined}
               pagination={false}
               locale={{ emptyText }}
+              expandable={expandable}
             />
           </div>
           <div className="agri-pagination-summary">

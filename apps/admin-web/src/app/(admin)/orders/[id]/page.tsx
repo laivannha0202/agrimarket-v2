@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { Button, Col, Dropdown, Form, Input, Modal, Row, Table, Tag, Typography, type MenuProps } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
@@ -336,6 +337,12 @@ export default function OrderDetailPage() {
               rowKey="id"
               columns={[
                 {
+                  title: "Mã",
+                  dataIndex: "id",
+                  width: 70,
+                  render: (v: number) => <span className="agri-mono">#{v}</span>,
+                },
+                {
                   title: "Phương thức",
                   dataIndex: "method",
                   render: (m: string) => <StatusTag status={paymentMethod(m)} />,
@@ -374,11 +381,20 @@ export default function OrderDetailPage() {
                 },
                 {
                   title: "Thao tác",
-                  width: 150,
+                  width: 190,
                   render: (_, row) => {
+                    const canRefund =
+                      row.status === "PAID" || row.status === "PARTIALLY_REFUNDED";
+                    const refundLink = canRefund ? (
+                      <Link href={`/refunds?paymentId=${row.id}`} className="agri-link agri-nowrap">
+                        Hoàn tiền
+                      </Link>
+                    ) : null;
                     // Only COD is collected by hand: an online payment is
                     // confirmed by its own gateway, never by this button.
-                    if (row.method !== "COD" || row.status !== "PENDING") return "—";
+                    if (row.method !== "COD" || row.status !== "PENDING") {
+                      return refundLink ?? "—";
+                    }
                     // Cash is handed over at delivery. The API refuses an
                     // earlier PAID, so the button waits for DELIVERED instead
                     // of offering an action that is guaranteed to fail.
@@ -386,18 +402,21 @@ export default function OrderDetailPage() {
                       return <span className="agri-muted">Chờ giao hàng</span>;
                     }
                     return (
-                      <Button
-                        type="link"
-                        size="small"
-                        style={{ paddingInline: 0 }}
-                        loading={confirmCollection.isPending}
-                        onClick={() => {
-                          setCollectTarget(row);
-                          collectForm.setFieldsValue({ transactionReference: "" });
-                        }}
-                      >
-                        Ghi nhận thu tiền
-                      </Button>
+                      <span style={{ display: "inline-flex", gap: 8, flexWrap: "wrap" }}>
+                        <Button
+                          type="link"
+                          size="small"
+                          style={{ paddingInline: 0 }}
+                          loading={confirmCollection.isPending}
+                          onClick={() => {
+                            setCollectTarget(row);
+                            collectForm.setFieldsValue({ transactionReference: "" });
+                          }}
+                        >
+                          Ghi nhận thu tiền
+                        </Button>
+                        {refundLink}
+                      </span>
                     );
                   },
                 },

@@ -1,7 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
-import { PayoutStatus, RecordStatus, SettlementStatus } from '../../../generated/prisma/enums.js';
+import {
+  PayoutStatus,
+  RecordStatus,
+  SettlementAdjustmentResolution,
+  SettlementAdjustmentStatus,
+  SettlementStatus,
+} from '../../../generated/prisma/enums.js';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreateCommissionRuleDto {
@@ -81,6 +87,41 @@ export class SettlementQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(SettlementStatus)
   declare status?: SettlementStatus;
+}
+
+/** Query DTO for `GET /settlement-adjustments` (ADMIN). */
+export class SettlementAdjustmentQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: SettlementAdjustmentStatus })
+  @IsOptional()
+  @IsEnum(SettlementAdjustmentStatus)
+  declare status?: SettlementAdjustmentStatus;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  partnerId?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  settlementId?: number;
+}
+
+/**
+ * Review an OPEN refund-after-settlement adjustment. The manual policy choice
+ * is explicit (deduct next period, write off, or handle manually); the note is
+ * required so the decision has a written basis.
+ */
+export class ReviewSettlementAdjustmentDto {
+  @ApiProperty({ enum: SettlementAdjustmentResolution })
+  @IsEnum(SettlementAdjustmentResolution)
+  resolution!: SettlementAdjustmentResolution;
+
+  @ApiProperty({ example: 'Trừ vào kỳ đối soát kế tiếp theo xác nhận của kế toán' })
+  @IsString()
+  note!: string;
 }
 
 /** Query DTO for `GET /payouts` — strict enum, unknown status → 400. */

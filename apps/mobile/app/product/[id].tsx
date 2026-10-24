@@ -18,7 +18,7 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
@@ -35,6 +35,7 @@ import {
   BottomBar,
   EmptyView,
   ErrorView,
+  GhostButton,
   LoadingView,
   PrimaryButton,
   QtyStepper,
@@ -74,9 +75,12 @@ export default function ProductDetailScreen() {
     enabled: Number.isFinite(productId),
   });
 
-  const reviews = useQuery({
-    queryKey: ["product-reviews", productId],
-    queryFn: () => resources.listProductReviews(productId, 1, 10),
+  const reviews = useInfiniteQuery({
+    queryKey: ["product-reviews", productId, "infinite"],
+    queryFn: ({ pageParam }) => resources.listProductReviews(productId, pageParam, 10),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
     enabled: Number.isFinite(productId),
   });
 
@@ -211,7 +215,7 @@ export default function ProductDetailScreen() {
     router.push({ pathname: "/checkout", params: { buyNow: `${selected.id}:${clampedQty}` } });
   };
 
-  const reviewsData = reviews.data?.data ?? [];
+  const reviewsData = reviews.data?.pages.flatMap((page) => page.data) ?? [];
   const priceSourceLabel = price ? PRICE_SOURCE_LABEL[price.source] : null;
   const coverWidth = width;
   const weight = selected ? formatWeight(selected.weight, selected.weightUnit) : "";
@@ -411,24 +415,35 @@ export default function ProductDetailScreen() {
           ) : reviewsData.length === 0 ? (
             <EmptyView message="Chưa có đánh giá cho sản phẩm này." kind="search" illustration={false} />
           ) : (
-            reviewsData.map((r) => (
-              <View key={r.id} style={styles.review}>
-                <View style={styles.reviewHead}>
-                  <Text style={styles.reviewName}>{r.customer.fullName}</Text>
-                  <View style={styles.stars}>
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <Ionicons
-                        key={n}
-                        name={n <= r.rating ? "star" : "star-outline"}
-                        size={12}
-                        color={n <= r.rating ? colors.warning : colors.mutedSoft}
-                      />
-                    ))}
+            <>
+              {reviewsData.map((r) => (
+                <View key={r.id} style={styles.review}>
+                  <View style={styles.reviewHead}>
+                    <Text style={styles.reviewName}>{r.customer.fullName}</Text>
+                    <View style={styles.stars}>
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <Ionicons
+                          key={n}
+                          name={n <= r.rating ? "star" : "star-outline"}
+                          size={12}
+                          color={n <= r.rating ? colors.warning : colors.mutedSoft}
+                        />
+                      ))}
+                    </View>
                   </View>
+                  {r.content ? <Text style={styles.reviewText}>{r.content}</Text> : null}
                 </View>
-                {r.content ? <Text style={styles.reviewText}>{r.content}</Text> : null}
-              </View>
-            ))
+              ))}
+              {reviews.hasNextPage ? (
+                <GhostButton
+                  label={reviews.isFetchingNextPage ? "Đang tải…" : "Xem thêm đánh giá"}
+                  icon="chevron-down"
+                  disabled={reviews.isFetchingNextPage}
+                  onPress={() => void reviews.fetchNextPage()}
+                  style={styles.loadMore}
+                />
+              ) : null}
+            </>
           )}
         </View>
 
@@ -588,6 +603,7 @@ const styles = StyleSheet.create({
   desc: { fontSize: 14, color: colors.text, lineHeight: 21 },
 
   review: { paddingVertical: spacing.sm, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth },
+  loadMore: { marginTop: spacing.sm },
   reviewHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
   reviewName: { fontSize: 13, fontWeight: "600", color: colors.text },
   reviewText: { fontSize: 13, color: colors.muted, marginTop: 2, lineHeight: 18 },

@@ -2,12 +2,14 @@ import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service.js';
 import {
+  CompleteRefundDto,
   CreatePaymentDto,
   CreateRefundDto,
+  FailRefundDto,
   PaymentQueryDto,
+  RefundQueryDto,
   UpdatePaymentStatusDto,
 } from './dto/payment.dto.js';
-import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { IdempotencyKey } from '../common/decorators/idempotency-key.decorator.js';
@@ -57,9 +59,17 @@ export class PaymentsController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('refunds')
-  @ApiOperation({ summary: 'List refunds (ADMIN)' })
-  listRefunds(@Query() query: PaginationQueryDto) {
+  @ApiOperation({ summary: 'List refunds (status filter, ADMIN)' })
+  listRefunds(@Query() query: RefundQueryDto) {
     return this.paymentsService.listRefunds(query);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('refunds/:id')
+  @ApiOperation({ summary: 'Get a refund with its payment, return and reconciliation rows (ADMIN)' })
+  findRefund(@Param('id', ParseIntPipe) id: number) {
+    return this.paymentsService.findRefund(id);
   }
 
   @Roles('ADMIN')
@@ -72,12 +82,54 @@ export class PaymentsController {
       'Stable client-generated key per logical refund. Reusing it with the same payload replays ' +
       'the original refund instead of refunding twice; a different payload is rejected with 409.',
   })
-  @ApiOperation({ summary: 'Refund a payment (ADMIN) — cannot exceed paid amount' })
+  @ApiOperation({
+    summary: 'Request a refund (ADMIN) — PENDING, cannot exceed paid amount',
+    description:
+      'Creates the refund in PENDING. Money is only moved by approve -> complete; completion ' +
+      'requires a bank/gateway reference and only then updates the payment and settlement.',
+  })
   refund(
     @Body() dto: CreateRefundDto,
     @CurrentUser() user: AuthenticatedUser,
     @IdempotencyKey() idempotencyKey: string,
   ) {
     return this.paymentsService.refund(dto, user.id, idempotencyKey);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('refunds/:id/approve')
+  @ApiOperation({ summary: 'Approve a PENDING refund (ADMIN)' })
+  approveRefund(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
+    return this.paymentsService.approveRefund(id, user.id);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('refunds/:id/complete')
+  @ApiOperation({
+    summary: 'Complete an APPROVED refund with a payment reference (ADMIN)',
+    description:
+      'Requires `reference` (bank/gateway proof). Only this step moves the payment to ' +
+      'PARTIALLY_REFUNDED/REFUNDED and books settlement reconciliation adjustments.',
+  })
+  completeRefund(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CompleteRefundDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.paymentsService.completeRefund(id, dto, user.id);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('refunds/:id/fail')
+  @ApiOperation({ summary: 'Fail a PENDING/APPROVED refund and release its return link (ADMIN)' })
+  failRefund(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: FailRefundDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.paymentsService.failRefund(id, dto, user.id);
   }
 }

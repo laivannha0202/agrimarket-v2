@@ -27,6 +27,8 @@ import type {
   Review,
   Season,
   Settlement,
+  SettlementAdjustment,
+  SettlementAdjustmentResolution,
   Shipment,
   Voucher,
   Warehouse,
@@ -36,6 +38,11 @@ import type {
   AuthUser,
   ReportsSummary,
   ReportsDaily,
+  Refund,
+  EligibleRefundsResponse,
+  QuarantineCase,
+  AuditLog,
+  FarmingEvent,
 } from "@/types/api";
 
 function toQuery(params?: ListParams): Record<string, QueryValue> {
@@ -59,6 +66,8 @@ export const resources = {
 
   // Returns & complaints
   returns: (p?: ListParams) => api.get<Paginated<ReturnRequest>>("/returns", toQuery(p)),
+  eligibleRefunds: (id: number | string) =>
+    api.get<EligibleRefundsResponse>(`/returns/${id}/eligible-refunds`),
   updateReturn: (id: number | string, body: { status: string; refundId?: number }) =>
     api.patch<ReturnRequest>(`/returns/${id}`, body),
   complaints: (p?: ListParams) => api.get<Paginated<Complaint>>("/complaints", toQuery(p)),
@@ -66,8 +75,8 @@ export const resources = {
     api.patch<Complaint>(`/complaints/${id}`, body),
 
   // Catalog
-  products: (p?: ListParams) => api.get<Paginated<Product>>("/products", toQuery(p)),
-  product: (id: number | string) => api.get<Product>(`/products/${id}`),
+  products: (p?: ListParams) => api.get<Paginated<Product>>("/products/admin", toQuery(p)),
+  product: (id: number | string) => api.get<Product>(`/products/admin/${id}`),
   createProduct: (body: unknown) => api.post<Product>("/products", body),
   updateProduct: (id: number | string, body: unknown) => api.patch<Product>(`/products/${id}`, body),
   addVariant: (id: number | string, body: unknown) => api.post(`/products/${id}/variants`, body),
@@ -103,8 +112,8 @@ export const resources = {
   harvests: (p?: ListParams) => api.get<Paginated<Harvest>>("/harvests", toQuery(p)),
   createHarvest: (body: unknown) => api.post<Harvest>("/harvests", body),
   farmingEvents: (seasonId: number | string) =>
-    api.get<import("@/types/api").FarmingEvent[]>(`/farming-events/season/${seasonId}`),
-  createFarmingEvent: (body: unknown) => api.post("/farming-events", body),
+    api.get<FarmingEvent[]>(`/farming-events/season/${seasonId}`),
+  createFarmingEvent: (body: unknown) => api.post<FarmingEvent>("/farming-events", body),
 
   // QC & lots & certificates
   qc: (p?: ListParams) => api.get<Paginated<QcInspection>>("/qc", toQuery(p)),
@@ -183,18 +192,47 @@ export const resources = {
   settlement: (id: number | string) => api.get<Settlement>(`/settlements/${id}`),
   createSettlement: (body: unknown) => api.post<Settlement>("/settlements", body),
   confirmSettlement: (id: number | string) => api.post<Settlement>(`/settlements/${id}/confirm`),
+  settlementAdjustments: (p?: ListParams) =>
+    api.get<Paginated<SettlementAdjustment>>("/settlement-adjustments", toQuery(p)),
+  reviewSettlementAdjustment: (
+    id: number | string,
+    body: { resolution: SettlementAdjustmentResolution; note: string },
+  ) => api.post<SettlementAdjustment>(`/settlement-adjustments/${id}/review`, body),
   payouts: (p?: ListParams) => api.get<Paginated<Payout>>("/payouts", toQuery(p)),
   createPayout: (body: unknown, idempotencyKey: string) =>
     api.post<Payout>("/payouts", body, { "Idempotency-Key": idempotencyKey }),
   payPayout: (id: number | string) => api.post<Payout>(`/payouts/${id}/pay`),
 
-  // Payments & shipments (order context)
+  // Payments, refunds & shipments
   payments: (p?: ListParams) => api.get<Paginated<Payment>>("/payments", toQuery(p)),
   updatePaymentStatus: (id: number | string, status: string, transactionReference?: string) =>
     api.patch<Payment>(`/payments/${id}/status`, { status, transactionReference }),
-  shipments: (p?: ListParams) => api.get<Paginated<Shipment>>("/shipments", toQuery(p)),  createShipment: (body: unknown) => api.post<Shipment>("/shipments", body),
+  refunds: (p?: ListParams) => api.get<Paginated<Refund>>("/refunds", toQuery(p)),
+  refund: (id: number | string) => api.get<Refund>(`/refunds/${id}`),
+  createRefund: (body: unknown, idempotencyKey: string) =>
+    api.post<Refund>("/refunds", body, { "Idempotency-Key": idempotencyKey }),
+  approveRefund: (id: number | string) => api.post<Refund>(`/refunds/${id}/approve`),
+  completeRefund: (id: number | string, reference: string) =>
+    api.post<Refund>(`/refunds/${id}/complete`, { reference }),
+  failRefund: (id: number | string, failureReason: string) =>
+    api.post<Refund>(`/refunds/${id}/fail`, { failureReason }),
+  shipments: (p?: ListParams) => api.get<Paginated<Shipment>>("/shipments", toQuery(p)),
+  shipment: (id: number | string) => api.get<Shipment>(`/shipments/${id}`),
+  createShipment: (body: unknown) => api.post<Shipment>("/shipments", body),
   updateShipmentStatus: (id: number | string, body: unknown) =>
     api.patch<Shipment>(`/shipments/${id}/status`, body),
+
+  // Quarantine (goods blocked awaiting re-inspection)
+  quarantineCases: (p?: ListParams) =>
+    api.get<Paginated<QuarantineCase>>("/quarantine-cases", toQuery(p)),
+  quarantineCase: (id: number | string) => api.get<QuarantineCase>(`/quarantine-cases/${id}`),
+  inspectQuarantine: (id: number | string, body: { result: string; note?: string }) =>
+    api.patch<QuarantineCase>(`/quarantine-cases/${id}/inspect`, body),
+  resolveQuarantine: (id: number | string, body: { action: "RELEASE" | "SCRAP"; note?: string }) =>
+    api.patch<QuarantineCase>(`/quarantine-cases/${id}/resolve`, body),
+
+  // Append-only audit trail
+  auditLogs: (p?: ListParams) => api.get<Paginated<AuditLog>>("/audit-logs", toQuery(p)),
 
   // Backend aggregates for Tổng quan & Báo cáo (no 100-row cap)
   reportsSummary: (params?: { from?: string; to?: string; days?: number }) =>

@@ -32,6 +32,7 @@ import { ApiError } from "@/lib/api/client";
 /** Refund status labels/tone, exactly the Mobile mapping. */
 const REFUND_STATUS: Record<string, { label: string; tone: Tone }> = {
   COMPLETED: { label: "Đã hoàn tiền", tone: "green" },
+  APPROVED: { label: "Đã duyệt — chờ chuyển tiền", tone: "blue" },
   PENDING: { label: "Chờ hoàn tiền", tone: "yellow" },
   FAILED: { label: "Hoàn tiền thất bại", tone: "red" },
 };

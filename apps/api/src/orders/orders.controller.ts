@@ -109,7 +109,13 @@ export class OrdersController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Advance order status (ADMIN) — DELIVERED settles COD' })
+  @ApiOperation({
+    summary: 'Advance order status (ADMIN)',
+    description:
+      'DELIVERED consumes the stock reservation and is required before a COD payment can be ' +
+      'confirmed, but it does NOT mark the payment PAID: cash is confirmed separately through ' +
+      'PATCH /payments/:id/status once the courier has actually collected it.',
+  })
   updateStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateOrderStatusDto,

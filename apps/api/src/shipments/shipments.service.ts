@@ -1,24 +1,65 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
 import { InventoryService } from '../inventory/inventory.service.js';
-import { buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDatedSequence } from '../common/utils/code.util.js';
+import { QuarantineService, QUARANTINE_SOURCES } from '../quarantine/quarantine.service.js';
+import { buildDatedCode, datedCodePrefix, nextDatedSequence } from '../common/utils/code.util.js';
+import { claimSequence } from '../common/utils/code-sequence.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateShipmentDto, UpdateShipmentStatusDto } from './dto/shipment.dto.js';
 import type { Prisma, Shipment } from '../../generated/prisma/client.js';
-import { ShipmentStatus, TraceEventType } from '../../generated/prisma/enums.js';
+import {
+  OrderStatus,
+  PartnerOrderStatus,
+  ShipmentStatus,
+  TraceEventType,
+} from '../../generated/prisma/enums.js';
 
-const CODE_ATTEMPTS = 3;
+/**
+ * A shipment that is still in play for its partner order. Re-creating one is
+ * either an idempotent replay (same carrier/tracking) or a conflict.
+ */
+const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
+  ShipmentStatus.PENDING,
+  ShipmentStatus.READY,
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.OUT_FOR_DELIVERY,
+  ShipmentStatus.DELIVERY_FAILED,
+  ShipmentStatus.RETURNING,
+];
+
+/** Statuses that mean the parcel has physically left the warehouse. */
+export const SHIPMENT_LEFT_WAREHOUSE_STATUSES: ShipmentStatus[] = [
+  ShipmentStatus.IN_TRANSIT,
+  ShipmentStatus.OUT_FOR_DELIVERY,
+  ShipmentStatus.DELIVERY_FAILED,
+  ShipmentStatus.RETURNING,
+];
 
 const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
-  PENDING: [ShipmentStatus.READY, ShipmentStatus.IN_TRANSIT],
-  READY: [ShipmentStatus.IN_TRANSIT],
-  IN_TRANSIT: [ShipmentStatus.OUT_FOR_DELIVERY, ShipmentStatus.DELIVERY_FAILED],
-  OUT_FOR_DELIVERY: [ShipmentStatus.DELIVERED, ShipmentStatus.DELIVERY_FAILED],
+  PENDING: [ShipmentStatus.READY, ShipmentStatus.IN_TRANSIT, ShipmentStatus.CANCELLED],
+  READY: [ShipmentStatus.IN_TRANSIT, ShipmentStatus.CANCELLED],
+  IN_TRANSIT: [
+    ShipmentStatus.OUT_FOR_DELIVERY,
+    ShipmentStatus.DELIVERY_FAILED,
+    ShipmentStatus.RETURNING,
+  ],
+  OUT_FOR_DELIVERY: [
+    ShipmentStatus.DELIVERED,
+    ShipmentStatus.DELIVERY_FAILED,
+    ShipmentStatus.RETURNING,
+  ],
   DELIVERY_FAILED: [ShipmentStatus.RETURNING],
   RETURNING: [ShipmentStatus.RETURNED],
   DELIVERED: [],
   RETURNED: [],
+  CANCELLED: [],
 };
 
 @Injectable()
@@ -27,51 +68,121 @@ export class ShipmentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly inventory: InventoryService,
+    @Optional() private readonly quarantine?: QuarantineService,
   ) {}
 
-  async create(dto: CreateShipmentDto) {
-    const partnerOrder = await this.prisma.partnerOrder.findUnique({
-      where: { id: dto.partnerOrderId },
-    });
-    if (!partnerOrder) throw new NotFoundException('Partner order not found');
+  /**
+   * Create a shipment for a partner order.
+   *
+   * Both the order and the partner order must be READY_TO_SHIP: creating a
+   * parcel for an order that is still being prepared (or already cancelled /
+   * delivered) invents a physical shipment the warehouse never packed. The
+   * partner-order row is locked first, so two concurrent creates serialise and
+   * the duplicate check sees the winner's row.
+   */
+  async create(dto: CreateShipmentDto, actorUserId?: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM partner_orders WHERE id = ${dto.partnerOrderId} FOR UPDATE
+      `;
+      if (locked.length === 0) throw new NotFoundException('Partner order not found');
 
-    // Code from the highest sequence of the day (never a row count); the unique
-    // index on `code` is the final guard, so retry on a collision.
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        const now = new Date();
-        const code = await this.nextShipmentCode(now);
-        return await this.prisma.shipment.create({
+      const partnerOrder = await tx.partnerOrder.findUniqueOrThrow({
+        where: { id: dto.partnerOrderId },
+        include: { order: { select: { id: true, code: true, status: true } } },
+      });
+      if (
+        partnerOrder.status === PartnerOrderStatus.CANCELLED ||
+        partnerOrder.order.status === OrderStatus.CANCELLED
+      ) {
+        throw new ConflictException('Cannot create a shipment for a cancelled order');
+      }
+      if (
+        partnerOrder.status !== PartnerOrderStatus.READY_TO_SHIP ||
+        partnerOrder.order.status !== OrderStatus.READY_TO_SHIP
+      ) {
+        throw new BadRequestException(
+          'A shipment can only be created when both the order and the partner order are READY_TO_SHIP',
+        );
+      }
+
+      const existing = await tx.shipment.findFirst({
+        where: {
+          partnerOrderId: dto.partnerOrderId,
+          status: { in: ACTIVE_SHIPMENT_STATUSES },
+        },
+        orderBy: { id: 'desc' },
+        include: { events: { orderBy: { occurredAt: 'asc' } } },
+      });
+      if (existing) {
+        const sameCarrier = (existing.carrier ?? null) === (dto.carrier ?? null);
+        const sameTracking = (existing.trackingCode ?? null) === (dto.trackingCode ?? null);
+        if (sameCarrier && sameTracking) {
+          // At-least-once retry of the same shipment: return the row instead of
+          // opening a second parcel.
+          return existing;
+        }
+        throw new ConflictException(
+          'An active shipment already exists for this partner order with a different carrier/tracking code',
+        );
+      }
+
+      const now = new Date();
+      const prefix = datedCodePrefix('SHP', now);
+      const todays = await tx.shipment.findMany({
+        where: { code: { startsWith: prefix } },
+        select: { code: true },
+      });
+      const floor = nextDatedSequence(todays.map((row) => row.code), 'SHP', now) - 1;
+      const sequence = await claimSequence(tx, prefix, floor);
+      const code = buildDatedCode('SHP', sequence, now);
+
+      const shipment = await tx.shipment.create({
+        data: {
+          code,
+          partnerOrderId: dto.partnerOrderId,
+          carrier: dto.carrier,
+          trackingCode: dto.trackingCode,
+          status: ShipmentStatus.PENDING,
+        },
+        include: { events: { orderBy: { occurredAt: 'asc' } } },
+      });
+
+      // Packing started: the selected lots enter the public trace timeline.
+      const allocations = await tx.inventoryAllocation.findMany({
+        where: { orderItem: { partnerOrderId: dto.partnerOrderId } },
+        select: { productLotId: true },
+      });
+      for (const lotId of new Set(allocations.map((a) => a.productLotId))) {
+        await tx.traceEvent.create({
           data: {
-            code,
-            partnerOrderId: dto.partnerOrderId,
-            carrier: dto.carrier,
-            trackingCode: dto.trackingCode,
-            status: ShipmentStatus.PENDING,
+            productLotId: lotId,
+            type: TraceEventType.PACKING,
+            occurredAt: now,
+            description: `Đóng gói cho vận đơn ${shipment.code}`,
+            isPublic: true,
           },
         });
-      } catch (error) {
-        if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
-        throw error;
       }
-    }
-  }
 
-  private async nextShipmentCode(now: Date): Promise<string> {
-    const prefix = datedCodePrefix('SHP', now);
-    const existing = await this.prisma.shipment.findMany({
-      where: { code: { startsWith: prefix } },
-      select: { code: true },
+      await this.audit.record(
+        {
+          actorUserId,
+          action: 'SHIPMENT_CREATE',
+          entityType: 'Shipment',
+          entityId: String(shipment.id),
+          afterJson: {
+            code: shipment.code,
+            partnerOrderId: shipment.partnerOrderId,
+            carrier: shipment.carrier,
+            trackingCode: shipment.trackingCode,
+          },
+        },
+        tx,
+      );
+
+      return shipment;
     });
-    return buildDatedCode(
-      'SHP',
-      nextDatedSequence(
-        existing.map((row) => row.code),
-        'SHP',
-        now,
-      ),
-      now,
-    );
   }
 
   async findAll(query: { page?: number; limit?: number; status?: ShipmentStatus }): Promise<PaginatedResult<Shipment>> {
@@ -83,7 +194,18 @@ export class ShipmentsService {
         skip,
         take,
         orderBy: { id: 'desc' },
-        include: { events: { orderBy: { occurredAt: 'asc' } } },
+        include: {
+          events: { orderBy: { occurredAt: 'asc' } },
+          partnerOrder: {
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              partner: { select: { id: true, code: true, name: true } },
+              order: { select: { id: true, code: true, status: true } },
+            },
+          },
+        },
       }),
       this.prisma.shipment.count({ where }),
     ]);
@@ -93,36 +215,41 @@ export class ShipmentsService {
   async findOne(id: number) {
     const shipment = await this.prisma.shipment.findUnique({
       where: { id },
-      include: { events: { orderBy: { occurredAt: 'asc' } } },
+      include: {
+        events: { orderBy: { occurredAt: 'asc' } },
+        partnerOrder: {
+          select: {
+            id: true,
+            code: true,
+            status: true,
+            partner: { select: { id: true, code: true, name: true } },
+            order: { select: { id: true, code: true, status: true } },
+          },
+        },
+      },
     });
     if (!shipment) throw new NotFoundException('Shipment not found');
     return shipment;
   }
 
   /**
-   * Advance shipment status and write a ShipmentEvent. On DELIVERED the
-   * parent order and its partner orders become DELIVERED (consuming the
-   * order's reservations; COD collection is confirmed separately through the
-   * payments module). On RETURNED the returned goods are flagged for
-   * quarantine via a trace event — they are never added straight back to
-   * sellable stock.
+   * Advance shipment status and write a ShipmentEvent.
    *
-   * Both the shipment and the partner-order transitions are claimed with a
-   * conditional compare-and-set inside the transaction, so two concurrent
-   * DELIVERED updates (or a shipment racing the orders endpoint) cannot both
-   * consume the same reservation or both write the order DELIVERED. Re-applying
-   * the current shipment status is a documented no-op for non-terminal states
-   * and performs no side effect twice.
+   * Guards are checked against BOTH the partner order and its parent order:
+   *  - DELIVERED requires SHIPPING (or an already-DELIVERED idempotent re-read)
+   *    and is refused for a cancelled order;
+   *  - moving goods requires a non-cancelled order;
+   *  - CANCELLED is only for a parcel not yet handed over; in-transit
+   *    cancellations become RETURNING.
+   *
+   * On DELIVERED the parent order consumes its reservations and the trace
+   * chain gets DELIVERED. On RETURNED the still-reserved units are converted
+   * once to blocked stock with quarantine cases — never released as sellable.
    */
   async updateStatus(id: number, dto: UpdateShipmentStatusDto, actorUserId: number) {
     const shipment = await this.findOne(id);
     if (shipment.status === dto.status) {
-      // Idempotent replay of the current status: no event, no side effect.
-      // Terminal states are still terminal — replaying DELIVERED/RETURNED must
-      // not resurrect the consume/return flow — but the replay itself is a
-      // no-op success so at-least-once delivery of the same webhook/request is
-      // safe. Re-entering a terminal state from a *different* status is still
-      // refused by the transition map below.
+      // Idempotent replay: no event and no second stock side effect.
       return shipment;
     }
     const allowed = SHIPMENT_TRANSITIONS[shipment.status] ?? [];
@@ -132,6 +259,41 @@ export class ShipmentsService {
       );
     }
 
+    const partnerOrder = shipment.partnerOrder;
+    const orderStatus = partnerOrder.order.status;
+    const orderCancelled = orderStatus === OrderStatus.CANCELLED;
+    const partnerCancelled = partnerOrder.status === PartnerOrderStatus.CANCELLED;
+
+    if (dto.status === ShipmentStatus.DELIVERED) {
+      if (orderCancelled || partnerCancelled) {
+        throw new ConflictException('Cannot deliver a shipment for a cancelled order');
+      }
+      const orderShippable =
+        orderStatus === OrderStatus.SHIPPING || orderStatus === OrderStatus.DELIVERED;
+      const partnerShippable =
+        partnerOrder.status === PartnerOrderStatus.SHIPPING ||
+        partnerOrder.status === PartnerOrderStatus.DELIVERED;
+      if (!orderShippable || !partnerShippable) {
+        throw new ConflictException(
+          'A shipment can only be delivered when the order and partner order are SHIPPING',
+        );
+      }
+    } else if (dto.status !== ShipmentStatus.CANCELLED && dto.status !== ShipmentStatus.RETURNED) {
+      if (orderCancelled || partnerCancelled) {
+        throw new ConflictException('Cannot move a shipment for a cancelled order');
+      }
+      if (
+        partnerOrder.status === PartnerOrderStatus.DELIVERED ||
+        orderStatus === OrderStatus.DELIVERED
+      ) {
+        throw new ConflictException('Cannot move a shipment after its order was delivered');
+      }
+    }
+
+    if (dto.status === ShipmentStatus.CANCELLED && orderStatus === OrderStatus.DELIVERED) {
+      throw new ConflictException('Cannot cancel a shipment after delivery');
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const now = new Date();
       const data: Prisma.ShipmentUpdateInput = { status: dto.status };
@@ -139,9 +301,8 @@ export class ShipmentsService {
       if (dto.status === ShipmentStatus.DELIVERED) data.deliveredAt = now;
       if (dto.status === ShipmentStatus.DELIVERY_FAILED) data.failureReason = dto.failureReason;
 
-      // Claim the shipment row only while it still holds the expected status:
-      // the loser of a concurrent update matches 0 rows and rolls back instead
-      // of writing a second event and re-consuming the reservation.
+      // Compare-and-set so two concurrent updates record one event and run the
+      // stock side effect once.
       const claimed = await tx.shipment.updateMany({
         where: { id, status: shipment.status },
         data,
@@ -157,68 +318,133 @@ export class ShipmentsService {
         data: { shipmentId: id, status: dto.status, occurredAt: now, note: dto.note },
       });
 
-      const partnerOrder = await tx.partnerOrder.findUniqueOrThrow({
-        where: { id: shipment.partnerOrderId },
-        include: { items: true },
+      const allocations = await tx.inventoryAllocation.findMany({
+        where: { orderItem: { partnerOrderId: partnerOrder.id } },
+        select: { productLotId: true },
       });
+      const lotIds = [...new Set(allocations.map((a) => a.productLotId))];
+
+      if (dto.status === ShipmentStatus.IN_TRANSIT) {
+        // The partner order starts shipping. The parent order follows only when
+        // no partner order is still being prepared, so multi-partner orders can
+        // still create every shipment before the first one leaves.
+        await tx.partnerOrder.updateMany({
+          where: { id: partnerOrder.id, status: PartnerOrderStatus.READY_TO_SHIP },
+          data: { status: PartnerOrderStatus.SHIPPING },
+        });
+        const preparing = await tx.partnerOrder.count({
+          where: {
+            orderId: partnerOrder.order.id,
+            status: {
+              in: [
+                PartnerOrderStatus.PENDING_CONFIRMATION,
+                PartnerOrderStatus.CONFIRMED,
+                PartnerOrderStatus.PREPARING,
+                PartnerOrderStatus.READY_TO_SHIP,
+              ],
+            },
+          },
+        });
+        if (preparing === 0) {
+          await tx.order.updateMany({
+            where: { id: partnerOrder.order.id, status: OrderStatus.READY_TO_SHIP },
+            data: { status: OrderStatus.SHIPPING },
+          });
+        }
+        for (const lotId of lotIds) {
+          await tx.traceEvent.create({
+            data: {
+              productLotId: lotId,
+              type: TraceEventType.SHIPPING,
+              occurredAt: now,
+              description: `Hàng đã lên đường giao (${shipment.code})`,
+              isPublic: true,
+            },
+          });
+        }
+      }
 
       if (dto.status === ShipmentStatus.DELIVERED) {
-        // The partner order is DELIVERED exactly once (compare-and-set); a
-        // replayed DELIVERED for an already-DELIVERED partner order records
-        // the shipment event but never re-runs the order-level consume.
         await tx.partnerOrder.updateMany({
-          where: { id: partnerOrder.id, status: { not: 'DELIVERED' } },
-          data: { status: 'DELIVERED' },
+          where: { id: partnerOrder.id, status: { not: PartnerOrderStatus.DELIVERED } },
+          data: { status: PartnerOrderStatus.DELIVERED },
         });
-        // Order becomes DELIVERED once all partner orders are delivered.
         const remaining = await tx.partnerOrder.count({
-          where: { orderId: partnerOrder.orderId, status: { not: 'DELIVERED' } },
+          where: {
+            orderId: partnerOrder.order.id,
+            status: { not: PartnerOrderStatus.DELIVERED },
+          },
         });
         if (remaining === 0) {
-          // Guard: if the order was already moved to DELIVERED (e.g. through the
-          // orders endpoint), its stock was already consumed there — consuming
-          // again would be refused by the atomic guard and fail this shipment
-          // update for no reason.
           const claimedOrder = await tx.order.updateMany({
-            where: { id: partnerOrder.orderId, status: { not: 'DELIVERED' } },
-            data: { status: 'DELIVERED' },
+            where: { id: partnerOrder.order.id, status: { not: OrderStatus.DELIVERED } },
+            data: { status: OrderStatus.DELIVERED },
           });
           if (claimedOrder.count > 0) {
-            // Goods physically leave the warehouse: consume the order's
-            // reservations and write the OUTBOUND movements. COD is
-            // deliberately NOT marked PAID — a delivered parcel does not prove
-            // the courier collected cash; collection is confirmed through the
-            // payments module.
-            await this.inventory.consumeOrderStock(tx, partnerOrder.orderId);
+            // Goods physically leave the warehouse. COD is deliberately NOT
+            // marked PAID here: only the payments module confirms collection.
+            await this.inventory.consumeOrderStock(tx, partnerOrder.order.id);
           }
+        }
+        for (const lotId of lotIds) {
+          await tx.traceEvent.create({
+            data: {
+              productLotId: lotId,
+              type: TraceEventType.DELIVERED,
+              occurredAt: now,
+              description: `Giao hàng thành công (${shipment.code})`,
+              isPublic: true,
+            },
+          });
         }
       }
 
       if (dto.status === ShipmentStatus.DELIVERY_FAILED) {
-        // A failed last-mile attempt must not resurrect a partner order whose
-        // goods already left (DELIVERED): only a non-terminal partner order
-        // falls back to SHIPPING, otherwise the failure is recorded on the
-        // shipment only.
+        // Never resurrect a DELIVERED/CANCELLED partner order; just record the
+        // failed attempt on the shipment.
         await tx.partnerOrder.updateMany({
-          where: { id: partnerOrder.id, status: { not: 'DELIVERED' } },
-          data: { status: 'SHIPPING' },
+          where: {
+            id: partnerOrder.id,
+            status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+          },
+          data: { status: PartnerOrderStatus.SHIPPING },
         });
       }
 
       if (dto.status === ShipmentStatus.RETURNED) {
-        // Returned goods must go through quarantine, never straight to sellable.
-        const allocations = await tx.inventoryAllocation.findMany({
-          where: { orderItem: { partnerOrderId: partnerOrder.id } },
+        // The parcel came back. If the order was already cancelled while
+        // shipping, its reservations were converted at cancellation time and
+        // cases already exist; do not quarantine twice.
+        if (partnerOrder.status !== PartnerOrderStatus.CANCELLED && !orderCancelled) {
+          if (!this.quarantine) {
+            throw new ConflictException('Quarantine service is not configured');
+          }
+          await this.quarantine.quarantineOrderReservations(tx, {
+            orderId: partnerOrder.order.id,
+            partnerOrderId: partnerOrder.id,
+            sourceType: QUARANTINE_SOURCES.shipmentReturn,
+            sourceId: id,
+            reason: 'Vận chuyển thất bại — hàng hoàn về kho',
+            actorUserId,
+          });
+        }
+        await tx.partnerOrder.updateMany({
+          where: {
+            id: partnerOrder.id,
+            status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+          },
+          data: { status: PartnerOrderStatus.CANCELLED },
         });
-        for (const alloc of allocations) {
-          await tx.traceEvent.create({
-            data: {
-              productLotId: alloc.productLotId,
-              type: TraceEventType.RETURNED,
-              occurredAt: now,
-              description: `Hàng hoàn từ đơn ${partnerOrder.code} — chờ kiểm định lại`,
-              isPublic: true,
-            },
+        const stillActive = await tx.partnerOrder.count({
+          where: {
+            orderId: partnerOrder.order.id,
+            status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+          },
+        });
+        if (stillActive === 0) {
+          await tx.order.updateMany({
+            where: { id: partnerOrder.order.id, status: { not: OrderStatus.DELIVERED } },
+            data: { status: OrderStatus.CANCELLED },
           });
         }
       }
@@ -238,5 +464,58 @@ export class ShipmentsService {
 
       return updated;
     });
+  }
+
+  /**
+   * Keep shipment state consistent when the order is cancelled from the orders
+   * module: a parcel not yet handed over is CANCELLED; one already travelling
+   * becomes RETURNING so it can come back through quarantine. Idempotent, and
+   * terminal shipment states are never rewritten.
+   */
+  async syncOrderCancellation(
+    tx: Prisma.TransactionClient,
+    orderId: number,
+    actorUserId?: number,
+  ): Promise<void> {
+    const shipments = await tx.shipment.findMany({
+      where: { partnerOrder: { orderId } },
+      select: { id: true, status: true },
+    });
+    for (const shipment of shipments) {
+      let next: ShipmentStatus | null = null;
+      if (
+        shipment.status === ShipmentStatus.PENDING ||
+        shipment.status === ShipmentStatus.READY
+      ) {
+        next = ShipmentStatus.CANCELLED;
+      } else if (SHIPMENT_LEFT_WAREHOUSE_STATUSES.includes(shipment.status)) {
+        next = ShipmentStatus.RETURNING;
+      }
+      if (!next) continue;
+      const claimed = await tx.shipment.updateMany({
+        where: { id: shipment.id, status: shipment.status },
+        data: { status: next },
+      });
+      if (claimed.count === 0) continue;
+      await tx.shipmentEvent.create({
+        data: {
+          shipmentId: shipment.id,
+          status: next,
+          occurredAt: new Date(),
+          note: 'Đơn hàng đã bị hủy — vận đơn được cập nhật theo',
+        },
+      });
+      await this.audit.record(
+        {
+          actorUserId,
+          action: `SHIPMENT_${next}`,
+          entityType: 'Shipment',
+          entityId: String(shipment.id),
+          beforeJson: { status: shipment.status },
+          afterJson: { status: next, reason: 'ORDER_CANCELLED' },
+        },
+        tx,
+      );
+    }
   }
 }

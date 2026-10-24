@@ -70,6 +70,20 @@ export class ReturnsController {
 
   @Roles('ADMIN')
   @ApiBearerAuth()
+  @Get(':id/eligible-refunds')
+  @ApiOperation({
+    summary: 'Completed refunds that can close this return (ADMIN)',
+    description:
+      'Only COMPLETED refunds of the same order, not linked to another return, and not ' +
+      'larger than the returned goods value (`quantity × unitPriceSnapshot`). The return ' +
+      'transition re-checks the same rules, so the list can never authorise an invalid link.',
+  })
+  eligibleRefunds(@Param('id', ParseIntPipe) id: number) {
+    return this.returnsService.getEligibleRefunds(id);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
   @Get(':id')
   @ApiOperation({ summary: 'Get a return request (ADMIN)' })
   findOne(@Param('id', ParseIntPipe) id: number) {

@@ -370,8 +370,9 @@ function PaymentCard({ payment, order }: { payment: Payment | undefined; order: 
 
       {payment?.status === "PENDING" && payment.method === "COD" ? (
         <Text fz={12} lh="17px" c="var(--agri-muted)" mt={8}>
-          Đơn hàng COD được thanh toán khi bạn nhận hàng. Trạng thái sẽ chuyển sang đã
-          thanh toán sau khi giao thành công.
+          Bạn thanh toán tiền mặt cho đơn vị vận chuyển khi nhận hàng. Trạng thái
+          thanh toán chỉ chuyển sang đã thanh toán sau khi cửa hàng xác nhận đã thu
+          được tiền — hệ thống không tự đổi trạng thái chỉ vì đơn đã giao.
         </Text>
       ) : null}
     </AppCard>

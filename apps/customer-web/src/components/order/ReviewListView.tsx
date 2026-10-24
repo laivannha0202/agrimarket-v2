@@ -35,7 +35,7 @@ import {
 import { IconAlertCircle, IconStar } from "@tabler/icons-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -49,15 +49,18 @@ import {
   uploadEvidence,
   type PickedEvidence,
 } from "@/components/common/EvidencePicker";
-import { AppCard, LoadingView, PageTitle, SelectCard } from "@/components/ui/kit";
+import { AppCard, GhostButton, LoadingView, PageTitle, SelectCard } from "@/components/ui/kit";
 import { layout } from "@/theme";
 import type { EligibleReviewItem, MyReview } from "@/lib/api/types";
 import type { Tone } from "@/lib/status";
 
-const FETCH_LIMIT = 100;
-
-/** The backend offers at most 30 reviewable lines per page; one page is plenty. */
-const ELIGIBLE_LIMIT = 30;
+/**
+ * Page size for "Xem thêm" lists. The eligible picker keeps the previous 30-row
+ * first page so a deep link from an order still resolves, then loads more on
+ * demand instead of truncating silently.
+ */
+const LIST_PAGE_SIZE = 20;
+const ELIGIBLE_PAGE_SIZE = 30;
 
 const REVIEW_STATUS_LABEL: Record<MyReview["status"], string> = {
   PENDING: "Chờ duyệt",
@@ -167,17 +170,21 @@ function ReviewCreateForm({ onCreated }: { onCreated: () => void }) {
   const [formError, setFormError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  const eligible = useQuery({
-    queryKey: queryKeys.reviews.eligible(),
-    queryFn: () => resources.listReviewableItems({ page: 1, limit: ELIGIBLE_LIMIT }),
+  const eligible = useInfiniteQuery({
+    queryKey: queryKeys.reviews.eligibleInfinite(ELIGIBLE_PAGE_SIZE),
+    queryFn: ({ pageParam }) =>
+      resources.listReviewableItems({ page: pageParam, limit: ELIGIBLE_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
+
+  const reviewable = eligible.data?.pages.flatMap((page) => page.data) ?? [];
 
   /** `explicit tap ?? deep link` — always one of the rows actually on screen. */
   const selected =
-    eligible.data?.data.find((item) => item.orderItemId === pickedId) ??
-    (hasPreset
-      ? (eligible.data?.data.find((item) => item.orderItemId === presetId) ?? null)
-      : null);
+    reviewable.find((item) => item.orderItemId === pickedId) ??
+    (hasPreset ? (reviewable.find((item) => item.orderItemId === presetId) ?? null) : null);
 
   /** Object URLs of the picked photos, released once the review is sent. */
   const clearEvidence = () => {
@@ -231,8 +238,6 @@ function ReviewCreateForm({ onCreated }: { onCreated: () => void }) {
     return <ErrorState error={eligible.error} onRetry={() => eligible.refetch()} />;
   }
 
-  const reviewable = eligible.data.data;
-
   if (reviewable.length === 0) {
     return (
       <Text fz={12.5} lh="18px" c="var(--agri-muted)">
@@ -258,6 +263,27 @@ function ReviewCreateForm({ onCreated }: { onCreated: () => void }) {
           }}
         />
       ))}
+
+      {hasPreset && !selected && eligible.hasNextPage ? (
+        <Text fz={12.5} lh="18px" c="var(--agri-muted)" mt={4}>
+          Sản phẩm từ liên kết chưa nằm trong danh sách đã tải. Bấm “Xem thêm” để tìm.
+        </Text>
+      ) : null}
+
+      {eligible.hasNextPage ? (
+        <GhostButton
+          radius={8}
+          size="md"
+          mt={8}
+          loading={eligible.isFetchingNextPage}
+          onClick={() => eligible.fetchNextPage()}
+          mx="auto"
+          w="fit-content"
+          styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+        >
+          Xem thêm
+        </GhostButton>
+      ) : null}
 
       {selected ? (
         <>
@@ -346,18 +372,27 @@ function ReviewCreateForm({ onCreated }: { onCreated: () => void }) {
 function ReviewListViewInner() {
   const [tab, setTab] = useState<string | null>("create");
 
-  const eligibleQuery = useQuery({
-    queryKey: queryKeys.reviews.eligible(),
-    queryFn: () => resources.listReviewableItems({ page: 1, limit: ELIGIBLE_LIMIT }),
+  const eligibleQuery = useInfiniteQuery({
+    queryKey: queryKeys.reviews.eligibleInfinite(ELIGIBLE_PAGE_SIZE),
+    queryFn: ({ pageParam }) =>
+      resources.listReviewableItems({ page: pageParam, limit: ELIGIBLE_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
 
-  const reviewsQuery = useQuery({
-    queryKey: queryKeys.reviews.mine(),
-    queryFn: () => resources.listMyReviews({ page: 1, limit: FETCH_LIMIT }),
+  const reviewsQuery = useInfiniteQuery({
+    queryKey: queryKeys.reviews.mineInfinite(LIST_PAGE_SIZE),
+    queryFn: ({ pageParam }) =>
+      resources.listMyReviews({ page: pageParam, limit: LIST_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
 
-  const pendingCount = eligibleQuery.data?.data.length ?? 0;
-  const myReviews = reviewsQuery.data?.data ?? [];
+  const pendingCount = eligibleQuery.data?.pages[0]?.meta.total ?? 0;
+  const myReviews = reviewsQuery.data?.pages.flatMap((page) => page.data) ?? [];
+  const reviewTotal = reviewsQuery.data?.pages[0]?.meta.total ?? 0;
 
   return (
     <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
@@ -376,7 +411,7 @@ function ReviewListViewInner() {
             Viết đánh giá{pendingCount > 0 ? ` (${pendingCount})` : ""}
           </Tabs.Tab>
           <Tabs.Tab value="done">
-            Đánh giá của tôi{myReviews.length > 0 ? ` (${myReviews.length})` : ""}
+            Đánh giá của tôi{reviewTotal > 0 ? ` (${reviewTotal})` : ""}
           </Tabs.Tab>
         </Tabs.List>
 
@@ -403,11 +438,33 @@ function ReviewListViewInner() {
               }
             />
           ) : (
-            <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
-              {myReviews.map((review) => (
-                <MyReviewCard key={review.id} review={review} />
-              ))}
-            </SimpleGrid>
+            <Stack gap={8}>
+              <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
+                {myReviews.map((review) => (
+                  <MyReviewCard key={review.id} review={review} />
+                ))}
+              </SimpleGrid>
+
+              {reviewsQuery.hasNextPage ? (
+                <GhostButton
+                  radius={8}
+                  size="md"
+                  loading={reviewsQuery.isFetchingNextPage}
+                  onClick={() => reviewsQuery.fetchNextPage()}
+                  mx="auto"
+                  w="fit-content"
+                  styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+                >
+                  Xem thêm
+                </GhostButton>
+              ) : null}
+
+              {reviewTotal > myReviews.length ? (
+                <Text fz={12} c="var(--agri-muted)" ta="center">
+                  Hiển thị {myReviews.length}/{reviewTotal} đánh giá.
+                </Text>
+              ) : null}
+            </Stack>
           )}
         </Tabs.Panel>
       </Tabs>

@@ -80,7 +80,14 @@ export default function FarmDetailPage() {
   );
 
   const seasonColumns: ColumnsType<Season> = [
-    { title: "Cây trồng", dataIndex: "cropName" },
+    {
+      title: "Cây trồng",
+      render: (_, row) => (
+        <Link href={`/seasons/${row.id}`} className="agri-link">
+          {row.cropName}
+        </Link>
+      ),
+    },
     { title: "Giống", dataIndex: "variety", render: (v: string | null) => v ?? "—" },
     {
       title: "Trồng",

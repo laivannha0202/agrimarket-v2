@@ -6,5 +6,6 @@ export default defineConfig({
     root: './',
     include: ['src/**/*.spec.ts', 'test/**/*.spec.ts'],
     exclude: ['**/node_modules/**', '**/*.e2e-spec.ts'],
+    setupFiles: ['./test/setup-unit.ts'],
   },
 });

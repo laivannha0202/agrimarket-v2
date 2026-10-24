@@ -128,7 +128,8 @@ export default function OrderDetailScreen() {
               <Text style={styles.success}>Đặt hàng thành công</Text>
             </View>
             <Text style={styles.successText}>
-              Mã đơn {o.code}. Thanh toán tiền mặt khi nhận hàng (COD).
+              Mã đơn {o.code}. Bạn thanh toán tiền mặt khi nhận hàng (COD); trạng thái
+              thanh toán cập nhật sau khi cửa hàng xác nhận đã thu tiền.
             </Text>
           </Card>
         ) : null}

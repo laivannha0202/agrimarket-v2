@@ -23,6 +23,7 @@ import { QualityControlModule } from './quality-control/quality-control.module.j
 import { TraceabilityModule } from './traceability/traceability.module.js';
 import { WarehousesModule } from './warehouses/warehouses.module.js';
 import { InventoryModule } from './inventory/inventory.module.js';
+import { QuarantineModule } from './quarantine/quarantine.module.js';
 import { CartsModule } from './carts/carts.module.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { ShipmentsModule } from './shipments/shipments.module.js';
@@ -57,6 +58,7 @@ import { ReportsModule } from './reports/reports.module.js';
     TraceabilityModule,
     WarehousesModule,
     InventoryModule,
+    QuarantineModule,
     CartsModule,
     OrdersModule,
     ShipmentsModule,

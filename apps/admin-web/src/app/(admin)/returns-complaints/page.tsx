@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Button, Form, Input, Modal, Select, Tabs, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
@@ -115,6 +116,25 @@ function ReturnsTab() {
   const transitions = editing ? RETURN_TRANSITIONS[editing.status] ?? [] : [];
   const nextStatus = Form.useWatch("status", form);
 
+  /**
+   * The operator picks a real COMPLETED refund from the same order instead of
+   * typing an internal id. The endpoint already excludes refunds worth more
+   * than the returned goods and refunds that close another return; the PATCH
+   * re-checks every rule, so a stale list still cannot link the wrong money.
+   */
+  const needsRefund = nextStatus === "REFUNDED" && !editing?.refundId;
+  const eligibleRefunds = useQuery({
+    queryKey: queryKeys.eligibleRefunds(editing?.id ?? ""),
+    queryFn: () => resources.eligibleRefunds(editing!.id),
+    enabled: !!editing && needsRefund,
+  });
+  const refundOptions = (eligibleRefunds.data?.data ?? []).map((refund) => ({
+    value: refund.id,
+    label: `${formatMoney(refund.amount)} · ${refund.reference ?? `giao dịch #${refund.paymentId}`}${
+      refund.completedAt ? ` · ${formatDateTime(refund.completedAt)}` : ""
+    }`,
+  }));
+
   return (
     <>
       <ListPage<ReturnRequest>
@@ -182,14 +202,36 @@ function ReturnsTab() {
           <Form.Item label="Trạng thái mới" name="status" rules={[{ required: true, message: "Chọn trạng thái." }]}>
             <Select options={transitions} placeholder="Chọn trạng thái" />
           </Form.Item>
-          {nextStatus === "REFUNDED" && !editing?.refundId ? (
+          {needsRefund ? (
             <Form.Item
-              label="Mã hoàn tiền"
+              label="Giao dịch hoàn tiền"
               name="refundId"
-              rules={[{ required: true, message: "Nhập mã hoàn tiền để chuyển sang Đã hoàn tiền." }]}
+              rules={[{ required: true, message: "Chọn một giao dịch hoàn tiền đã hoàn tất." }]}
+              extra={
+                eligibleRefunds.data
+                  ? `Chỉ hiện giao dịch COMPLETED của đơn này, tối đa ${formatMoney(
+                      eligibleRefunds.data.returnValue,
+                    )} (giá trị hàng đã trả).`
+                  : undefined
+              }
             >
-              <Input type="number" placeholder="ID giao dịch hoàn tiền" />
+              <Select
+                placeholder="Chọn giao dịch hoàn tiền"
+                loading={eligibleRefunds.isLoading}
+                options={refundOptions}
+                notFoundContent={
+                  eligibleRefunds.isLoading
+                    ? "Đang tải…"
+                    : "Không có giao dịch hoàn tiền hợp lệ cho đơn này."
+                }
+              />
             </Form.Item>
+          ) : null}
+          {needsRefund && eligibleRefunds.isSuccess && refundOptions.length === 0 ? (
+            <p style={{ color: "#b45309", margin: 0 }}>
+              Chưa có giao dịch hoàn tiền COMPLETED hợp lệ. Hãy hoàn tất hoàn tiền cho đơn này
+              trước, rồi quay lại đóng yêu cầu trả hàng.
+            </p>
           ) : null}
         </Form>
       </Modal>
@@ -277,6 +319,9 @@ function ComplaintsTab() {
   ];
 
   const transitions = editing ? COMPLAINT_TRANSITIONS[editing.status] ?? [] : [];
+  const nextComplaintStatus = Form.useWatch("status", form);
+  const resolutionRequired =
+    nextComplaintStatus === "RESOLVED" || nextComplaintStatus === "REJECTED";
 
   return (
     <>
@@ -345,8 +390,23 @@ function ComplaintsTab() {
           <Form.Item label="Trạng thái mới" name="status" rules={[{ required: true, message: "Chọn trạng thái." }]}>
             <Select options={transitions} placeholder="Chọn trạng thái" />
           </Form.Item>
-          <Form.Item label="Hướng giải quyết" name="resolution">
-            <Input.TextArea rows={3} placeholder="Ghi chú hướng giải quyết (tùy chọn)" />
+          <Form.Item
+            label={`Hướng giải quyết${resolutionRequired ? "" : " (tùy chọn)"}`}
+            name="resolution"
+            rules={
+              resolutionRequired
+                ? [{ required: true, whitespace: true, message: "Nhập hướng giải quyết." }]
+                : []
+            }
+          >
+            <Input.TextArea
+              rows={3}
+              placeholder={
+                resolutionRequired
+                  ? "Bắt buộc khi kết thúc khiếu nại"
+                  : "Ghi chú hướng giải quyết (tùy chọn)"
+              }
+            />
           </Form.Item>
         </Form>
       </Modal>

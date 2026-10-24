@@ -99,6 +99,8 @@ enum InventoryMovementType {
   RELEASE
   RETURN
   QUARANTINE
+  QUARANTINE_RELEASE
+  SCRAP
 }
 
 enum OrderStatus {
@@ -137,6 +139,10 @@ enum ShipmentStatus {
   DELIVERY_FAILED
   RETURNING
   RETURNED
+  /// Cancelled before the parcel was handed to the carrier. In-transit
+  /// cancellations become RETURNING instead, because the goods must come back
+  /// through quarantine before they may be sold again.
+  CANCELLED
 }
 
 enum PaymentMethod {
@@ -155,8 +161,41 @@ enum PaymentStatus {
 
 enum RefundStatus {
   PENDING
+  APPROVED
   COMPLETED
   FAILED
+}
+
+/// Lifecycle of goods that cannot be sold while they are checked.
+///
+/// PENDING -> PASSED -> RELEASED (the blocked quantity becomes sellable again)
+/// PENDING -> FAILED -> SCRAPPED (the blocked quantity leaves the warehouse)
+/// No automatic transition releases stock: an operator must record the
+/// inspection result and then the resolution.
+enum QuarantineCaseStatus {
+  PENDING
+  PASSED
+  FAILED
+  RELEASED
+  SCRAPPED
+}
+
+enum SettlementAdjustmentType {
+  REFUND_AFTER_SETTLEMENT
+}
+
+/// An OPEN adjustment blocks payouts/confirmation for its settlement until a
+/// reviewer decides how the refund is recovered. Historical settlement rows are
+/// never rewritten.
+enum SettlementAdjustmentStatus {
+  OPEN
+  REVIEWED
+}
+
+enum SettlementAdjustmentResolution {
+  DEDUCT_NEXT
+  WRITE_OFF
+  MANUAL
 }
 
 enum DiscountType {
@@ -211,38 +250,38 @@ enum PayoutStatus {
 // ---------------------------------------------------------------------------
 
 model User {
-  id           Int        @id @default(autoincrement())
-  email        String     @unique
-  passwordHash String     @map("password_hash")
-  fullName     String     @map("full_name")
-  phone        String?
-  role         UserRole   @default(CUSTOMER)
-  status       UserStatus @default(ACTIVE)
+  id                Int        @id @default(autoincrement())
+  email             String     @unique
+  passwordHash      String     @map("password_hash")
+  fullName          String     @map("full_name")
+  phone             String?
+  role              UserRole   @default(CUSTOMER)
+  status            UserStatus @default(ACTIVE)
   /// When the password last changed.
   ///
   /// Access tokens are stateless JWTs, so a password change cannot delete them
   /// from a session store. Instead `JwtStrategy` rejects any token issued
   /// before this instant, which is what actually invalidates sessions that were
   /// open when the password changed (including an attacker's).
-  passwordChangedAt DateTime? @map("password_changed_at")
-  createdAt    DateTime   @default(now()) @map("created_at")
-  updatedAt    DateTime   @updatedAt @map("updated_at")
+  passwordChangedAt DateTime?  @map("password_changed_at")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
 
-  customerProfile    CustomerProfile?
-  cart               Cart?
-  orders             Order[]
-  reviews            Review[]
-  complaints         Complaint[]
-  returnRequests     ReturnRequest[]
-  voucherRedemptions VoucherRedemption[]
-  checkoutKeys       CheckoutIdempotencyKey[]
-  appIdempotencyKeys AppIdempotencyKey[]
+  customerProfile     CustomerProfile?
+  cart                Cart?
+  orders              Order[]
+  reviews             Review[]
+  complaints          Complaint[]
+  returnRequests      ReturnRequest[]
+  voucherRedemptions  VoucherRedemption[]
+  checkoutKeys        CheckoutIdempotencyKey[]
+  appIdempotencyKeys  AppIdempotencyKey[]
   passwordResetTokens PasswordResetToken[]
-  qcInspections      QcInspection[]      @relation("QcInspector")
-  warehouseDocuments WarehouseDocument[] @relation("WarehouseDocCreator")
-  inventoryMovements InventoryMovement[] @relation("MovementCreator")
-  auditLogs          AuditLog[]
-  evidenceUploads    EvidenceImage[]     @relation("EvidenceUploader")
+  qcInspections       QcInspection[]           @relation("QcInspector")
+  warehouseDocuments  WarehouseDocument[]      @relation("WarehouseDocCreator")
+  inventoryMovements  InventoryMovement[]      @relation("MovementCreator")
+  auditLogs           AuditLog[]
+  evidenceUploads     EvidenceImage[]          @relation("EvidenceUploader")
 
   @@map("users")
 }
@@ -358,21 +397,21 @@ model Province {
 /// hien") so an unaccented query like "pho hien" matches without a per-request
 /// accent-folding pass.
 model Ward {
-  code         String   @id @db.VarChar(5)
-  provinceCode String   @map("province_code") @db.VarChar(20)
+  code          String       @id @db.VarChar(5)
+  provinceCode  String       @map("province_code") @db.VarChar(20)
   /// "xa" | "phuong" — the unit class, as published.
-  type         String   @db.VarChar(10)
+  type          String       @db.VarChar(10)
   /// Official name WITHOUT the "Xã"/"Phường" prefix (e.g. "Phố Hiến").
-  name         String   @db.VarChar(120)
+  name          String       @db.VarChar(120)
   /// Official name WITH the prefix (e.g. "Phường Phố Hiến") — what is displayed.
-  fullName     String   @map("full_name") @db.VarChar(160)
+  fullName      String       @map("full_name") @db.VarChar(160)
   /// Accent-stripped, lower-cased search haystack.
-  searchText   String   @map("search_text") @db.VarChar(200)
+  searchText    String       @map("search_text") @db.VarChar(200)
   /// Date this unit became effective (ISO date string, e.g. "2025-07-01").
-  effectiveFrom String? @map("effective_from") @db.VarChar(10)
-  status       RecordStatus @default(ACTIVE)
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  effectiveFrom String?      @map("effective_from") @db.VarChar(10)
+  status        RecordStatus @default(ACTIVE)
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
 
   province Province @relation(fields: [provinceCode], references: [code])
 
@@ -401,12 +440,13 @@ model Partner {
   createdAt          DateTime     @default(now()) @map("created_at")
   updatedAt          DateTime     @updatedAt @map("updated_at")
 
-  farms           Farm[]
-  products        Product[]
-  partnerOrders   PartnerOrder[]
-  commissionRules CommissionRule[]
-  settlements     Settlement[]
-  payouts         Payout[]
+  farms                 Farm[]
+  products              Product[]
+  partnerOrders         PartnerOrder[]
+  commissionRules       CommissionRule[]
+  settlements           Settlement[]
+  payouts               Payout[]
+  settlementAdjustments SettlementAdjustment[]
 
   @@index([name])
   @@index([phone])
@@ -604,6 +644,7 @@ model ProductVariant {
   inventoryMovements     InventoryMovement[]
   productDiscounts       ProductDiscount[]
   flashSaleItems         FlashSaleItem[]
+  quarantineCases        QuarantineCase[]
 
   @@index([productId])
   @@map("product_variants")
@@ -633,6 +674,7 @@ model ProductLot {
   harvest                Harvest                 @relation(fields: [harvestId], references: [id])
   qcInspections          QcInspection[]
   traceEvents            TraceEvent[]
+  quarantineCases        QuarantineCase[]
   inventoryBalances      InventoryBalance[]
   warehouseDocumentLines WarehouseDocumentLine[]
   inventoryMovements     InventoryMovement[]
@@ -704,6 +746,7 @@ model Warehouse {
   inventoryBalances  InventoryBalance[]
   warehouseDocuments WarehouseDocument[]
   inventoryMovements InventoryMovement[]
+  quarantineCases    QuarantineCase[]
 
   @@map("warehouses")
 }
@@ -838,20 +881,28 @@ model Order {
   shippingFee             Decimal     @default(0) @map("shipping_fee") @db.Decimal(18, 2)
   grandTotal              Decimal     @map("grand_total") @db.Decimal(18, 2)
   status                  OrderStatus @default(PENDING_CONFIRMATION)
+  /// When the stock reservation expires. Set at checkout, cleared on the first
+  /// status transition. Only PENDING_CONFIRMATION orders are swept; an order
+  /// with a paid payment or a shipment is never auto-cancelled.
+  reservationExpiresAt    DateTime?   @map("reservation_expires_at")
   note                    String?     @db.Text
   createdAt               DateTime    @default(now()) @map("created_at")
   updatedAt               DateTime    @updatedAt @map("updated_at")
 
-  customer           User                      @relation(fields: [customerId], references: [id])
+  customer           User                     @relation(fields: [customerId], references: [id])
   partnerOrders      PartnerOrder[]
   payments           Payment[]
   voucherRedemptions VoucherRedemption[]
   complaints         Complaint[]
   returnRequests     ReturnRequest[]
   checkoutKeys       CheckoutIdempotencyKey[]
+  quarantineCases    QuarantineCase[]
 
   @@index([customerId])
   @@index([status])
+  /// The reservation sweep filters on both columns; without this index the job
+  /// would scan every order on each tick.
+  @@index([status, reservationExpiresAt])
   @@map("orders")
 }
 
@@ -956,12 +1007,13 @@ model PartnerOrder {
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
 
-  order           Order            @relation(fields: [orderId], references: [id])
-  partner         Partner          @relation(fields: [partnerId], references: [id])
-  items           OrderItem[]
-  fulfillments    Fulfillment[]
-  shipments       Shipment[]
-  settlementLines SettlementLine[]
+  order                 Order                  @relation(fields: [orderId], references: [id])
+  partner               Partner                @relation(fields: [partnerId], references: [id])
+  items                 OrderItem[]
+  fulfillments          Fulfillment[]
+  shipments             Shipment[]
+  settlementLines       SettlementLine[]
+  settlementAdjustments SettlementAdjustment[]
 
   @@index([orderId])
   @@index([partnerId])
@@ -1097,19 +1149,30 @@ model Payment {
 }
 
 model Refund {
-  id          Int          @id @default(autoincrement())
-  paymentId   Int          @map("payment_id")
-  amount      Decimal      @db.Decimal(18, 2)
-  reason      String       @db.Text
-  status      RefundStatus @default(PENDING)
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
-  completedAt DateTime?    @map("completed_at")
+  id            Int          @id @default(autoincrement())
+  paymentId     Int          @map("payment_id")
+  amount        Decimal      @db.Decimal(18, 2)
+  reason        String       @db.Text
+  status        RefundStatus @default(PENDING)
+  /// Proof of the actual money movement (bank/gateway reference). Required
+  /// before a refund can become COMPLETED: an approved refund is only a
+  /// decision, the reference is the evidence that it was paid.
+  reference     String?      @db.VarChar(191)
+  failureReason String?      @map("failure_reason") @db.Text
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+  approvedAt    DateTime?    @map("approved_at")
+  completedAt   DateTime?    @map("completed_at")
 
-  payment        Payment         @relation(fields: [paymentId], references: [id])
-  returnRequests ReturnRequest[]
+  payment               Payment                @relation(fields: [paymentId], references: [id])
+  /// A refund can close at most one return request (`ReturnRequest.refundId`
+  /// is unique), which is what makes "this refund belongs to this return"
+  /// unambiguous.
+  returnRequest         ReturnRequest?
+  settlementAdjustments SettlementAdjustment[]
 
   @@index([paymentId])
+  @@index([status])
   @@map("refunds")
 }
 
@@ -1221,9 +1284,9 @@ model Review {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  customer  User      @relation(fields: [customerId], references: [id])
-  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
-  product   Product   @relation(fields: [productId], references: [id])
+  customer  User            @relation(fields: [customerId], references: [id])
+  orderItem OrderItem       @relation(fields: [orderItemId], references: [id])
+  product   Product         @relation(fields: [productId], references: [id])
   evidence  EvidenceImage[]
 
   @@unique([orderItemId])
@@ -1248,9 +1311,9 @@ model Complaint {
   updatedAt   DateTime        @updatedAt @map("updated_at")
   resolvedAt  DateTime?       @map("resolved_at")
 
-  customer  User       @relation(fields: [customerId], references: [id])
-  order     Order      @relation(fields: [orderId], references: [id])
-  orderItem OrderItem? @relation(fields: [orderItemId], references: [id])
+  customer  User            @relation(fields: [customerId], references: [id])
+  order     Order           @relation(fields: [orderId], references: [id])
+  orderItem OrderItem?      @relation(fields: [orderItemId], references: [id])
   evidence  EvidenceImage[]
 
   @@index([customerId])
@@ -1266,18 +1329,73 @@ model ReturnRequest {
   quantity    Decimal             @db.Decimal(18, 3)
   reason      String              @db.Text
   status      ReturnRequestStatus @default(REQUESTED)
-  refundId    Int?                @map("refund_id")
+  /// One refund can close at most one return request. The unique index is the
+  /// database guard behind "a refund belongs to exactly this return".
+  refundId    Int?                @unique @map("refund_id")
+  /// Set once, when the returned goods physically arrive (RETURNING -> RECEIVED).
+  receivedAt  DateTime?           @map("received_at")
   createdAt   DateTime            @default(now()) @map("created_at")
   updatedAt   DateTime            @updatedAt @map("updated_at")
 
-  order     Order     @relation(fields: [orderId], references: [id])
-  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
-  customer  User      @relation(fields: [customerId], references: [id])
-  refund    Refund?   @relation(fields: [refundId], references: [id])
-  evidence  EvidenceImage[]
+  order           Order            @relation(fields: [orderId], references: [id])
+  orderItem       OrderItem        @relation(fields: [orderItemId], references: [id])
+  customer        User             @relation(fields: [customerId], references: [id])
+  refund          Refund?          @relation(fields: [refundId], references: [id])
+  evidence        EvidenceImage[]
+  quarantineCases QuarantineCase[]
 
   @@index([orderId])
+  @@index([status])
   @@map("return_requests")
+}
+
+/// Physical goods that are in the warehouse but cannot be sold while they are
+/// re-inspected (order cancelled in transit, failed delivery, post-delivery
+/// return). The quantity is already in `inventory_balances.blocked`; this row
+/// records *which* units, *why*, and what an operator decided.
+///
+/// `stockAddedToBalance` distinguishes the two sources:
+///   - false: the reservation was converted to blocked, so on-hand already
+///     included the units (cancel/return before delivery);
+///   - true: the goods were received back after a completed delivery, so the
+///     receipt added them to both on-hand and blocked (and to the lot's
+///     remaining quantity). Scrapping such a case must also subtract the lot
+///     remaining quantity; releasing never changes it.
+model QuarantineCase {
+  id                  Int                  @id @default(autoincrement())
+  code                String               @unique
+  warehouseId         Int                  @map("warehouse_id")
+  productLotId        Int                  @map("product_lot_id")
+  productVariantId    Int                  @map("product_variant_id")
+  quantity            Decimal              @db.Decimal(18, 3)
+  status              QuarantineCaseStatus @default(PENDING)
+  /// `ORDER_CANCEL`, `SHIPMENT_RETURN` or `RETURN`.
+  sourceType          String               @map("source_type") @db.VarChar(32)
+  sourceId            Int?                 @map("source_id")
+  orderId             Int?                 @map("order_id")
+  returnRequestId     Int?                 @map("return_request_id")
+  reason              String?              @db.Text
+  inspectionNote      String?              @map("inspection_note") @db.Text
+  resolutionNote      String?              @map("resolution_note") @db.Text
+  stockAddedToBalance Boolean              @default(false) @map("stock_added_to_balance")
+  createdByUserId     Int?                 @map("created_by_user_id")
+  resolvedByUserId    Int?                 @map("resolved_by_user_id")
+  inspectedAt         DateTime?            @map("inspected_at")
+  resolvedAt          DateTime?            @map("resolved_at")
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  warehouse      Warehouse      @relation(fields: [warehouseId], references: [id])
+  productLot     ProductLot     @relation(fields: [productLotId], references: [id])
+  productVariant ProductVariant @relation(fields: [productVariantId], references: [id])
+  order          Order?         @relation(fields: [orderId], references: [id])
+  returnRequest  ReturnRequest? @relation(fields: [returnRequestId], references: [id])
+
+  @@index([status])
+  @@index([orderId])
+  @@index([returnRequestId])
+  @@index([productLotId])
+  @@map("quarantine_cases")
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,10 +1438,10 @@ model EvidenceImage {
   /// was uploaded but never bound; such rows are swept after a short TTL.
   uploadedById Int      @map("uploaded_by_id")
 
-  reviewId      Int? @map("review_id")
-  complaintId   Int? @map("complaint_id")
-  returnId      Int? @map("return_id")
-  sortOrder     Int  @default(0) @map("sort_order")
+  reviewId    Int? @map("review_id")
+  complaintId Int? @map("complaint_id")
+  returnId    Int? @map("return_id")
+  sortOrder   Int  @default(0) @map("sort_order")
 
   uploadedBy User           @relation("EvidenceUploader", fields: [uploadedById], references: [id])
   review     Review?        @relation(fields: [reviewId], references: [id], onDelete: Cascade)
@@ -1372,9 +1490,10 @@ model Settlement {
   updatedAt        DateTime         @updatedAt @map("updated_at")
   confirmedAt      DateTime?        @map("confirmed_at")
 
-  partner Partner          @relation(fields: [partnerId], references: [id])
-  lines   SettlementLine[]
-  payouts Payout[]
+  partner     Partner                @relation(fields: [partnerId], references: [id])
+  lines       SettlementLine[]
+  payouts     Payout[]
+  adjustments SettlementAdjustment[]
 
   @@index([partnerId])
   @@map("settlements")
@@ -1423,6 +1542,46 @@ model Payout {
   @@index([settlementId])
   @@index([partnerId])
   @@map("payouts")
+}
+
+/// Reconciliation record for money that must be recovered after a settlement
+/// was already built/paid (typically a refund completed later).
+///
+/// WHY A SEPARATE ROW: rewriting `settlements.payable_amount` would change a
+/// historical statement. Instead the refund is recorded here as an OPEN
+/// adjustment, which blocks confirming the settlement and creating payouts
+/// until a human reviews it (deduct from the next period, write off, or handle
+/// manually). The reviewer's decision, actor and note live on the same row.
+model SettlementAdjustment {
+  id               Int                             @id @default(autoincrement())
+  partnerId        Int                             @map("partner_id")
+  settlementId     Int?                            @map("settlement_id")
+  partnerOrderId   Int?                            @map("partner_order_id")
+  refundId         Int?                            @map("refund_id")
+  amount           Decimal                         @db.Decimal(18, 2)
+  type             SettlementAdjustmentType        @default(REFUND_AFTER_SETTLEMENT)
+  status           SettlementAdjustmentStatus      @default(OPEN)
+  resolution       SettlementAdjustmentResolution?
+  reason           String                          @db.Text
+  resolutionNote   String?                         @map("resolution_note") @db.Text
+  createdByUserId  Int?                            @map("created_by_user_id")
+  reviewedByUserId Int?                            @map("reviewed_by_user_id")
+  reviewedAt       DateTime?                       @map("reviewed_at")
+  createdAt        DateTime                        @default(now()) @map("created_at")
+  updatedAt        DateTime                        @updatedAt @map("updated_at")
+
+  partner      Partner       @relation(fields: [partnerId], references: [id])
+  settlement   Settlement?   @relation(fields: [settlementId], references: [id])
+  partnerOrder PartnerOrder? @relation(fields: [partnerOrderId], references: [id])
+  refund       Refund?       @relation(fields: [refundId], references: [id])
+
+  // One refund can produce at most one adjustment per partner order, so a
+  // retried completion cannot double-book the same reconciliation.
+  @@unique([refundId, partnerOrderId])
+  @@index([status])
+  @@index([settlementId])
+  @@index([partnerId])
+  @@map("settlement_adjustments")
 }
 
 // ---------------------------------------------------------------------------

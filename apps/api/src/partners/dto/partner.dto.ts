@@ -112,3 +112,42 @@ export class PartnerQueryDto extends PaginationQueryDto {
   @IsEnum(RecordStatus)
   declare status?: RecordStatus;
 }
+
+/**
+ * Public (sanitised) partner projection returned by anonymous/customer reads.
+ *
+ * This is the complete public contract. Tax and bank fields deliberately do not
+ * appear here, and the service selects exactly these columns — sensitive values
+ * are never loaded into the process for a public request.
+ */
+export class PartnerPublicResponseDto {
+  @ApiProperty({ example: 1 })
+  id!: number;
+
+  @ApiProperty({ example: 'PARTNER-0001' })
+  code!: string;
+
+  @ApiProperty({ example: 'HTX Rau quả Minh Châu' })
+  name!: string;
+
+  @ApiProperty({ example: 'Nguyễn Văn Minh' })
+  representativeName!: string;
+
+  @ApiProperty({ example: '0987654321' })
+  phone!: string;
+
+  @ApiProperty({ example: 'minhchau@agrimarket.vn' })
+  email!: string;
+
+  @ApiProperty({ example: 'Thôn Đa Hòa, xã Minh Châu, Hưng Yên' })
+  address!: string;
+
+  @ApiProperty({ enum: RecordStatus })
+  status!: RecordStatus;
+
+  @ApiProperty()
+  createdAt!: Date;
+
+  @ApiProperty()
+  updatedAt!: Date;
+}

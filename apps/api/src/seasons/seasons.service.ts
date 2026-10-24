@@ -52,7 +52,7 @@ export class SeasonsService {
     const season = await this.prisma.season.findUnique({
       where: { id },
       include: {
-        farm: { include: { partner: true } },
+        farm: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } } } },
         farmingEvents: { orderBy: { occurredAt: 'desc' } },
         harvests: true,
       },

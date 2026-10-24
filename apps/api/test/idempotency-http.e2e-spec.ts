@@ -260,6 +260,12 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency HTTP contract (e2e)'
       return Number(sum._sum.amount ?? 0);
     };
 
+    /** A refund only moves money at approve -> complete (reference required). */
+    const completeRefund = async (refundId: number, reference: string) => {
+      await post(`/api/v1/refunds/${refundId}/approve`, {}).expect(201);
+      await post(`/api/v1/refunds/${refundId}/complete`, { reference }).expect(201);
+    };
+
     it('refuses a request without the Idempotency-Key header before writing', async () => {
       const res = await post(
         '/api/v1/refunds',
@@ -277,6 +283,8 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency HTTP contract (e2e)'
       expect(retry.body).toEqual(first.body);
       expect(await refundCount()).toBe(1);
       expect(await refundSum()).toBe(25000);
+
+      await completeRefund(first.body.id, `${RUN_ID}-RF-1`);
     });
 
     it('rejects the same key with a different amount (409)', async () => {
@@ -297,6 +305,10 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency HTTP contract (e2e)'
         `${RUN_ID}-http-refund-2`,
       ).expect(201);
       expect(Number(second.body.amount)).toBe(75000);
+
+      // Only completion moves the payment, so the second refund must be
+      // approved + completed before the payment becomes fully REFUNDED.
+      await completeRefund(second.body.id, `${RUN_ID}-RF-2`);
 
       const payment = await prisma.payment.findUniqueOrThrow({
         where: { id: fixtures.paymentId },

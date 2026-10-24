@@ -151,7 +151,15 @@ export interface Season {
   status: SeasonStatus;
   createdAt: string;
   updatedAt: string;
-  farm?: { id: number; code: string; name: string };
+  farm?: {
+    id: number;
+    code: string;
+    name: string;
+    partner?: { id: number; code: string; name: string };
+  };
+  /** Present on the season detail endpoint. */
+  farmingEvents?: FarmingEvent[];
+  harvests?: Harvest[];
 }
 
 export type FarmingEventType =
@@ -281,6 +289,44 @@ export interface ProductLot {
   inventoryBalances?: InventoryBalance[];
 }
 
+// Quarantine -----------------------------------------------------------------
+
+export type QuarantineCaseStatus =
+  | "PENDING"
+  | "PASSED"
+  | "FAILED"
+  | "RELEASED"
+  | "SCRAPPED";
+
+export interface QuarantineCase {
+  id: number;
+  code: string;
+  warehouseId: number;
+  productLotId: number;
+  productVariantId: number;
+  quantity: string;
+  status: QuarantineCaseStatus;
+  sourceType: "ORDER_CANCEL" | "SHIPMENT_RETURN" | "RETURN" | string;
+  sourceId: number | null;
+  orderId: number | null;
+  returnRequestId: number | null;
+  reason: string | null;
+  inspectionNote: string | null;
+  resolutionNote: string | null;
+  stockAddedToBalance: boolean;
+  createdByUserId: number | null;
+  resolvedByUserId: number | null;
+  inspectedAt: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  warehouse?: { id: number; code: string; name: string };
+  productLot?: { id: number; code: string; traceCode: string };
+  productVariant?: { id: number; sku: string; name: string };
+  order?: { id: number; code: string } | null;
+  returnRequest?: { id: number; status: ReturnRequestStatus } | null;
+}
+
 // Warehouse & inventory -----------------------------------------------------
 
 export interface Warehouse {
@@ -323,7 +369,9 @@ export type InventoryMovementType =
   | "RESERVE"
   | "RELEASE"
   | "RETURN"
-  | "QUARANTINE";
+  | "QUARANTINE"
+  | "QUARANTINE_RELEASE"
+  | "SCRAP";
 
 export interface InventoryMovement {
   id: number;
@@ -391,7 +439,7 @@ export type PaymentStatus =
   | "PARTIALLY_REFUNDED"
   | "REFUNDED"
   | "FAILED";
-export type RefundStatus = "PENDING" | "COMPLETED" | "FAILED";
+export type RefundStatus = "PENDING" | "APPROVED" | "COMPLETED" | "FAILED";
 
 export interface Refund {
   id: number;
@@ -399,9 +447,26 @@ export interface Refund {
   amount: string;
   reason: string;
   status: RefundStatus;
+  reference: string | null;
+  failureReason: string | null;
+  approvedAt: string | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  completedAt: string | null;
+  payment?: {
+    id: number;
+    method: PaymentMethod;
+    amount?: string;
+    status: PaymentStatus;
+    order?: { id: number; code: string };
+  };
+  returnRequest?: { id: number; status: ReturnRequestStatus } | null;
+  settlementAdjustments?: {
+    id: number;
+    status: string;
+    amount: string;
+    settlement?: { id: number; code: string; status: string };
+  }[];
 }
 
 export interface Payment {
@@ -426,7 +491,8 @@ export type ShipmentStatus =
   | "DELIVERED"
   | "DELIVERY_FAILED"
   | "RETURNING"
-  | "RETURNED";
+  | "RETURNED"
+  | "CANCELLED";
 
 export interface ShipmentEvent {
   id: number;
@@ -450,6 +516,13 @@ export interface Shipment {
   createdAt: string;
   updatedAt: string;
   events?: ShipmentEvent[];
+  partnerOrder?: {
+    id: number;
+    code: string;
+    status: OrderStatus;
+    partner?: { id: number; code: string; name: string };
+    order?: { id: number; code: string; status: OrderStatus };
+  };
 }
 
 export type FulfillmentStatus = "PENDING" | "PACKING" | "PACKED" | "CANCELLED";
@@ -562,6 +635,30 @@ export interface ReturnRequest {
   refund?: Refund | null;
   /** Evidence photos attached to the request (ADMIN can always read them). */
   evidence?: EvidenceImage[];
+}
+
+/**
+ * A refund the backend will accept when closing a return.
+ *
+ * The server filters to COMPLETED refunds of the same order, no larger than
+ * `quantity × unitPriceSnapshot`, and not already closing another return. The
+ * Admin UI renders this list instead of asking for a raw refund id.
+ */
+export interface EligibleRefund {
+  id: number;
+  paymentId: number;
+  amount: string;
+  reference: string | null;
+  completedAt: string | null;
+  payment: { method: PaymentMethod; status: PaymentStatus };
+  returnRequest: { id: number } | null;
+  linkedToThisReturn: boolean;
+}
+
+export interface EligibleRefundsResponse {
+  returnRequestId: number;
+  returnValue: string;
+  data: EligibleRefund[];
 }
 
 export type ComplaintType = "PRODUCT_QUALITY" | "DELIVERY" | "WRONG_ITEM" | "OTHER";
@@ -824,6 +921,38 @@ export interface Settlement {
   payouts?: Payout[];
 }
 
+export type SettlementAdjustmentStatus = "OPEN" | "REVIEWED";
+export type SettlementAdjustmentResolution = "DEDUCT_NEXT" | "WRITE_OFF" | "MANUAL";
+
+/**
+ * A completed refund that landed after its settlement was confirmed. While the
+ * row is OPEN it blocks settlement confirmation/payouts; an ADMIN must record
+ * how the money is recovered (deduct next period, write off, or handle
+ * manually) with a note. The original settlement is never rewritten.
+ */
+export interface SettlementAdjustment {
+  id: number;
+  partnerId: number;
+  settlementId: number | null;
+  partnerOrderId: number | null;
+  refundId: number | null;
+  amount: string;
+  type: "REFUND_AFTER_SETTLEMENT";
+  status: SettlementAdjustmentStatus;
+  resolution: SettlementAdjustmentResolution | null;
+  reason: string;
+  resolutionNote: string | null;
+  createdByUserId: number | null;
+  reviewedByUserId: number | null;
+  reviewedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  partner?: { id: number; code: string; name: string };
+  settlement?: { id: number; code: string; status: SettlementStatus } | null;
+  partnerOrder?: { id: number; code: string } | null;
+  refund?: { id: number; amount: string; status: RefundStatus; completedAt: string | null } | null;
+}
+
 export type PayoutStatus = "PENDING" | "PAID" | "FAILED";
 
 export interface Payout {
@@ -840,4 +969,23 @@ export interface Payout {
   updatedAt: string;
   partner?: { id: number; code: string; name: string };
   settlement?: { id: number; code: string };
+}
+
+// Audit trail ----------------------------------------------------------------
+
+/**
+ * One append-only audit row. `beforeJson`/`afterJson` are the state snapshot
+ * around the change; an investigation reads them, no admin screen edits them.
+ */
+export interface AuditLog {
+  id: number;
+  actorUserId: number | null;
+  action: string;
+  entityType: string;
+  entityId: string;
+  beforeJson: unknown;
+  afterJson: unknown;
+  reason: string | null;
+  createdAt: string;
+  actorUser?: { id: number; fullName: string; email: string } | null;
 }

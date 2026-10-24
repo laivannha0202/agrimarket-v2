@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { DiscountType, RecordStatus } from '../../../generated/prisma/enums.js';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
+import { IsValidDiscountValue } from '../validators/is-valid-discount-value.validator.js';
 
 export class CreateVoucherDto {
   @ApiProperty({ example: 'HUNGYEN50K' })
@@ -27,22 +28,20 @@ export class CreateVoucherDto {
   @IsEnum(DiscountType)
   discountType!: DiscountType;
 
-  @ApiProperty({ example: 50000 })
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
+  @ApiProperty({ example: 50000, description: 'FIXED amount or PERCENT in [0, 100]' })
+  @IsValidDiscountValue()
   discountValue!: number;
 
   @ApiPropertyOptional({ example: 300000 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   minOrderAmount?: number;
 
   @ApiPropertyOptional({ example: 100000 })
   @IsOptional()
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   maxDiscount?: number;
 
   @ApiPropertyOptional({ example: 1000 })
@@ -81,10 +80,8 @@ export class CreateProductDiscountDto {
   @IsEnum(DiscountType)
   discountType!: DiscountType;
 
-  @ApiProperty({ example: 10 })
-  @Type(() => Number)
-  @IsNumber()
-  @Min(0)
+  @ApiProperty({ example: 10, description: 'FIXED amount or PERCENT in [0, 100]' })
+  @IsValidDiscountValue()
   discountValue!: number;
 
   @ApiProperty({ example: '2026-01-01T00:00:00.000Z' })
@@ -109,7 +106,7 @@ export class CreateFlashSaleItemDto {
 
   @ApiProperty({ example: 25000 })
   @Type(() => Number)
-  @IsNumber()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
   flashPrice!: number;
 

@@ -12,12 +12,12 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EvidenceGallery } from "../src/components/EvidenceGallery";
-import { Badge, Card, EmptyView, ErrorView, LoadingView, PrimaryButton } from "../src/components/ui";
+import { Badge, Card, EmptyView, ErrorView, GhostButton, LoadingView, PrimaryButton } from "../src/components/ui";
 import { errorMessage, isNetworkError } from "../src/lib/api-client";
 import { formatDateTime } from "../src/lib/format";
 import { resources } from "../src/lib/resources";
@@ -39,9 +39,12 @@ export default function MyReviewsScreen() {
     }
   }, [orderItemId, router]);
 
-  const reviews = useQuery({
-    queryKey: ["my-reviews"],
-    queryFn: () => resources.listMyReviews({ page: 1, limit: 20 }),
+  const reviews = useInfiniteQuery({
+    queryKey: ["my-reviews", "infinite"],
+    queryFn: ({ pageParam }) => resources.listMyReviews({ page: pageParam, limit: 20 }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
     enabled: hydrated && token !== null,
   });
 
@@ -87,7 +90,8 @@ export default function MyReviewsScreen() {
     );
   }
 
-  const myReviews = reviews.data.data;
+  const myReviews = reviews.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = reviews.data?.pages[0]?.meta.total ?? 0;
 
   return (
     <ScrollView
@@ -150,6 +154,18 @@ export default function MyReviewsScreen() {
           </Card>
         ))
       )}
+      {myReviews.length > 0 && reviews.hasNextPage ? (
+        <GhostButton
+          label={reviews.isFetchingNextPage ? "Đang tải…" : "Xem thêm"}
+          icon="chevron-down"
+          disabled={reviews.isFetchingNextPage}
+          onPress={() => void reviews.fetchNextPage()}
+          style={styles.loadMore}
+        />
+      ) : null}
+      {myReviews.length > 0 && total > myReviews.length ? (
+        <Text style={styles.moreNote}>Hiển thị {myReviews.length}/{total} đánh giá.</Text>
+      ) : null}
       <View style={styles.bottomPad} />
     </ScrollView>
   );
@@ -170,4 +186,6 @@ const styles = StyleSheet.create({
   ratingText: { fontSize: 12.5, fontWeight: "700", color: colors.text, marginLeft: 4 },
 
   section: { fontSize: 15, fontWeight: "700", color: colors.textStrong, marginBottom: spacing.sm },
+  loadMore: { marginBottom: spacing.sm },
+  moreNote: { fontSize: 12, color: colors.muted, textAlign: "center", paddingVertical: spacing.sm },
 });

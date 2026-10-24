@@ -18,7 +18,7 @@ import {
   UpdateVariantDto,
 } from './dto/product.dto.js';
 import type { Prisma, Product, ProductVariant } from '../../generated/prisma/client.js';
-import type { RecordStatus } from '../../generated/prisma/enums.js';
+import { RecordStatus } from '../../generated/prisma/enums.js';
 
 const productInclude = {
   category: { select: { id: true, name: true, slug: true } },
@@ -89,18 +89,27 @@ export class ProductsService {
    * is a public response: only sellable stock is counted, and no warehouse,
    * lot or cost data is included.
    */
-  async findAll(query: {
-    page?: number;
-    limit?: number;
-    search?: string;
-    status?: RecordStatus;
-    categoryId?: number;
-    partnerId?: number;
-  }): Promise<PaginatedResult<Product & { variants: PricedVariant[] }>> {
+  async findAll(
+    query: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      status?: RecordStatus;
+      categoryId?: number;
+      partnerId?: number;
+    },
+    options: { onlyActive?: boolean } = {},
+  ): Promise<PaginatedResult<Product & { variants: PricedVariant[] }>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const search = normalizeSearch(query.search);
     const where: Prisma.ProductWhereInput = {
-      ...(query.status ? { status: query.status } : {}),
+      // The public storefront only ever sees ACTIVE products. The status filter
+      // is an admin tool and is ignored for anonymous/customer callers.
+      ...(options.onlyActive
+        ? { status: RecordStatus.ACTIVE }
+        : query.status
+          ? { status: query.status }
+          : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.partnerId ? { partnerId: query.partnerId } : {}),
       ...(search
@@ -138,12 +147,23 @@ export class ProductsService {
     );
   }
 
-  /** Product detail with priced variants. */
-  async findOne(id: number) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
-      include: productInclude,
-    });
+  /**
+   * Product detail with priced variants.
+   *
+   * `onlyActive` is set by the public endpoint: an INACTIVE product is
+   * indistinguishable from a missing one (404) for anonymous/customer callers,
+   * while the admin detail route can still open it for editing.
+   */
+  async findOne(id: number, options: { onlyActive?: boolean } = {}) {
+    const product = options.onlyActive
+      ? await this.prisma.product.findFirst({
+          where: { id, status: RecordStatus.ACTIVE },
+          include: productInclude,
+        })
+      : await this.prisma.product.findUnique({
+          where: { id },
+          include: productInclude,
+        });
     if (!product) throw new NotFoundException('Product not found');
 
     const variantIds = product.variants.map((variant) => variant.id);

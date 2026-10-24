@@ -515,6 +515,102 @@ export class InventoryService {
   }
 
   /**
+   * Receive physically returned goods after a completed delivery.
+   *
+   * At delivery, `consumeOrderStock` removed the units from `on_hand` and from
+   * the lot's remaining quantity. A post-delivery return really puts the goods
+   * back on the shelf, so both `on_hand` and `blocked` grow by the same amount
+   * (the units exist but may not be sold until QC releases them), and the lot's
+   * remaining quantity grows in the caller's transaction.
+   */
+  async receiveReturnedStock(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number; blocked: number }> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET on_hand = on_hand + ${quantity},
+             blocked = blocked + ${quantity},
+             updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+    `;
+    if (affected === 0) {
+      throw new ConflictException('Inventory balance disappeared while receiving the return');
+    }
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.onHand);
+    return {
+      balance,
+      before: after - quantity,
+      after,
+      blocked: Number(balance.blocked),
+    };
+  }
+
+  /**
+   * Release blocked stock to sellable (`blocked -= quantity`).
+   *
+   * The guard (`blocked >= quantity`) is evaluated by the database under the
+   * row lock, so a double release or a release larger than the blocked
+   * quantity is refused instead of driving `blocked` negative. On-hand does
+   * not change: the goods were already physically present.
+   */
+  async releaseBlocked(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number; blocked: number } | null> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET blocked = blocked - ${quantity},
+             updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+         AND blocked >= ${quantity}
+    `;
+    if (affected === 0) return null;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    return {
+      balance,
+      before: Number(balance.onHand),
+      after: Number(balance.onHand),
+      blocked: Number(balance.blocked),
+    };
+  }
+
+  /**
+   * Scrap blocked stock: the goods leave the warehouse without being sold.
+   *
+   * Both `blocked` and `on_hand` drop in one guarded statement, so the units
+   * cannot be scrapped twice and `on_hand` can never go negative. The caller
+   * also adjusts the lot's remaining quantity when the receipt had added it.
+   */
+  async scrapBlocked(
+    tx: Tx,
+    balanceId: number,
+    quantity: number,
+  ): Promise<{ balance: InventoryBalance; before: number; after: number; blocked: number } | null> {
+    const affected = await tx.$executeRaw`
+      UPDATE inventory_balances
+         SET blocked = blocked - ${quantity},
+             on_hand = on_hand - ${quantity},
+             updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${balanceId}
+         AND blocked >= ${quantity}
+         AND on_hand >= ${quantity}
+    `;
+    if (affected === 0) return null;
+    const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });
+    const after = Number(balance.onHand);
+    return {
+      balance,
+      before: after + quantity,
+      after,
+      blocked: Number(balance.blocked),
+    };
+  }
+
+  /**
    * Consume every reservation an order holds: called when the order reaches
    * `DELIVERED`, i.e. the moment its goods physically leave the warehouse.
    *

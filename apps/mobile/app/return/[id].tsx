@@ -146,11 +146,21 @@ export default function ReturnDetailScreen() {
                 label={
                   r.refund.status === "COMPLETED"
                     ? "Đã hoàn tiền"
-                    : r.refund.status === "PENDING"
-                      ? "Chờ hoàn tiền"
-                      : "Hoàn tiền thất bại"
+                    : r.refund.status === "APPROVED"
+                      ? "Đã duyệt — chờ chuyển tiền"
+                      : r.refund.status === "PENDING"
+                        ? "Chờ hoàn tiền"
+                        : "Hoàn tiền thất bại"
                 }
-                tone={r.refund.status === "COMPLETED" ? "green" : r.refund.status === "PENDING" ? "yellow" : "red"}
+                tone={
+                  r.refund.status === "COMPLETED"
+                    ? "green"
+                    : r.refund.status === "APPROVED"
+                      ? "blue"
+                      : r.refund.status === "PENDING"
+                        ? "yellow"
+                        : "red"
+                }
               />
             </View>
             {r.refund.reason ? <Text style={styles.muted}>Ghi chú: {r.refund.reason}</Text> : null}

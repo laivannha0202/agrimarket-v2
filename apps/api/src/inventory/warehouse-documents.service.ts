@@ -11,6 +11,10 @@ import { buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDatedSequence
 import { claimSequence } from '../common/utils/code-sequence.js';
 import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateWarehouseDocumentDto, UpdateWarehouseDocumentDto } from './dto/warehouse-document.dto.js';
+import {
+  createQuarantineCase,
+  QUARANTINE_SOURCES,
+} from '../quarantine/quarantine.service.js';
 import type { Prisma, WarehouseDocument } from '../../generated/prisma/client.js';
 import {
   InventoryMovementType,
@@ -317,6 +321,78 @@ export class WarehouseDocumentsService {
     });
   }
 
+  /**
+   * Receive one RETURN document line without making it sellable.
+   *
+   * `receiveReturnedStock` adds the quantity to BOTH `on_hand` and `blocked`
+   * (the goods physically exist but are not available), restores the lot's
+   * remaining quantity, and the case below records why the units are blocked.
+   * All writes share the caller's transaction: if the case cannot be created
+   * the receipt rolls back, so stock and quarantine can never disagree.
+   */
+  private async receiveReturnedDocumentLine(
+    tx: Prisma.TransactionClient,
+    doc: WarehouseDocument,
+    line: {
+      productLotId: number;
+      productVariantId: number;
+      quantity: Prisma.Decimal | number | string;
+    },
+    balanceId: number,
+    actorUserId: number,
+  ): Promise<void> {
+    const quantity = Number(line.quantity);
+    const received = await this.inventory.receiveReturnedStock(tx, balanceId, quantity);
+
+    const lotAffected = await tx.$executeRaw`
+      UPDATE product_lots
+         SET remaining_quantity = remaining_quantity + ${quantity},
+             updated_at = UTC_TIMESTAMP(3)
+       WHERE id = ${line.productLotId}
+    `;
+    if (lotAffected === 0) {
+      throw new ConflictException(
+        `Could not restore the remaining quantity for lot ${line.productLotId}`,
+      );
+    }
+
+    await this.inventory.recordMovement(tx, {
+      warehouseId: doc.warehouseId,
+      productLotId: line.productLotId,
+      productVariantId: line.productVariantId,
+      type: InventoryMovementType.RETURN,
+      quantityDelta: quantity,
+      beforeQuantity: received.before,
+      afterQuantity: received.after,
+      referenceType: 'WarehouseDocument',
+      referenceId: doc.id,
+      note: 'Nhận hàng hoàn theo phiếu kho — chờ kiểm định',
+      actorUserId,
+    });
+
+    const quarantineCase = await createQuarantineCase(tx, this.audit, {
+      warehouseId: doc.warehouseId,
+      productLotId: line.productLotId,
+      productVariantId: line.productVariantId,
+      quantity,
+      sourceType: QUARANTINE_SOURCES.warehouseReturn,
+      sourceId: doc.id,
+      reason: `Hàng hoàn theo phiếu ${doc.code} — chờ kiểm định`,
+      stockAddedToBalance: true,
+      createdByUserId: actorUserId,
+    });
+
+    await tx.traceEvent.create({
+      data: {
+        productLotId: line.productLotId,
+        type: TraceEventType.RETURNED,
+        occurredAt: new Date(),
+        description: `Đã nhận hàng hoàn theo phiếu ${doc.code} — chờ kiểm định (${quarantineCase.code})`,
+        isPublic: true,
+      },
+    });
+  }
+
   private assertNoDuplicateLines(lines: { productLotId: number; productVariantId: number }[]): void {
     const seen = new Set<string>();
     for (const line of lines) {
@@ -353,6 +429,14 @@ export class WarehouseDocumentsService {
   /**
    * Complete a document: applies the stock changes and writes inventory
    * movements for every line. Completing twice is rejected.
+   *
+   * A `RETURN` document never makes goods sellable directly. Each line is
+   * received with `on_hand` and `blocked` growing together, the lot's remaining
+   * quantity is restored, and a PENDING quarantine case (`WAREHOUSE_RETURN`) is
+   * opened in the same transaction. The operator must inspect and then release
+   * or scrap it; only `release` lowers `blocked`. This mirrors the post-delivery
+   * return flow and closes the old bypass where a manual RETURN receipt added
+   * directly to sellable stock.
    *
    * The status is claimed with a conditional compare-and-set
    * (`UPDATE warehouse_documents SET status = 'COMPLETED' WHERE id = ? AND
@@ -400,7 +484,9 @@ export class WarehouseDocumentsService {
         );
         const qty = Number(line.quantity);
 
-        if (doc.type === WarehouseDocumentType.INBOUND || doc.type === WarehouseDocumentType.RETURN) {
+        if (doc.type === WarehouseDocumentType.RETURN) {
+          await this.receiveReturnedDocumentLine(tx, doc, line, balance.id, actorUserId);
+        } else if (doc.type === WarehouseDocumentType.INBOUND) {
           // Atomic on-hand change: concurrent inbound/adjustment traffic on the
           // same balance cannot lose this document's arithmetic.
           const changed = await this.inventory.changeOnHand(tx, balance.id, qty);
@@ -413,10 +499,7 @@ export class WarehouseDocumentsService {
             warehouseId: doc.warehouseId,
             productLotId: line.productLotId,
             productVariantId: line.productVariantId,
-            type:
-              doc.type === WarehouseDocumentType.RETURN
-                ? InventoryMovementType.RETURN
-                : InventoryMovementType.INBOUND,
+            type: InventoryMovementType.INBOUND,
             quantityDelta: qty,
             beforeQuantity: changed.before,
             afterQuantity: changed.after,
@@ -450,7 +533,11 @@ export class WarehouseDocumentsService {
         }
       }
 
-      // Warehouse-in becomes part of the public trace timeline.
+      // Warehouse movements become part of the public trace timeline. INBOUND
+      // documents publish the IN event; RETURN lines already wrote their own
+      // RETURNED event when the quarantine case was opened, so they must not
+      // advertise a sellable warehouse-in before QC. OUTBOUND documents get the
+      // matching WAREHOUSE_OUT event.
       if (doc.type === WarehouseDocumentType.INBOUND) {
         for (const line of doc.lines) {
           await tx.traceEvent.create({
@@ -459,6 +546,19 @@ export class WarehouseDocumentsService {
               type: TraceEventType.WAREHOUSE_IN,
               occurredAt: new Date(),
               description: `Nhập kho theo phiếu ${doc.code}`,
+              isPublic: true,
+            },
+          });
+        }
+      }
+      if (doc.type === WarehouseDocumentType.OUTBOUND) {
+        for (const line of doc.lines) {
+          await tx.traceEvent.create({
+            data: {
+              productLotId: line.productLotId,
+              type: TraceEventType.WAREHOUSE_OUT,
+              occurredAt: new Date(),
+              description: `Xuất kho theo phiếu ${doc.code}`,
               isPublic: true,
             },
           });

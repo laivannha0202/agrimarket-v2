@@ -36,14 +36,33 @@ export class ProductsController {
       '(flash sale > product discount > base price) and `availableQuantity` / `inStock`.',
   })
   findAll(@Query() query: ProductQueryDto) {
+    // Public callers never see INACTIVE products, even if they pass `status`.
+    return this.productsService.findAll(query, { onlyActive: true });
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('admin')
+  @ApiOperation({
+    summary: 'List products including INACTIVE ones (status filter, ADMIN)',
+  })
+  findAllAdmin(@Query() query: ProductQueryDto) {
     return this.productsService.findAll(query);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('admin/:id')
+  @ApiOperation({ summary: 'Get any product, including INACTIVE (ADMIN)' })
+  findOneAdmin(@Param('id', ParseIntPipe) id: number) {
+    return this.productsService.findOne(id);
   }
 
   @Public()
   @Get(':id')
-  @ApiOperation({ summary: 'Get a product with variants, images and effective prices' })
+  @ApiOperation({ summary: 'Get an ACTIVE product with variants, images and effective prices' })
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.productsService.findOne(id);
+    return this.productsService.findOne(id, { onlyActive: true });
   }
 
   @Roles('ADMIN')

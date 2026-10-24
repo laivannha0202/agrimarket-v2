@@ -23,7 +23,7 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
@@ -41,7 +41,7 @@ import {
   uploadEvidence,
   type PickedEvidence,
 } from "../src/components/EvidencePicker";
-import { Badge, Card, EmptyView, ErrorView, LoadingView, PrimaryButton } from "../src/components/ui";
+import { Badge, Card, EmptyView, ErrorView, GhostButton, LoadingView, PrimaryButton } from "../src/components/ui";
 import { ApiError, errorMessage, isNetworkError } from "../src/lib/api-client";
 import { formatDateTime, formatMoney, formatQuantity } from "../src/lib/format";
 import { resources } from "../src/lib/resources";
@@ -71,16 +71,19 @@ export default function ComplaintsNewScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   /**
-   * The customer's orders, newest first. Only the 30 most recent are offered:
-   * a complaint is about something that just arrived, and paginating the picker
-   * would add a control the customer does not need to reach the order they
-   * actually want.
+   * The customer's orders, newest first. The picker pages through them so a
+   * complaint can be filed for an order that is not among the first 20.
    */
-  const orders = useQuery({
-    queryKey: ["orders", "for-complaint"],
-    queryFn: () => resources.listMyOrders({ page: 1, limit: 30 }),
+  const orders = useInfiniteQuery({
+    queryKey: ["orders", "for-complaint", "infinite"],
+    queryFn: ({ pageParam }) => resources.listMyOrders({ page: pageParam, limit: 20 }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
     enabled: hydrated && token !== null,
   });
+
+  const orderItems = orders.data?.pages.flatMap((page) => page.data) ?? [];
 
   /**
    * The selected order is DERIVED, not stored: `explicit tap ?? deep-link
@@ -90,8 +93,8 @@ export default function ComplaintsNewScreen() {
    * never be sent for an order that is not theirs.
    */
   const selected =
-    orders.data?.data.find((o) => o.id === pickedOrderId) ??
-    (presetId ? (orders.data?.data.find((o) => o.id === Number(presetId)) ?? null) : null);
+    orderItems.find((o) => o.id === pickedOrderId) ??
+    (presetId ? (orderItems.find((o) => o.id === Number(presetId)) ?? null) : null);
 
   const fail = (message: string | string[] | undefined, fallback: string) => {
     const { fields, formError: unmapped } = mapAfterSalesFieldErrors(message);
@@ -189,7 +192,8 @@ export default function ComplaintsNewScreen() {
     );
   }
 
-  const myOrders = orders.data.data;
+  const myOrders = orderItems;
+  const orderTotal = orders.data?.pages[0]?.meta.total ?? 0;
   const items = selected?.partnerOrders.flatMap((po) => po.items) ?? [];
   const hint = submitDisabledReason();
 
@@ -249,6 +253,21 @@ export default function ComplaintsNewScreen() {
                   </Pressable>
                 );
               })}
+
+              {myOrders.length > 0 && orders.hasNextPage ? (
+                <GhostButton
+                  label={orders.isFetchingNextPage ? "Đang tải…" : "Xem thêm đơn hàng"}
+                  icon="chevron-down"
+                  disabled={orders.isFetchingNextPage}
+                  onPress={() => void orders.fetchNextPage()}
+                  style={styles.loadMore}
+                />
+              ) : null}
+              {myOrders.length > 0 && orderTotal > myOrders.length ? (
+                <Text style={styles.moreNote}>
+                  Hiển thị {myOrders.length}/{orderTotal} đơn hàng gần nhất.
+                </Text>
+              ) : null}
 
               {selected ? (
                 <>
@@ -446,4 +465,6 @@ const styles = StyleSheet.create({
   itemName: { fontSize: 13.5, fontWeight: "600", color: colors.text, lineHeight: 18 },
   itemMeta: { fontSize: 12, color: colors.muted, marginTop: 2 },
   itemBadgeRow: { flexDirection: "row", marginTop: 2 },
+  loadMore: { marginBottom: spacing.sm },
+  moreNote: { fontSize: 12, color: colors.muted, textAlign: "center", paddingVertical: spacing.sm },
 });

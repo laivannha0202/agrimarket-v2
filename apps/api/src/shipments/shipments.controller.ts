@@ -35,8 +35,8 @@ export class ShipmentsController {
   @ApiBearerAuth()
   @Post()
   @ApiOperation({ summary: 'Create a shipment for a partner order (ADMIN)' })
-  create(@Body() dto: CreateShipmentDto) {
-    return this.shipmentsService.create(dto);
+  create(@Body() dto: CreateShipmentDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.shipmentsService.create(dto, user.id);
   }
 
   @Roles('ADMIN')

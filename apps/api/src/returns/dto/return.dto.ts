@@ -44,10 +44,19 @@ export class UpdateReturnRequestDto {
   @IsEnum(ReturnRequestStatus)
   status!: ReturnRequestStatus;
 
+  /**
+   * The refund that closes this return. Optional because a refund created with
+   * `returnRequestId` is already linked when the return reaches QC_PENDING.
+   *
+   * The service never trusts the value: the refund must exist, be COMPLETED,
+   * belong to the same order, not close another return, and not exceed the
+   * value of the returned goods (`quantity × unitPriceSnapshot`).
+   */
   @ApiPropertyOptional({ description: 'Set when moving to REFUNDED' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
+  @Min(1)
   refundId?: number;
 }
 

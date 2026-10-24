@@ -109,10 +109,12 @@ const MODELS = [
   'review',
   'complaint',
   'returnRequest',
+  'quarantineCase',
   'evidenceImage',
   'commissionRule',
   'settlement',
   'settlementLine',
+  'settlementAdjustment',
   'payout',
   'auditLog',
 ] as const;
@@ -142,8 +144,27 @@ export function createMockPrisma(): MockPrisma {
   mock.$disconnect = vi.fn(async () => undefined);
   applyTransactionDefault(mock);
   applyRawDefaults(mock);
+  applyModelDefaults(mock);
 
   return mock as unknown as MockPrisma;
+}
+
+/**
+ * Defaults for reads that the newer cancellation/refund paths perform on every
+ * call. Without them an unstubbed `mockResolvedValue` returns `undefined`, and
+ * a service that legitimately expects an empty list (`no shipment`,
+ * `no completed refund`) crashes on `.some`/`.length` before the test reaches
+ * its assertion. Tests that care about the rows still override these.
+ */
+function applyModelDefaults(mock: Record<string, unknown>): void {
+  const delegate = (name: string) => mock[name] as Record<string, MockFn>;
+  delegate('shipment').findMany.mockResolvedValue([]);
+  delegate('refund').findMany.mockResolvedValue([]);
+  delegate('inventoryAllocation').findMany.mockResolvedValue([]);
+  delegate('quarantineCase').findMany.mockResolvedValue([]);
+  delegate('quarantineCase').create.mockImplementation(
+    async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
+  );
 }
 
 /**
@@ -179,4 +200,5 @@ export function resetMockPrisma(prisma: MockPrisma): void {
   }
   applyTransactionDefault(prisma as unknown as Record<string, unknown>);
   applyRawDefaults(prisma as unknown as Record<string, unknown>);
+  applyModelDefaults(prisma as unknown as Record<string, unknown>);
 }

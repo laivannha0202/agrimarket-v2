@@ -80,6 +80,45 @@ describe('MailService', () => {
     });
   });
 
+  describe('production fail-fast', () => {
+    it('refuses to start in production with the test transport', () => {
+      expect(
+        () =>
+          new MailService(
+            configWith({ nodeEnv: 'production', mailTransport: 'test' }),
+          ),
+      ).toThrow(/production requires MAIL_TRANSPORT=smtp/);
+    });
+
+    it('refuses to start in production without an SMTP host', () => {
+      expect(
+        () =>
+          new MailService(
+            configWith({ nodeEnv: 'production', mailTransport: 'smtp' }),
+          ),
+      ).toThrow(/non-empty SMTP_HOST/);
+    });
+
+    it('starts in production with SMTP and a host', () => {
+      const service = new MailService(
+        configWith({
+          nodeEnv: 'production',
+          mailTransport: 'smtp',
+          smtpHost: 'smtp.example.com',
+        }),
+      );
+      expect(service.mode).toBe('smtp');
+      expect(service.isRealDelivery).toBe(true);
+    });
+
+    it('still allows the test transport outside production', () => {
+      const service = new MailService(
+        configWith({ nodeEnv: 'test', mailTransport: 'test' }),
+      );
+      expect(service.mode).toBe('test');
+    });
+  });
+
   describe('SMTP mode', () => {
     it('keeps no capture buffer, because nothing is captured', () => {
       const service = new MailService(

@@ -575,6 +575,12 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency ledger (e2e)', () =>
       const dto = { paymentId: payment.id, amount: 100000, reason: 'full refund' };
 
       const first = await payments.refund(dto as never, adminId, key);
+      await payments.approveRefund(first.id, adminId);
+      await payments.completeRefund(
+        first.id,
+        { reference: `RF-${first.id}` } as never,
+        adminId,
+      );
       const afterFirst = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
       expect(afterFirst.status).toBe('REFUNDED');
 
@@ -583,7 +589,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency ledger (e2e)', () =>
       expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(1);
       expect(
         await prisma.auditLog.count({
-          where: { action: 'REFUND', entityType: 'Payment', entityId: String(payment.id) },
+          where: { action: 'REFUND_CREATE', entityType: 'Refund', entityId: String(first.id) },
         }),
       ).toBe(1);
       const sum = await prisma.refund.aggregate({
@@ -683,11 +689,20 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency ledger (e2e)', () =>
         _sum: { amount: true },
       });
       expect(Number(sum._sum.amount ?? 0)).toBe(40000);
+
+      // Completion is the step that moves money; the replay guarantee is about
+      // the PENDING row created above.
+      await payments.approveRefund(ids[0], adminId);
+      await payments.completeRefund(
+        ids[0],
+        { reference: `RF-${ids[0]}` } as never,
+        adminId,
+      );
       const current = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
       expect(current.status).toBe('PARTIALLY_REFUNDED');
       expect(
         await prisma.auditLog.count({
-          where: { action: 'REFUND', entityType: 'Payment', entityId: String(payment.id) },
+          where: { action: 'REFUND_CREATE', entityType: 'Refund', entityId: String(ids[0]) },
         }),
       ).toBe(1);
     }, 120_000);
@@ -699,19 +714,35 @@ describe.skipIf(!hasTestDb)('AgriMarket API — idempotency ledger (e2e)', () =>
       const { order } = await deliveredOrder(base, customerId, 'IR5');
       const payment = await paidPayment(order.id);
 
-      await payments.refund(
+      const first = await payments.refund(
         { paymentId: payment.id, amount: 60000, reason: 'first' } as never,
         adminId,
         `${RUN_ID}-refund-independent-1`,
       );
-      await payments.refund(
+      const second = await payments.refund(
         { paymentId: payment.id, amount: 40000, reason: 'second' } as never,
         adminId,
         `${RUN_ID}-refund-independent-2`,
       );
 
       expect(await prisma.refund.count({ where: { paymentId: payment.id } })).toBe(2);
-      const current = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+
+      await payments.approveRefund(first.id, adminId);
+      await payments.completeRefund(
+        first.id,
+        { reference: `RF-${first.id}` } as never,
+        adminId,
+      );
+      let current = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
+      expect(current.status).toBe('PARTIALLY_REFUNDED');
+
+      await payments.approveRefund(second.id, adminId);
+      await payments.completeRefund(
+        second.id,
+        { reference: `RF-${second.id}` } as never,
+        adminId,
+      );
+      current = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
       expect(current.status).toBe('REFUNDED');
       const sum = await prisma.refund.aggregate({
         where: { paymentId: payment.id },

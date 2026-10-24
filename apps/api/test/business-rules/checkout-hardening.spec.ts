@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { ConflictException } from '@nestjs/common';
 import { OrdersService } from '../../src/orders/orders.service.js';
 import { InventoryService } from '../../src/inventory/inventory.service.js';
+import { QuarantineService } from '../../src/quarantine/quarantine.service.js';
 import { PromotionsService } from '../../src/promotions/promotions.service.js';
 import { CommissionService } from '../../src/finance/commission.service.js';
 import { LocationsService } from '../../src/locations/locations.service.js';
@@ -22,6 +23,7 @@ describe('Checkout hardening', () => {
   beforeEach(() => {
     prisma = createMockPrisma();
     const inventory = new InventoryService(prisma as never, audit as never);
+    const quarantine = new QuarantineService(prisma as never, audit as never, inventory);
     const promotions = new PromotionsService(prisma as never);
     const commission = new CommissionService(prisma as never);
     service = new OrdersService(
@@ -31,6 +33,7 @@ describe('Checkout hardening', () => {
       commission,
       audit as never,
       new LocationsService(prisma as never),
+      quarantine,
     );
   });
 
@@ -462,9 +465,19 @@ describe('Checkout hardening', () => {
       referenceType: string;
     };
     expect(movement.type).toBe('QUARANTINE');
-    expect(movement.referenceType).toBe('OrderCancel');
-    // `quarantineStock` moved reserved -> blocked in one statement.
-    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(movement.referenceType).toBe('ORDER_CANCEL');
+    // One guarded UPDATE moves reserved -> blocked; the second raw statement is
+    // the atomic claim of the daily QTN sequence.
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.quarantineCase.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sourceType: 'ORDER_CANCEL',
+          quantity: 2,
+          stockAddedToBalance: false,
+        }),
+      }),
+    );
   });
 
     it('rejects a cancel whose compare-and-set loses the race (409)', async () => {

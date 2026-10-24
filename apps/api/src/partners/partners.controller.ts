@@ -7,6 +7,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PartnersService } from './partners.service.js';
@@ -14,6 +15,7 @@ import { CreatePartnerDto, PartnerQueryDto, UpdatePartnerDto } from './dto/partn
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { OptionalJwtAuthGuard } from '../evidence/optional-jwt-auth.guard.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 
 @ApiTags('partners')
@@ -22,17 +24,19 @@ export class PartnersController {
   constructor(private readonly partnersService: PartnersService) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'List partners (search/status filters)' })
-  findAll(@Query() query: PartnerQueryDto) {
-    return this.partnersService.findAll(query);
+  findAll(@Query() query: PartnerQueryDto, @CurrentUser() user?: AuthenticatedUser) {
+    return this.partnersService.findAll(query, user);
   }
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
   @ApiOperation({ summary: 'Get a partner by id' })
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.partnersService.findOne(id);
+  findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user?: AuthenticatedUser) {
+    return this.partnersService.findOne(id, user);
   }
 
   @Roles('ADMIN')

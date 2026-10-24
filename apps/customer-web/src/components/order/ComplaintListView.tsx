@@ -33,7 +33,7 @@ import { IconAlertCircle, IconClock, IconReceipt, IconTag } from "@tabler/icons-
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -49,6 +49,7 @@ import {
 import {
   AppCard,
   FilterChip,
+  GhostButton,
   LoadingView,
   PageTitle,
   SelectCard,
@@ -56,14 +57,13 @@ import {
 import { layout } from "@/theme";
 import type { Complaint, ComplaintStatus, Order } from "@/lib/api/types";
 
-const FETCH_LIMIT = 100;
-
 /**
- * Only the 30 most recent orders are offered: a complaint is about something
- * that just arrived, and paginating the picker would add a control the
- * customer does not need (same cap as the Mobile form).
+ * Page size for "Xem thêm" lists. The order picker keeps the previous 30-row
+ * first page so a deep link from an order still resolves, then loads more on
+ * demand instead of truncating silently.
  */
-const ORDER_PICKER_LIMIT = 30;
+const LIST_PAGE_SIZE = 20;
+const ORDER_PICKER_PAGE_SIZE = 30;
 
 const TYPE_VALUES: string[] = Object.keys(COMPLAINT_TYPE);
 
@@ -115,17 +115,21 @@ function ComplaintCreateForm() {
   const [evidence, setEvidence] = useState<PickedEvidence[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const orders = useQuery({
-    queryKey: queryKeys.orders.list({ page: 1, limit: ORDER_PICKER_LIMIT }),
-    queryFn: () => resources.listMyOrders({ page: 1, limit: ORDER_PICKER_LIMIT }),
+  const orders = useInfiniteQuery({
+    queryKey: queryKeys.orders.infinite(undefined, ORDER_PICKER_PAGE_SIZE),
+    queryFn: ({ pageParam }) =>
+      resources.listMyOrders({ page: pageParam, limit: ORDER_PICKER_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
+
+  const myOrders = orders.data?.pages.flatMap((page) => page.data) ?? [];
 
   /** `explicit tap ?? deep link` — always an order the customer actually has. */
   const selected =
-    orders.data?.data.find((order) => order.id === pickedOrderId) ??
-    (hasPreset
-      ? (orders.data?.data.find((order) => order.id === presetId) ?? null)
-      : null);
+    myOrders.find((order) => order.id === pickedOrderId) ??
+    (hasPreset ? (myOrders.find((order) => order.id === presetId) ?? null) : null);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -175,8 +179,6 @@ function ComplaintCreateForm() {
     return <ErrorState error={orders.error} onRetry={() => orders.refetch()} />;
   }
 
-  const myOrders = orders.data.data;
-
   if (myOrders.length === 0) {
     return (
       <Text fz={12.5} lh="18px" c="var(--agri-muted)">
@@ -205,6 +207,27 @@ function ComplaintCreateForm() {
           }}
         />
       ))}
+
+      {hasPreset && !selected && orders.hasNextPage ? (
+        <Text fz={12.5} lh="18px" c="var(--agri-muted)" mt={4}>
+          Đơn từ liên kết chưa nằm trong danh sách đã tải. Bấm “Xem thêm” để tìm.
+        </Text>
+      ) : null}
+
+      {orders.hasNextPage ? (
+        <GhostButton
+          radius={8}
+          size="md"
+          mt={8}
+          loading={orders.isFetchingNextPage}
+          onClick={() => orders.fetchNextPage()}
+          mx="auto"
+          w="fit-content"
+          styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+        >
+          Xem thêm
+        </GhostButton>
+      ) : null}
 
       {selected ? (
         <>
@@ -354,21 +377,24 @@ function ComplaintRow({ record }: { record: Complaint }) {
 function MyComplaints({ onCreateNew }: { onCreateNew: () => void }) {
   const [statusFilter, setStatusFilter] = useState<"ALL" | ComplaintStatus>("ALL");
 
-  const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.complaints.list({
-      page: 1,
-      limit: FETCH_LIMIT,
-      status: statusFilter === "ALL" ? undefined : statusFilter,
-    }),
-    queryFn: () =>
+  const list = useInfiniteQuery({
+    queryKey: queryKeys.complaints.infinite(
+      statusFilter === "ALL" ? undefined : statusFilter,
+      LIST_PAGE_SIZE,
+    ),
+    queryFn: ({ pageParam }) =>
       resources.listMyComplaints({
-        page: 1,
-        limit: FETCH_LIMIT,
+        page: pageParam,
+        limit: LIST_PAGE_SIZE,
         status: statusFilter === "ALL" ? undefined : statusFilter,
       }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
 
-  const records = data?.data ?? [];
+  const records = list.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = list.data?.pages[0]?.meta.total ?? 0;
 
   return (
     <Stack gap={8}>
@@ -384,10 +410,10 @@ function MyComplaints({ onCreateNew }: { onCreateNew: () => void }) {
         ))}
       </Group>
 
-      {isPending ? (
+      {list.isPending ? (
         <LoadingView label="Đang tải khiếu nại…" />
-      ) : isError ? (
-        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : list.isError ? (
+        <ErrorState error={list.error} onRetry={() => list.refetch()} />
       ) : records.length === 0 ? (
         <EmptyState
           kind="orders"
@@ -400,11 +426,33 @@ function MyComplaints({ onCreateNew }: { onCreateNew: () => void }) {
           }
         />
       ) : (
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
-          {records.map((record) => (
-            <ComplaintRow key={record.id} record={record} />
-          ))}
-        </SimpleGrid>
+        <Stack gap={8}>
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
+            {records.map((record) => (
+              <ComplaintRow key={record.id} record={record} />
+            ))}
+          </SimpleGrid>
+
+          {list.hasNextPage ? (
+            <GhostButton
+              radius={8}
+              size="md"
+              loading={list.isFetchingNextPage}
+              onClick={() => list.fetchNextPage()}
+              mx="auto"
+              w="fit-content"
+              styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+            >
+              Xem thêm
+            </GhostButton>
+          ) : null}
+
+          {total > records.length ? (
+            <Text fz={12} c="var(--agri-muted)" ta="center">
+              Hiển thị {records.length}/{total} khiếu nại.
+            </Text>
+          ) : null}
+        </Stack>
       )}
     </Stack>
   );

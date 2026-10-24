@@ -8,11 +8,11 @@
  */
 
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Badge, Chip, EmptyView, ErrorView, LinkPress, LoadingView } from "../src/components/ui";
+import { Badge, Chip, EmptyView, ErrorView, GhostButton, LinkPress, LoadingView } from "../src/components/ui";
 import { errorMessage, isNetworkError } from "../src/lib/api-client";
 import { emptyStateKind } from "../src/lib/design-assets";
 import { formatDateTime, formatMoney } from "../src/lib/format";
@@ -28,9 +28,13 @@ export default function OrdersScreen() {
   const router = useRouter();
   const [status, setStatus] = useState<string>("");
 
-  const orders = useQuery({
-    queryKey: ["orders", status],
-    queryFn: () => resources.listMyOrders({ page: 1, limit: 20, status: status || undefined }),
+  const orders = useInfiniteQuery({
+    queryKey: ["orders", status, "infinite"],
+    queryFn: ({ pageParam }) =>
+      resources.listMyOrders({ page: pageParam, limit: 20, status: status || undefined }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
     enabled: hydrated && token !== null,
   });
 
@@ -78,7 +82,8 @@ export default function OrdersScreen() {
     );
   }
 
-  const list = orders.data.data;
+  const list = orders.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = orders.data?.pages[0]?.meta.total ?? 0;
   const hasFilter = status !== "";
 
   return (
@@ -168,8 +173,18 @@ export default function OrdersScreen() {
           />
         ) : null}
 
-        {list.length > 0 && orders.data.meta.total > list.length ? (
-          <Text style={styles.moreNote}>Hiển thị {list.length}/{orders.data.meta.total} đơn hàng gần nhất.</Text>
+        {list.length > 0 && orders.hasNextPage ? (
+          <GhostButton
+            label={orders.isFetchingNextPage ? "Đang tải…" : "Xem thêm"}
+            icon="chevron-down"
+            disabled={orders.isFetchingNextPage}
+            onPress={() => void orders.fetchNextPage()}
+            style={styles.loadMore}
+          />
+        ) : null}
+
+        {list.length > 0 && total > list.length ? (
+          <Text style={styles.moreNote}>Hiển thị {list.length}/{total} đơn hàng gần nhất.</Text>
         ) : null}
 
         <View style={styles.bottomPad} />
@@ -214,5 +229,6 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 13, color: colors.muted },
   total: { fontSize: 15, fontWeight: "700", color: colors.primary },
   moreNote: { fontSize: 12, color: colors.muted, textAlign: "center", paddingVertical: spacing.sm },
+  loadMore: { marginBottom: spacing.sm },
   bottomPad: { height: spacing.xl },
 });

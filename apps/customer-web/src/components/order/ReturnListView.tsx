@@ -35,7 +35,7 @@ import { IconAlertCircle, IconClock, IconCube, IconReceipt } from "@tabler/icons
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
@@ -52,6 +52,7 @@ import {
 import {
   AppCard,
   FilterChip,
+  GhostButton,
   LoadingView,
   PageTitle,
   SelectCard,
@@ -63,10 +64,13 @@ import type {
   ReturnRequestStatus,
 } from "@/lib/api/types";
 
-const FETCH_LIMIT = 100;
-
-/** The backend offers at most 30 returnable lines per page; one page is plenty. */
-const ELIGIBLE_LIMIT = 30;
+/**
+ * Page size for "Xem thêm" lists. The backend's default is 20; the pickers keep
+ * the previous 30-row first page so an existing deep link still resolves, then
+ * load more on demand instead of truncating silently.
+ */
+const LIST_PAGE_SIZE = 20;
+const ELIGIBLE_PAGE_SIZE = 30;
 
 /** The Mobile status chips: "Tất cả" then every real backend status. */
 const STATUS_FILTERS: Array<{ value: "ALL" | ReturnRequestStatus; label: string }> = [
@@ -145,10 +149,16 @@ function ReturnCreateForm() {
   const [evidence, setEvidence] = useState<PickedEvidence[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const eligible = useQuery({
-    queryKey: queryKeys.returns.eligible(),
-    queryFn: () => resources.listReturnableItems({ page: 1, limit: ELIGIBLE_LIMIT }),
+  const eligible = useInfiniteQuery({
+    queryKey: queryKeys.returns.eligibleInfinite(ELIGIBLE_PAGE_SIZE),
+    queryFn: ({ pageParam }) =>
+      resources.listReturnableItems({ page: pageParam, limit: ELIGIBLE_PAGE_SIZE }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
+
+  const returnable = eligible.data?.pages.flatMap((page) => page.data) ?? [];
 
   /**
    * The selected line is DERIVED, not stored: `explicit tap ?? deep link`.
@@ -156,10 +166,8 @@ function ReturnCreateForm() {
    * quantity cap always belongs to the row being shown.
    */
   const selected =
-    eligible.data?.data.find((item) => item.orderItemId === pickedId) ??
-    (hasPreset
-      ? (eligible.data?.data.find((item) => item.orderItemId === presetId) ?? null)
-      : null);
+    returnable.find((item) => item.orderItemId === pickedId) ??
+    (hasPreset ? (returnable.find((item) => item.orderItemId === presetId) ?? null) : null);
 
   const create = useMutation({
     mutationFn: async () => {
@@ -226,8 +234,6 @@ function ReturnCreateForm() {
     return <ErrorState error={eligible.error} onRetry={() => eligible.refetch()} />;
   }
 
-  const returnable = eligible.data.data;
-
   if (returnable.length === 0) {
     return (
       <Text fz={12.5} lh="18px" c="var(--agri-muted)">
@@ -256,6 +262,27 @@ function ReturnCreateForm() {
           }}
         />
       ))}
+
+      {hasPreset && !selected && eligible.hasNextPage ? (
+        <Text fz={12.5} lh="18px" c="var(--agri-muted)" mt={4}>
+          Sản phẩm từ liên kết chưa nằm trong danh sách đã tải. Bấm “Xem thêm” để tìm.
+        </Text>
+      ) : null}
+
+      {eligible.hasNextPage ? (
+        <GhostButton
+          radius={8}
+          size="md"
+          mt={8}
+          loading={eligible.isFetchingNextPage}
+          onClick={() => eligible.fetchNextPage()}
+          mx="auto"
+          w="fit-content"
+          styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+        >
+          Xem thêm
+        </GhostButton>
+      ) : null}
 
       {selected ? (
         <>
@@ -355,21 +382,24 @@ function ReturnRow({ record }: { record: ReturnRequest }) {
 function MyReturns({ onCreateNew }: { onCreateNew: () => void }) {
   const [statusFilter, setStatusFilter] = useState<"ALL" | ReturnRequestStatus>("ALL");
 
-  const { data, isPending, isError, error, refetch } = useQuery({
-    queryKey: queryKeys.returns.list({
-      page: 1,
-      limit: FETCH_LIMIT,
-      status: statusFilter === "ALL" ? undefined : statusFilter,
-    }),
-    queryFn: () =>
+  const list = useInfiniteQuery({
+    queryKey: queryKeys.returns.infinite(
+      statusFilter === "ALL" ? undefined : statusFilter,
+      LIST_PAGE_SIZE,
+    ),
+    queryFn: ({ pageParam }) =>
       resources.listMyReturns({
-        page: 1,
-        limit: FETCH_LIMIT,
+        page: pageParam,
+        limit: LIST_PAGE_SIZE,
         status: statusFilter === "ALL" ? undefined : statusFilter,
       }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
   });
 
-  const records = data?.data ?? [];
+  const records = list.data?.pages.flatMap((page) => page.data) ?? [];
+  const total = list.data?.pages[0]?.meta.total ?? 0;
 
   return (
     <Stack gap={8}>
@@ -385,10 +415,10 @@ function MyReturns({ onCreateNew }: { onCreateNew: () => void }) {
         ))}
       </Group>
 
-      {isPending ? (
+      {list.isPending ? (
         <LoadingView label="Đang tải trả hàng…" />
-      ) : isError ? (
-        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : list.isError ? (
+        <ErrorState error={list.error} onRetry={() => list.refetch()} />
       ) : records.length === 0 ? (
         <EmptyState
           kind="orders"
@@ -401,11 +431,33 @@ function MyReturns({ onCreateNew }: { onCreateNew: () => void }) {
           }
         />
       ) : (
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
-          {records.map((record) => (
-            <ReturnRow key={record.id} record={record} />
-          ))}
-        </SimpleGrid>
+        <Stack gap={8}>
+          <SimpleGrid cols={{ base: 1, md: 2 }} spacing={8} verticalSpacing={8}>
+            {records.map((record) => (
+              <ReturnRow key={record.id} record={record} />
+            ))}
+          </SimpleGrid>
+
+          {list.hasNextPage ? (
+            <GhostButton
+              radius={8}
+              size="md"
+              loading={list.isFetchingNextPage}
+              onClick={() => list.fetchNextPage()}
+              mx="auto"
+              w="fit-content"
+              styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
+            >
+              Xem thêm
+            </GhostButton>
+          ) : null}
+
+          {total > records.length ? (
+            <Text fz={12} c="var(--agri-muted)" ta="center">
+              Hiển thị {records.length}/{total} yêu cầu trả hàng.
+            </Text>
+          ) : null}
+        </Stack>
       )}
     </Stack>
   );

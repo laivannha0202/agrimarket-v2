@@ -111,20 +111,34 @@ export const queryKeys = {
   returns: {
     all: ["returns"] as const,
     list: (params: ReturnListParams) => ["returns", "list", params] as const,
+    /**
+     * "Xem thêm" paging for the customer's own requests: the key carries the
+     * status filter and the page size, and React Query appends each page to the
+     * same key. `returns.all` still invalidates every variant.
+     */
+    infinite: (status: ReturnRequestStatus | undefined, limit: number) =>
+      ["returns", "infinite", status ?? null, limit] as const,
     /** `GET /returns/me/eligible-items` — what the return form may offer. */
     eligible: () => ["returns", "eligible"] as const,
+    eligibleInfinite: (limit: number) =>
+      ["returns", "eligible", "infinite", limit] as const,
     detail: (id: number) => ["returns", "detail", id] as const,
   },
   complaints: {
     all: ["complaints"] as const,
     list: (params: ComplaintListParams) => ["complaints", "list", params] as const,
+    infinite: (status: ComplaintStatus | undefined, limit: number) =>
+      ["complaints", "infinite", status ?? null, limit] as const,
     detail: (id: number) => ["complaints", "detail", id] as const,
   },
   reviews: {
     all: ["reviews"] as const,
     mine: () => ["reviews", "me"] as const,
+    mineInfinite: (limit: number) => ["reviews", "me", "infinite", limit] as const,
     /** `GET /reviews/me/eligible-items` — what the review form may offer. */
     eligible: () => ["reviews", "eligible"] as const,
+    eligibleInfinite: (limit: number) =>
+      ["reviews", "eligible", "infinite", limit] as const,
     forProduct: (productId: number, page: number) =>
       ["reviews", "product", productId, page] as const,
   },

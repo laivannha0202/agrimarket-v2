@@ -50,6 +50,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Bán hàng",
     items: [
       { key: "/orders", label: "Đơn hàng", icon: <ShoppingCartOutlined /> },
+      { key: "/shipments", label: "Vận đơn", icon: <InboxOutlined /> },
       { key: "/returns-complaints", label: "Trả hàng & Khiếu nại", icon: <RollbackOutlined /> },
     ],
   },
@@ -71,6 +72,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Chất lượng & Truy xuất",
     items: [
       { key: "/quality-control", label: "Kiểm định chất lượng", icon: <SafetyCertificateOutlined /> },
+      { key: "/quarantine", label: "Hàng cách ly", icon: <SafetyCertificateOutlined /> },
       { key: "/lots", label: "Lô & QR", icon: <QrcodeOutlined /> },
       { key: "/certificates", label: "Chứng nhận", icon: <FileTextOutlined /> },
     ],
@@ -103,11 +105,15 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: "/commission", label: "Hoa hồng", icon: <DollarOutlined /> },
       { key: "/settlements", label: "Đối soát & Chi trả", icon: <DollarOutlined /> },
+      { key: "/refunds", label: "Hoàn tiền", icon: <RollbackOutlined /> },
     ],
   },
   {
     label: "Báo cáo",
-    items: [{ key: "/reports", label: "Báo cáo", icon: <BarChartOutlined /> }],
+    items: [
+      { key: "/reports", label: "Báo cáo", icon: <BarChartOutlined /> },
+      { key: "/audit", label: "Nhật ký kiểm toán", icon: <FileTextOutlined /> },
+    ],
   },
 ];
 

@@ -52,6 +52,7 @@ export const SHIPMENT_STATUS: Map = {
   DELIVERY_FAILED: { label: "Giao thất bại", color: "error" },
   RETURNING: { label: "Đang hoàn hàng", color: "warning" },
   RETURNED: { label: "Đã hoàn hàng", color: "warning" },
+  CANCELLED: { label: "Đã hủy", color: "error" },
 };
 
 export const shipmentStatus = (v?: string | null) => resolve(SHIPMENT_STATUS, v);
@@ -111,7 +112,8 @@ export const PAYMENT_METHOD: Map = {
 export const paymentMethod = (v?: string | null) => resolve(PAYMENT_METHOD, v);
 
 export const REFUND_STATUS: Map = {
-  PENDING: { label: "Chờ xử lý", color: "warning" },
+  PENDING: { label: "Chờ duyệt", color: "warning" },
+  APPROVED: { label: "Đã duyệt — chờ chi tiền", color: "processing" },
   COMPLETED: { label: "Đã hoàn tiền", color: "success" },
   FAILED: { label: "Thất bại", color: "error" },
 };
@@ -243,10 +245,32 @@ export const INVENTORY_MOVEMENT_TYPE: Map = {
   RESERVE: { label: "Giữ hàng", color: "default" },
   RELEASE: { label: "Giải phóng", color: "default" },
   RETURN: { label: "Hoàn hàng", color: "default" },
+  QUARANTINE: { label: "Chuyển cách ly", color: "warning" },
+  QUARANTINE_RELEASE: { label: "Giải phóng cách ly", color: "success" },
+  SCRAP: { label: "Tiêu hủy", color: "error" },
 };
 
 export const inventoryMovementType = (v?: string | null) =>
   resolve(INVENTORY_MOVEMENT_TYPE, v);
+
+export const QUARANTINE_STATUS: Map = {
+  PENDING: { label: "Chờ kiểm định lại", color: "warning" },
+  PASSED: { label: "Đạt — chờ giải phóng", color: "processing" },
+  FAILED: { label: "Không đạt — chờ tiêu hủy", color: "error" },
+  RELEASED: { label: "Đã giải phóng", color: "success" },
+  SCRAPPED: { label: "Đã tiêu hủy", color: "error" },
+};
+
+export const quarantineStatus = (v?: string | null) => resolve(QUARANTINE_STATUS, v);
+
+export const QUARANTINE_SOURCE: Map = {
+  ORDER_CANCEL: { label: "Hủy đơn khi đang giao", color: "warning" },
+  SHIPMENT_RETURN: { label: "Vận đơn hoàn về", color: "processing" },
+  RETURN: { label: "Yêu cầu trả hàng", color: "processing" },
+  WAREHOUSE_RETURN: { label: "Phiếu trả hàng kho", color: "default" },
+};
+
+export const quarantineSource = (v?: string | null) => resolve(QUARANTINE_SOURCE, v);
 
 /**
  * Which quantity the movement's `before`/`after` columns describe.
@@ -272,6 +296,23 @@ export const SETTLEMENT_STATUS: Map = {
 };
 
 export const settlementStatus = (v?: string | null) => resolve(SETTLEMENT_STATUS, v);
+
+export const SETTLEMENT_ADJUSTMENT_STATUS: Map = {
+  OPEN: { label: "Chờ xử lý", color: "warning" },
+  REVIEWED: { label: "Đã xử lý", color: "success" },
+};
+
+export const settlementAdjustmentStatus = (v?: string | null) =>
+  resolve(SETTLEMENT_ADJUSTMENT_STATUS, v);
+
+export const SETTLEMENT_ADJUSTMENT_RESOLUTION: Map = {
+  DEDUCT_NEXT: { label: "Trừ vào kỳ sau", color: "processing" },
+  WRITE_OFF: { label: "Xóa nợ", color: "default" },
+  MANUAL: { label: "Xử lý thủ công", color: "default" },
+};
+
+export const settlementAdjustmentResolution = (v?: string | null) =>
+  resolve(SETTLEMENT_ADJUSTMENT_RESOLUTION, v);
 
 export const PAYOUT_STATUS: Map = {
   PENDING: { label: "Chờ chi trả", color: "warning" },

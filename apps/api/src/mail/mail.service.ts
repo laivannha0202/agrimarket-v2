@@ -55,6 +55,20 @@ export class MailService {
     this.mode =
       requested === 'smtp' || requested === 'test' ? requested : host ? 'smtp' : 'test';
 
+    /**
+     * Production must not silently capture password-recovery e-mails. The
+     * `test` transport is a development aid; in production it would make the
+     * API report success while no message ever leaves the process, and the
+     * customer would never receive the reset link. Fail at startup instead of
+     * discovering it from a support ticket.
+     */
+    const nodeEnv = (this.config.get<string>('nodeEnv') ?? '').toLowerCase();
+    if (nodeEnv === 'production' && (this.mode !== 'smtp' || !host.trim())) {
+      throw new Error(
+        'Invalid configuration: production requires MAIL_TRANSPORT=smtp and a non-empty SMTP_HOST',
+      );
+    }
+
     this.from = this.config.get<string>('mailFrom') ?? 'AgriMarket <no-reply@agrimarket.vn>';
 
     if (this.mode === 'smtp') {

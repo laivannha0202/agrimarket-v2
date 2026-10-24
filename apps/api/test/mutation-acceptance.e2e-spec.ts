@@ -173,9 +173,12 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     });
 
     it('search matches the new product by SKU', async () => {
-      const res = await get(`/api/v1/products?search=${encodeURIComponent(sku)}`, adminToken).expect(
-        200,
-      );
+      // The product was just set INACTIVE; the public catalogue only exposes
+      // ACTIVE products, so the admin catalogue is the route that sees it.
+      const res = await get(
+        `/api/v1/products/admin?search=${encodeURIComponent(sku)}`,
+        adminToken,
+      ).expect(200);
       expect(res.body.meta.total).toBe(1);
       expect(res.body.data[0].id).toBe(productId);
     });
@@ -1843,6 +1846,9 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     });
 
     afterAll(async () => {
+      // A SHIPPING cancellation now quarantines the reservation, and the case
+      // references the lot. Remove it before the lot/balance parents.
+      await prisma.quarantineCase.deleteMany({ where: { productLotId: lotId } });
       await prisma.inventoryAllocation.deleteMany({ where: { productLotId: lotId } });
       await prisma.refund.deleteMany({ where: { payment: { orderId } } });
       await prisma.payment.deleteMany({ where: { orderId } });
@@ -1855,6 +1861,8 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       await prisma.inventoryMovement.deleteMany({ where: { productLotId: lotId } });
       await prisma.inventoryBalance.deleteMany({ where: { id: balanceId } });
       await prisma.qcInspection.deleteMany({ where: { productLotId: lotId } });
+      // Cancelling from SHIPPING writes a public RETURNED trace for the lot.
+      await prisma.traceEvent.deleteMany({ where: { productLotId: lotId } });
       await prisma.productLot.deleteMany({ where: { id: lotId } });
       await prisma.harvest.deleteMany({ where: { id: harvestId } });
       await prisma.season.deleteMany({ where: { id: seasonId } });
@@ -1889,6 +1897,21 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       }).expect(404);
     });
 
+    it('refuses to resolve a complaint that was never processed', async () => {
+      await patch(`/api/v1/complaints/${complaintId}`, adminToken, {
+        status: 'RESOLVED',
+        resolution: 'Bỏ qua bước xử lý',
+      }).expect(400);
+    });
+
+    it('moves the complaint to PROCESSING without a resolution', async () => {
+      const res = await patch(`/api/v1/complaints/${complaintId}`, adminToken, {
+        status: 'PROCESSING',
+      }).expect(200);
+      expect(res.body.status).toBe('PROCESSING');
+      expect(res.body.resolvedAt).toBeNull();
+    });
+
     it('resolves the complaint and stamps resolvedAt', async () => {
       const res = await patch(`/api/v1/complaints/${complaintId}`, adminToken, {
         status: 'RESOLVED',
@@ -1896,6 +1919,12 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       }).expect(200);
       expect(res.body.status).toBe('RESOLVED');
       expect(res.body.resolvedAt).toBeTruthy();
+    });
+
+    it('treats a resolved complaint as final', async () => {
+      await patch(`/api/v1/complaints/${complaintId}`, adminToken, {
+        status: 'PROCESSING',
+      }).expect(400);
     });
 
     it('rejects an invalid complaint status with 400', async () => {
@@ -1927,24 +1956,60 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       expect(res.body.message).toMatch(/at most \d+/i);
     });
 
-    it('requires a refundId before marking a return REFUNDED', async () => {
+    it('refuses to skip the return state machine straight to REFUNDED', async () => {
       const res = await patch(`/api/v1/returns/${returnId}`, adminToken, {
         status: 'REFUNDED',
       }).expect(400);
-      expect(res.body.message).toMatch(/refundId is required/i);
+      expect(res.body.message).toMatch(/Cannot change return status from REQUESTED to REFUNDED/);
     });
 
-    it('advances the return and refunds the payment', async () => {
+    it('receives the return, clears quarantine QC and refunds the payment', async () => {
       for (const status of ['APPROVED', 'RETURNING', 'RECEIVED', 'QC_PENDING']) {
         await patch(`/api/v1/returns/${returnId}`, adminToken, { status }).expect(200);
       }
 
-      const refund = await post('/api/v1/refunds', adminToken, {
-        paymentId: fixtures.paymentId,
-        amount: 25000,
-        reason: `Hoàn tiền E2E ${RUN_ID}`,
-      }, `${RUN_ID}-refund-1`).expect(201);
-      expect(refund.body.status).toBe('COMPLETED');
+      // Receipt opens one quarantine case; the goods are blocked, not sellable.
+      const received = await get(`/api/v1/returns/${returnId}`, adminToken).expect(200);
+      expect(received.body.status).toBe('QC_PENDING');
+      expect(received.body.quarantineCases).toHaveLength(1);
+      const quarantineCaseId = received.body.quarantineCases[0].id;
+
+      // A refund starts as a PENDING decision; only approve -> complete moves
+      // money and updates the payment.
+      const refund = await post(
+        '/api/v1/refunds',
+        adminToken,
+        {
+          paymentId: fixtures.paymentId,
+          amount: 25000,
+          reason: `Hoàn tiền E2E ${RUN_ID}`,
+          returnRequestId: returnId,
+        },
+        `${RUN_ID}-refund-1`,
+      ).expect(201);
+      expect(refund.body.status).toBe('PENDING');
+
+      await post(`/api/v1/refunds/${refund.body.id}/approve`, adminToken).expect(201);
+      const completed = await post(
+        `/api/v1/refunds/${refund.body.id}/complete`,
+        adminToken,
+        { reference: `BANK-${RUN_ID}` },
+      ).expect(201);
+      expect(completed.body.status).toBe('COMPLETED');
+
+      // The refund is complete, but unresolved quarantine still blocks REFUNDED.
+      const blocked = await patch(`/api/v1/returns/${returnId}`, adminToken, {
+        status: 'REFUNDED',
+        refundId: refund.body.id,
+      }).expect(400);
+      expect(blocked.body.message).toMatch(/quarantine cases/i);
+
+      await patch(`/api/v1/quarantine-cases/${quarantineCaseId}/inspect`, adminToken, {
+        result: 'PASS',
+      }).expect(200);
+      await patch(`/api/v1/quarantine-cases/${quarantineCaseId}/resolve`, adminToken, {
+        action: 'RELEASE',
+      }).expect(200);
 
       const updated = await patch(`/api/v1/returns/${returnId}`, adminToken, {
         status: 'REFUNDED',
@@ -2039,9 +2104,19 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     });
 
     afterAll(async () => {
+      const refundIds = (
+        await prisma.refund.findMany({
+          where: { paymentId: fixtures.paymentId },
+          select: { id: true },
+        })
+      ).map((r) => r.id);
+      // Reconciliation rows and quarantine cases reference the refund/return,
+      // so they must be removed before their parents.
+      await prisma.settlementAdjustment.deleteMany({ where: { refundId: { in: refundIds } } });
+      await prisma.quarantineCase.deleteMany({ where: { returnRequestId: returnId } });
       await prisma.returnRequest.deleteMany({ where: { id: returnId } });
       await prisma.complaint.deleteMany({ where: { id: complaintId } });
-      await prisma.refund.deleteMany({ where: { paymentId: fixtures.paymentId } });
+      await prisma.refund.deleteMany({ where: { id: { in: refundIds } } });
       await prisma.payment.update({
         where: { id: fixtures.paymentId },
         data: { status: 'PAID' },
@@ -2139,6 +2214,17 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
           discountAmount: 0,
         },
       });
+
+      // Settlements only claim partner orders whose order has a real payment.
+      await prisma.payment.create({
+        data: {
+          orderId,
+          method: 'COD',
+          amount: 500000,
+          status: 'PAID',
+          paidAt: new Date(),
+        },
+      });
     });
 
     it('rejects a settlement period that ends before it starts', async () => {
@@ -2228,9 +2314,11 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
     });
 
     afterAll(async () => {
+      await prisma.settlementAdjustment.deleteMany({ where: { settlementId } });
       await prisma.settlementLine.deleteMany({ where: { settlementId } });
       await prisma.payout.deleteMany({ where: { settlementId } });
       await prisma.settlement.deleteMany({ where: { id: settlementId } });
+      await prisma.payment.deleteMany({ where: { orderId } });
       await prisma.orderItem.deleteMany({ where: { partnerOrderId } });
       await prisma.partnerOrder.deleteMany({ where: { id: partnerOrderId } });
       await prisma.order.deleteMany({ where: { id: orderId } });

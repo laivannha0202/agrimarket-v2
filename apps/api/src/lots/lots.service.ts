@@ -203,7 +203,7 @@ export class LotsService {
     const lot = await this.prisma.productLot.findUnique({
       where: { id },
       include: {
-        product: { include: { partner: true, category: true } },
+        product: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } }, category: true } },
         harvest: { include: { season: { include: { farm: true } } } },
         // The inspector is shown next to each QC row; without this the detail
         // page renders "—" for a value the QC list already displays.

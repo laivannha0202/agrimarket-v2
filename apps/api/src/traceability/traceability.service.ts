@@ -18,7 +18,7 @@ export class TraceabilityService {
         product: {
           include: {
             category: true,
-            partner: true,
+            partner: { select: { id: true, code: true, name: true, representativeName: true } },
             images: { orderBy: { sortOrder: 'asc' } },
           },
         },

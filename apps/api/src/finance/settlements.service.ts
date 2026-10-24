@@ -12,11 +12,21 @@ import { IdempotencyService } from '../common/idempotency/idempotency.service.js
 import { IDEMPOTENCY_SCOPES } from '../common/idempotency/idempotency.constants.js';
 import { buildCode, buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDatedSequence, nextSequence } from '../common/utils/code.util.js';
 import { buildPagination, paginate } from '../common/dto/pagination-query.dto.js';
-import { CreatePayoutDto, CreateSettlementDto } from './dto/finance.dto.js';
+import { allocateByGross } from '../common/utils/refund-allocation.js';
+import {
+  CreatePayoutDto,
+  CreateSettlementDto,
+  ReviewSettlementAdjustmentDto,
+  SettlementAdjustmentQueryDto,
+} from './dto/finance.dto.js';
 import type { Payout, Prisma } from '../../generated/prisma/client.js';
 import {
   PartnerOrderStatus,
+  PaymentStatus,
   PayoutStatus,
+  RefundStatus,
+  SettlementAdjustmentResolution,
+  SettlementAdjustmentStatus,
   SettlementStatus,
 } from '../../generated/prisma/enums.js';
 
@@ -77,9 +87,10 @@ export class SettlementsService {
       throw new BadRequestException('periodEnd must be after periodStart');
     }
 
-    // Only DELIVERED partner orders are settled: the goods reached the buyer,
-    // so the partner's money is actually owed. A READY_TO_SHIP/SHIPPING order is
-    // still in transit and including it would pay for goods that may come back.
+    // Only DELIVERED partner orders whose ORDER actually carries collected
+    // money are settled. A delivered parcel with no PAID payment (e.g. COD not
+    // confirmed yet) is not revenue and must not be paid out. `paidAt` is part
+    // of the check so a mis-set status cannot book money never collected.
     // `settlementLines: { none: {} }` excludes every order already claimed by a
     // settlement (DRAFT included), so the same order can never be paid twice
     // across two periods.
@@ -89,23 +100,52 @@ export class SettlementsService {
         status: PartnerOrderStatus.DELIVERED,
         createdAt: { gte: periodStart, lte: periodEnd },
         settlementLines: { none: {} },
+        order: {
+          payments: {
+            some: {
+              status: {
+                in: [
+                  PaymentStatus.PAID,
+                  PaymentStatus.PARTIALLY_REFUNDED,
+                  PaymentStatus.REFUNDED,
+                ],
+              },
+              paidAt: { not: null },
+            },
+          },
+        },
       },
     });
+
+    /**
+     * Completed refunds are deducted from the line of the partner order that
+     * actually bears them:
+     *  - a refund linked to a return is a direct liability of that return's
+     *    partner order;
+     *  - an unlinked refund is spread over every partner order of the same
+     *    order by gross value (exact remainder on the last line).
+     * PENDING/APPROVED refunds are decisions, not money movements, so they are
+     * deliberately excluded; only COMPLETED reduces a settlement.
+     */
+    const orderIds = [...new Set(partnerOrders.map((po) => po.orderId))];
+    const refundsByPartnerOrder = await this.loadCompletedRefundAttribution(orderIds);
 
     let gross = 0;
     let refundTotal = 0;
     let commissionTotal = 0;
     const lines = partnerOrders.map((po) => {
-      const grossAmount = Number(po.subtotal) - Number(po.discountTotal);
-      const commissionAmount = Number(po.commissionAmount);
-      const payableAmount = round2(grossAmount - commissionAmount);
+      const grossAmount = round2(Number(po.subtotal) - Number(po.discountTotal));
+      const refundAmount = round2(refundsByPartnerOrder.get(po.id) ?? 0);
+      const commissionAmount = round2(Number(po.commissionAmount));
+      const payableAmount = round2(grossAmount - refundAmount - commissionAmount);
       gross += grossAmount;
+      refundTotal += refundAmount;
       commissionTotal += commissionAmount;
       return {
         partnerOrderId: po.id,
-        grossAmount: round2(grossAmount),
-        refundAmount: 0,
-        commissionAmount: round2(commissionAmount),
+        grossAmount,
+        refundAmount,
+        commissionAmount,
         payableAmount,
       };
     });
@@ -196,6 +236,18 @@ export class SettlementsService {
     if (settlement.status !== SettlementStatus.DRAFT) {
       throw new BadRequestException('Only DRAFT settlements can be confirmed');
     }
+    // An OPEN refund-after-settlement row means money is owed back to the
+    // customer but the recovery policy has not been decided. Confirming (and
+    // therefore allowing payouts) would pay the partner money that is already
+    // owed elsewhere.
+    const openAdjustments = await this.prisma.settlementAdjustment.count({
+      where: { settlementId: id, status: SettlementAdjustmentStatus.OPEN },
+    });
+    if (openAdjustments > 0) {
+      throw new ConflictException(
+        `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); review them before confirming`,
+      );
+    }
     const updated = await this.prisma.settlement.update({
       where: { id },
       data: { status: SettlementStatus.CONFIRMED, confirmedAt: new Date() },
@@ -209,6 +261,142 @@ export class SettlementsService {
       afterJson: { status: updated.status },
     });
     return updated;
+  }
+
+  async findAdjustments(query: SettlementAdjustmentQueryDto) {
+    const { skip, take, page, limit } = buildPagination(query.page, query.limit);
+    const where: Prisma.SettlementAdjustmentWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.partnerId ? { partnerId: query.partnerId } : {}),
+      ...(query.settlementId ? { settlementId: query.settlementId } : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.settlementAdjustment.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { id: 'desc' },
+        include: {
+          partner: { select: { id: true, code: true, name: true } },
+          settlement: { select: { id: true, code: true, status: true } },
+          partnerOrder: { select: { id: true, code: true } },
+          refund: { select: { id: true, amount: true, status: true, completedAt: true } },
+        },
+      }),
+      this.prisma.settlementAdjustment.count({ where }),
+    ]);
+    return paginate(data, total, page, limit);
+  }
+
+  /**
+   * Record the human decision for an OPEN adjustment. The reviewer, note and
+   * timestamp live on the row; the original settlement is never rewritten.
+   * DEDUCT_NEXT/WRITE_OFF/MANUAL are policy choices, not money movements, so
+   * this method only closes the reconciliation item.
+   */
+  async reviewAdjustment(
+    id: number,
+    dto: ReviewSettlementAdjustmentDto,
+    actorUserId: number,
+  ) {
+    if (!dto.note?.trim()) {
+      throw new BadRequestException('A resolution note is required');
+    }
+    const adjustment = await this.prisma.settlementAdjustment.findUnique({ where: { id } });
+    if (!adjustment) throw new NotFoundException('Settlement adjustment not found');
+    if (adjustment.status === SettlementAdjustmentStatus.REVIEWED) {
+      return adjustment;
+    }
+    const claimed = await this.prisma.settlementAdjustment.updateMany({
+      where: { id, status: SettlementAdjustmentStatus.OPEN },
+      data: {
+        status: SettlementAdjustmentStatus.REVIEWED,
+        resolution: dto.resolution as SettlementAdjustmentResolution,
+        resolutionNote: dto.note.trim(),
+        reviewedByUserId: actorUserId,
+        reviewedAt: new Date(),
+      },
+    });
+    if (claimed.count === 0) {
+      throw new ConflictException(
+        'The adjustment changed while this request was being processed, please reload',
+      );
+    }
+    const updated = await this.prisma.settlementAdjustment.findUniqueOrThrow({ where: { id } });
+    await this.audit.record({
+      actorUserId,
+      action: 'SETTLEMENT_ADJUSTMENT_REVIEW',
+      entityType: 'SettlementAdjustment',
+      entityId: String(id),
+      beforeJson: { status: adjustment.status },
+      afterJson: {
+        status: updated.status,
+        resolution: updated.resolution,
+        resolutionNote: updated.resolutionNote,
+      },
+    });
+    return updated;
+  }
+
+  /**
+   * Completed-refund attribution for the given orders. See `create` for the
+   * direct-return vs proportional rule.
+   */
+  private async loadCompletedRefundAttribution(
+    orderIds: number[],
+  ): Promise<Map<number, number>> {
+    const result = new Map<number, number>();
+    if (orderIds.length === 0) return result;
+
+    const [partnerOrders, refunds] = await Promise.all([
+      this.prisma.partnerOrder.findMany({
+        where: { orderId: { in: orderIds } },
+        select: { id: true, orderId: true, subtotal: true, discountTotal: true },
+        orderBy: { id: 'asc' },
+      }),
+      this.prisma.refund.findMany({
+        where: {
+          status: RefundStatus.COMPLETED,
+          payment: { orderId: { in: orderIds } },
+        },
+        select: {
+          amount: true,
+          payment: { select: { orderId: true } },
+          returnRequest: {
+            select: { orderItem: { select: { partnerOrderId: true } } },
+          },
+        },
+      }),
+    ]);
+
+    const byOrder = new Map<number, { id: number; gross: number }[]>();
+    for (const po of partnerOrders) {
+      const list = byOrder.get(po.orderId) ?? [];
+      list.push({
+        id: po.id,
+        gross: Number(po.subtotal) - Number(po.discountTotal),
+      });
+      byOrder.set(po.orderId, list);
+    }
+
+    const add = (partnerOrderId: number, amount: number) => {
+      result.set(partnerOrderId, round2((result.get(partnerOrderId) ?? 0) + amount));
+    };
+
+    for (const refund of refunds) {
+      const amount = Number(refund.amount);
+      const linkedPartnerOrderId = refund.returnRequest?.orderItem?.partnerOrderId;
+      if (linkedPartnerOrderId) {
+        add(linkedPartnerOrderId, amount);
+        continue;
+      }
+      const allocation = allocateByGross(
+        amount,
+        byOrder.get(refund.payment.orderId) ?? [],
+      );
+      for (const [partnerOrderId, share] of allocation) add(partnerOrderId, share);
+    }
+    return result;
   }
 }
 
@@ -312,6 +500,17 @@ export class PayoutsService {
         ) {
           throw new BadRequestException('Settlement must be CONFIRMED before creating a payout');
         }
+        const openAdjustments = await tx.settlementAdjustment.count({
+          where: {
+            settlementId: settlement.id,
+            status: SettlementAdjustmentStatus.OPEN,
+          },
+        });
+        if (openAdjustments > 0) {
+          throw new BadRequestException(
+            `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); resolve them before paying out`,
+          );
+        }
 
         const alreadyPaid = await tx.payout.aggregate({
           where: { settlementId: settlement.id, status: { in: [PayoutStatus.PENDING, PayoutStatus.PAID] } },
@@ -390,6 +589,19 @@ export class PayoutsService {
     if (!payout) throw new NotFoundException('Payout not found');
     if (payout.status !== PayoutStatus.PENDING) {
       throw new BadRequestException('Only PENDING payouts can be marked as paid');
+    }
+    // A payout created before a late refund must not be paid while that
+    // refund's recovery decision is still OPEN.
+    const openAdjustments = await this.prisma.settlementAdjustment.count({
+      where: {
+        settlementId: payout.settlementId,
+        status: SettlementAdjustmentStatus.OPEN,
+      },
+    });
+    if (openAdjustments > 0) {
+      throw new BadRequestException(
+        `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); resolve them before paying out`,
+      );
     }
     const updated = await this.prisma.payout.update({
       where: { id },

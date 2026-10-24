@@ -1,22 +1,18 @@
-import { existsSync } from 'node:fs';
-import { config as loadEnv } from 'dotenv';
-import { assertIsolatedTestDatabase } from './helpers/db-safety.js';
+import { loadTestEnvironment, useIsolatedTestDatabase } from './test-env.js';
 
 /**
- * Loads the local environment for the e2e suite so that `npm run test:e2e` picks
- * up TEST_DATABASE_URL from apps/api/.env without hardcoding credentials.
+ * E2E environment.
  *
- * Real environment variables always win over the file, and the suite stays
- * skipped when no TEST_DATABASE_URL is available.
+ * Order matters:
+ *   1. load `.env`/`.env.local`, force `NODE_ENV=test`, install the dedicated
+ *      test JWT secret (never the production/development one);
+ *   2. refuse a `TEST_DATABASE_URL` that aliases `DATABASE_URL`;
+ *   3. point the application at the isolated test schema.
+ *
+ * Step 2 runs before `DATABASE_URL` is overwritten (see
+ * `useIsolatedTestDatabase`), so the interlock cannot be bypassed by the setup
+ * itself. Without `TEST_DATABASE_URL`, all destructive E2E suites skip and
+ * `DATABASE_URL` is removed rather than left pointing at development.
  */
-for (const file of ['.env', '.env.local']) {
-  if (existsSync(file)) {
-    loadEnv({ path: file, override: false, quiet: true });
-  }
-}
-
-/**
- * Hard interlock before any destructive SQL: a "test" database that is in fact
- * the application database aborts the run (see `helpers/db-safety.ts`).
- */
-assertIsolatedTestDatabase(process.env);
+loadTestEnvironment();
+useIsolatedTestDatabase();

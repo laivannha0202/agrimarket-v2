@@ -125,6 +125,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — warehouse admin hardening (e2e)'
     });
     await prisma.warehouseDocument.deleteMany({ where: { id: { in: docIds } } });
     await prisma.traceEvent.deleteMany({ where: { productLotId: w.lot.id } });
+    await prisma.quarantineCase.deleteMany({ where: { productLotId: w.lot.id } });
     await prisma.inventoryMovement.deleteMany({
       where: {
         OR: [{ productLotId: w.lot.id }, { warehouseId: { in: extraWarehouseIds } }],
@@ -215,6 +216,144 @@ describe.skipIf(!hasTestDb)('AgriMarket API — warehouse admin hardening (e2e)'
         where: { referenceType: 'WarehouseDocument', referenceId: doc.body.id },
       });
       expect(moves).toBe(1);
+
+      await cleanupStockWorld(w);
+    });
+  });
+
+  describe('C2. RETURN document quarantines stock until QC release', () => {
+    it('receives into blocked, opens a WAREHOUSE_RETURN case, and releases only after PASS', async () => {
+      const w = await makeStockWorld('C2');
+      const doc = await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'RETURN',
+        note: 'Khách gửi trả',
+        lines: [{ productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 6, unit: 'kg' }],
+      }).expect(201);
+      await post(`/api/v1/warehouse-documents/${doc.body.id}/complete`, adminToken).expect(201);
+
+      const balance = await prisma.inventoryBalance.findFirstOrThrow({
+        where: {
+          warehouseId: fixtures.warehouseId,
+          productLotId: w.lot.id,
+          productVariantId: w.variant.id,
+        },
+      });
+      expect(Number(balance.onHand)).toBe(6);
+      expect(Number(balance.blocked)).toBe(6);
+      expect(Number(balance.reserved)).toBe(0);
+
+      const lot = await prisma.productLot.findUniqueOrThrow({ where: { id: w.lot.id } });
+      expect(Number(lot.remainingQuantity)).toBe(506);
+
+      const cases = await prisma.quarantineCase.findMany({
+        where: { sourceType: 'WAREHOUSE_RETURN', sourceId: doc.body.id },
+      });
+      expect(cases).toHaveLength(1);
+      expect(cases[0].status).toBe('PENDING');
+      expect(cases[0].stockAddedToBalance).toBe(true);
+      expect(Number(cases[0].quantity)).toBe(6);
+
+      const list = await get(
+        `/api/v1/quarantine-cases?warehouseId=${fixtures.warehouseId}&status=PENDING`,
+        adminToken,
+      ).expect(200);
+      expect(list.body.data.some((row: { code: string }) => row.code === cases[0].code)).toBe(true);
+
+      const traceTypes = (
+        await prisma.traceEvent.findMany({
+          where: { productLotId: w.lot.id },
+          select: { type: true },
+        })
+      ).map((event) => event.type);
+      expect(traceTypes).toContain('RETURNED');
+      expect(traceTypes).not.toContain('WAREHOUSE_IN');
+
+      await patch(`/api/v1/quarantine-cases/${cases[0].id}/inspect`, adminToken, {
+        result: 'PASS',
+      }).expect(200);
+
+      // PASS is only the QC verdict: the units stay blocked and on-hand is
+      // unchanged until the operator explicitly releases them.
+      const passedCase = await prisma.quarantineCase.findUniqueOrThrow({
+        where: { id: cases[0].id },
+      });
+      expect(passedCase.status).toBe('PASSED');
+      const stillBlocked = await prisma.inventoryBalance.findFirstOrThrow({
+        where: {
+          warehouseId: fixtures.warehouseId,
+          productLotId: w.lot.id,
+          productVariantId: w.variant.id,
+        },
+      });
+      expect(Number(stillBlocked.onHand)).toBe(6);
+      expect(Number(stillBlocked.blocked)).toBe(6);
+
+      await patch(`/api/v1/quarantine-cases/${cases[0].id}/resolve`, adminToken, {
+        action: 'RELEASE',
+      }).expect(200);
+
+      const released = await prisma.inventoryBalance.findFirstOrThrow({
+        where: {
+          warehouseId: fixtures.warehouseId,
+          productLotId: w.lot.id,
+          productVariantId: w.variant.id,
+        },
+      });
+      expect(Number(released.onHand)).toBe(6);
+      expect(Number(released.blocked)).toBe(0);
+
+      await cleanupStockWorld(w);
+    });
+
+    it('two concurrent RETURN completes apply the receipt and open one case exactly once', async () => {
+      const w = await makeStockWorld('C2R');
+      const doc = await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'RETURN',
+        note: 'Hai lần hoàn tất',
+        lines: [{ productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 4, unit: 'kg' }],
+      }).expect(201);
+
+      const [r1, r2] = await Promise.all([
+        post(`/api/v1/warehouse-documents/${doc.body.id}/complete`, adminToken),
+        post(`/api/v1/warehouse-documents/${doc.body.id}/complete`, adminToken),
+      ]);
+      expect([r1.status, r2.status].sort((a, b) => a - b)).toEqual([201, 400]);
+
+      const balance = await prisma.inventoryBalance.findFirstOrThrow({
+        where: {
+          warehouseId: fixtures.warehouseId,
+          productLotId: w.lot.id,
+          productVariantId: w.variant.id,
+        },
+      });
+      expect(Number(balance.onHand)).toBe(4);
+      expect(Number(balance.blocked)).toBe(4);
+
+      const lot = await prisma.productLot.findUniqueOrThrow({ where: { id: w.lot.id } });
+      expect(Number(lot.remainingQuantity)).toBe(504);
+
+      const cases = await prisma.quarantineCase.findMany({
+        where: { sourceType: 'WAREHOUSE_RETURN', sourceId: doc.body.id },
+      });
+      expect(cases).toHaveLength(1);
+      expect(Number(cases[0].quantity)).toBe(4);
+
+      expect(
+        await prisma.inventoryMovement.count({
+          where: {
+            referenceType: 'WarehouseDocument',
+            referenceId: doc.body.id,
+            type: 'RETURN',
+          },
+        }),
+      ).toBe(1);
+      expect(
+        await prisma.traceEvent.count({
+          where: { productLotId: w.lot.id, type: 'RETURNED' },
+        }),
+      ).toBe(1);
 
       await cleanupStockWorld(w);
     });

@@ -129,6 +129,12 @@ export async function seedFixtures(
       email: t('a@partner.vn'),
       address: 'Hưng Yên',
       status: 'ACTIVE',
+      // Deliberately populated so the P0-A tests can prove the public API never
+      // exposes them while the ADMIN view still does.
+      taxCode: `${runId}-TAX-A`,
+      bankAccountName: 'E2E Partner A',
+      bankAccountNumber: '9704000000000001',
+      bankName: 'VietinBank E2E',
     },
   });
   const partnerB = await prisma.partner.create({
@@ -432,6 +438,17 @@ export async function seedFixtures(
       quantity: 4,
       subtotal: 100000,
       discountAmount: 0,
+    },
+  });
+
+  // The delivered line still points at the lot it left from. Return receipts
+  // use this allocation to decide which balance/lot receives the goods back.
+  await prisma.inventoryAllocation.create({
+    data: {
+      orderItemId: orderItem.id,
+      inventoryBalanceId: balanceA.id,
+      productLotId: lotA.id,
+      quantity: 4,
     },
   });
 
@@ -756,6 +773,17 @@ async function purgeRun(prisma: PrismaClient, runId: string, userIds: number[]):
   await prisma.shipmentEvent.deleteMany({ where: { shipmentId: { in: shipmentIds } } });
   await prisma.shipment.deleteMany({ where: { id: { in: shipmentIds } } });
   await prisma.fulfillment.deleteMany({ where: { partnerOrderId: { in: partnerOrderIds } } });
+  // Quarantine cases reference orders/returns/warehouses; delete them before
+  // the parents so the run leaves no blocked stock records behind.
+  await prisma.quarantineCase.deleteMany({
+    where: {
+      OR: [
+        { orderId: { in: orderIds } },
+        { warehouseId: { in: [...warehouseIdSet] } },
+        { returnRequest: { orderId: { in: orderIds } } },
+      ],
+    },
+  });
   await prisma.returnRequest.deleteMany({ where: { orderId: { in: orderIds } } });
   await prisma.complaint.deleteMany({ where: { orderId: { in: orderIds } } });
   await prisma.review.deleteMany({
@@ -771,6 +799,18 @@ async function purgeRun(prisma: PrismaClient, runId: string, userIds: number[]):
   await prisma.inventoryAllocation.deleteMany({
     where: {
       OR: [{ orderItemId: { in: orderItemIds } }, { productLotId: { in: [...lotIdSet] } }],
+    },
+  });
+  // Reconciliation rows point at refunds, partner orders and settlements, so
+  // they have to go before any of those parents.
+  await prisma.settlementAdjustment.deleteMany({
+    where: {
+      OR: [
+        { partnerId: { in: [...partnerIdSet] } },
+        { partnerOrderId: { in: partnerOrderIds } },
+        { settlementId: { in: settlementIds } },
+        { refund: { paymentId: { in: paymentIds } } },
+      ],
     },
   });
   await prisma.settlementLine.deleteMany({

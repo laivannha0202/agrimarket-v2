@@ -260,6 +260,26 @@ export async function purgeCreated(
   await prisma.appIdempotencyKey.deleteMany({ where: { actorUserId: { in: users } } });
   await prisma.checkoutIdempotencyKey.deleteMany({ where: { customerId: { in: users } } });
   await prisma.voucherRedemption.deleteMany({ where: { customerId: { in: users } } });
+  // Reconciliation rows reference refunds/settlements; quarantine cases
+  // reference lots, orders and returns. Both must go before their parents.
+  await prisma.settlementAdjustment.deleteMany({
+    where: {
+      OR: [
+        { partnerId: { in: created.partners } },
+        { partnerOrder: { partnerId: { in: created.partners } } },
+        { refund: { payment: { order: { customerId: { in: users } } } } },
+      ],
+    },
+  });
+  await prisma.quarantineCase.deleteMany({
+    where: {
+      OR: [
+        { warehouseId: { in: created.warehouses } },
+        { productVariantId: { in: variants } },
+        { order: { customerId: { in: users } } },
+      ],
+    },
+  });
   // After-sales rows must go before the payments/order items/partner orders
   // they point at (FKs are RESTRICT): return requests reference both a refund
   // and an order item; refunds reference a payment.

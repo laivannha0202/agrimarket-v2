@@ -20,7 +20,10 @@ import { JwtStrategy } from './jwt.strategy.js';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService): JwtModuleOptions => ({
-        secret: config.get<string>('jwtSecret') ?? 'CHANGE_ME',
+        // `configuration.ts` already fails startup for a missing/weak secret.
+        // `getOrThrow` keeps this path fail-closed too, so a future refactor
+        // cannot reintroduce an implicit fallback here.
+        secret: config.getOrThrow<string>('jwtSecret'),
         signOptions: {
           expiresIn: (config.get<string>('jwtExpiresIn') ?? '7d') as unknown as number,
         },

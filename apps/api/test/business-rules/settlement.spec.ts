@@ -1,12 +1,26 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SettlementsService } from '../../src/finance/settlements.service.js';
+import {
+  PayoutsService,
+  SettlementsService,
+} from '../../src/finance/settlements.service.js';
 import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
-import { PartnerOrderStatus } from '../../generated/prisma/enums.js';
+import { PartnerOrderStatus, PayoutStatus } from '../../generated/prisma/enums.js';
 
 describe('Settlement formula', () => {
   let prisma: MockPrisma;
   let service: SettlementsService;
+
   const audit = { record: async () => undefined };
+
+  const partnerOrder = (overrides: Record<string, unknown>) => ({
+    partnerId: 1,
+    subtotal: 0,
+    discountTotal: 0,
+    commissionAmount: 0,
+    payableAmount: 0,
+    status: PartnerOrderStatus.DELIVERED,
+    ...overrides,
+  });
 
   beforeEach(() => {
     prisma = createMockPrisma();
@@ -15,30 +29,26 @@ describe('Settlement formula', () => {
 
   it('computes gross - refund - commission + adjustment = payable', async () => {
     prisma.partnerOrder.findMany.mockResolvedValue([
-      {
+      partnerOrder({
         id: 1,
-        partnerId: 1,
+        orderId: 10,
         subtotal: 100000,
-        discountTotal: 0,
         commissionAmount: 5000,
         payableAmount: 95000,
-        status: PartnerOrderStatus.DELIVERED,
-      },
-      {
+      }),
+      partnerOrder({
         id: 2,
-        partnerId: 1,
+        orderId: 10,
         subtotal: 200000,
         discountTotal: 20000,
         commissionAmount: 9000,
         payableAmount: 171000,
-        status: PartnerOrderStatus.DELIVERED,
-      },
+      }),
     ]);
     prisma.settlement.findMany.mockResolvedValue([]);
-    prisma.settlement.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-      id: 1,
-      ...data,
-    }));
+    prisma.settlement.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
+    );
 
     const settlement = await service.create(
       {
@@ -58,13 +68,79 @@ describe('Settlement formula', () => {
     expect(Number(settlement.payableAmount)).toBe(267000);
   });
 
-  it('only selects DELIVERED partner orders that no settlement already claimed', async () => {
+  it('deducts COMPLETED refunds proportionally by gross with an exact remainder', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      partnerOrder({ id: 1, orderId: 10, subtotal: 100000, commissionAmount: 5000 }),
+      partnerOrder({ id: 2, orderId: 10, subtotal: 200000, discountTotal: 20000, commissionAmount: 9000 }),
+    ]);
+    prisma.refund.findMany.mockResolvedValue([
+      {
+        amount: 7000,
+        payment: { orderId: 10 },
+        returnRequest: null,
+      },
+    ]);
+    prisma.settlement.findMany.mockResolvedValue([]);
+    prisma.settlement.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
+    );
+
+    const settlement = await service.create(
+      {
+        partnerId: 1,
+        periodStart: '2026-04-01T00:00:00.000Z',
+        periodEnd: '2026-04-30T23:59:59.000Z',
+      },
+      99,
+    );
+
+    // 7000 split 100000:180000 => 2500 / 4500 exactly (no lost cent).
+    expect(Number(settlement.refundAmount)).toBe(7000);
+    const lines = (settlement as unknown as { lines: { create: { partnerOrderId: number; refundAmount: number }[] } })
+      .lines.create;
+    expect(Number(lines.find((l) => l.partnerOrderId === 1)?.refundAmount)).toBe(2500);
+    expect(Number(lines.find((l) => l.partnerOrderId === 2)?.refundAmount)).toBe(4500);
+    expect(Number(settlement.payableAmount)).toBe(280000 - 7000 - 14000);
+  });
+
+  it('attributes a refund linked to a return directly to that partner order', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      partnerOrder({ id: 1, orderId: 10, subtotal: 100000, commissionAmount: 5000 }),
+      partnerOrder({ id: 2, orderId: 10, subtotal: 200000, discountTotal: 20000, commissionAmount: 9000 }),
+    ]);
+    prisma.refund.findMany.mockResolvedValue([
+      {
+        amount: 6000,
+        payment: { orderId: 10 },
+        returnRequest: { orderItem: { partnerOrderId: 2 } },
+      },
+    ]);
+    prisma.settlement.findMany.mockResolvedValue([]);
+    prisma.settlement.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
+    );
+
+    const settlement = await service.create(
+      {
+        partnerId: 1,
+        periodStart: '2026-04-01T00:00:00.000Z',
+        periodEnd: '2026-04-30T23:59:59.000Z',
+      },
+      99,
+    );
+
+    const lines = (settlement as unknown as { lines: { create: { partnerOrderId: number; refundAmount: number }[] } })
+      .lines.create;
+    expect(Number(lines.find((l) => l.partnerOrderId === 1)?.refundAmount)).toBe(0);
+    expect(Number(lines.find((l) => l.partnerOrderId === 2)?.refundAmount)).toBe(6000);
+  });
+
+  it('only selects DELIVERED partner orders that no settlement claimed and whose order has collected money', async () => {
     prisma.partnerOrder.findMany.mockResolvedValue([]);
     prisma.settlement.findMany.mockResolvedValue([]);
-    prisma.settlement.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
-      id: 1,
-      ...data,
-    }));
+    prisma.settlement.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
+    );
 
     await service.create(
       {
@@ -76,14 +152,27 @@ describe('Settlement formula', () => {
     );
 
     // Money on an order still in transit is not payable: READY_TO_SHIP and
-    // SHIPPING are excluded. An order already claimed by any settlement
-    // (DRAFT included) can never be claimed again.
+    // SHIPPING are excluded. A DELIVERED parcel whose COD was never confirmed
+    // (no PAID payment with paidAt) is not collected revenue either. An order
+    // already claimed by any settlement (DRAFT included) can never be claimed
+    // again.
     expect(prisma.partnerOrder.findMany).toHaveBeenCalledWith({
       where: {
         partnerId: 1,
         status: PartnerOrderStatus.DELIVERED,
-        createdAt: { gte: new Date('2026-04-01T00:00:00.000Z'), lte: new Date('2026-04-30T23:59:59.000Z') },
+        createdAt: {
+          gte: new Date('2026-04-01T00:00:00.000Z'),
+          lte: new Date('2026-04-30T23:59:59.000Z'),
+        },
         settlementLines: { none: {} },
+        order: {
+          payments: {
+            some: {
+              status: { in: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'] },
+              paidAt: { not: null },
+            },
+          },
+        },
       },
     });
   });
@@ -130,18 +219,9 @@ describe('Settlement formula', () => {
 
   it('maps a concurrent double-claim (P2002 on partner_order_id) to a 409, not a raw error', async () => {
     prisma.partnerOrder.findMany.mockResolvedValue([
-      {
-        id: 7,
-        partnerId: 1,
-        subtotal: 100000,
-        discountTotal: 0,
-        commissionAmount: 0,
-        payableAmount: 100000,
-        status: PartnerOrderStatus.DELIVERED,
-      },
+      partnerOrder({ id: 7, subTotal: 100000, subtotal: 100000, payableAmount: 100000 }),
     ]);
     prisma.settlement.findMany.mockResolvedValue([]);
-    // The shape @prisma/adapter-mariadb produces for the new unique index.
     prisma.settlement.create.mockRejectedValue(
       Object.assign(new Error('Unique constraint failed'), {
         code: 'P2002',
@@ -159,5 +239,39 @@ describe('Settlement formula', () => {
         99,
       ),
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('blocks confirming a settlement while an adjustment is OPEN', async () => {
+    prisma.settlement.findUnique.mockResolvedValue({
+      id: 4,
+      status: 'DRAFT',
+    });
+    prisma.settlementAdjustment.count.mockResolvedValue(1);
+
+    await expect(service.confirm(4, 99)).rejects.toThrow(/OPEN reconciliation adjustment/);
+    expect(prisma.settlement.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('Payout reconciliation guards', () => {
+  let prisma: MockPrisma;
+  let service: PayoutsService;
+  const audit = { record: async () => undefined };
+
+  beforeEach(() => {
+    prisma = createMockPrisma();
+    service = new PayoutsService(prisma as never, audit as never);
+  });
+
+  it('blocks marking a payout paid while its settlement has an OPEN adjustment', async () => {
+    prisma.payout.findUnique.mockResolvedValue({
+      id: 1,
+      settlementId: 4,
+      status: PayoutStatus.PENDING,
+    });
+    prisma.settlementAdjustment.count.mockResolvedValue(1);
+
+    await expect(service.markPaid(1, 99)).rejects.toThrow(/OPEN reconciliation adjustment/);
+    expect(prisma.payout.update).not.toHaveBeenCalled();
   });
 });
