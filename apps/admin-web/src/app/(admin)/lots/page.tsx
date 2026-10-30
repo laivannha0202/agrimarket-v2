@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, Form, Input, Select } from "antd";
 import { PlusOutlined, QrcodeOutlined } from "@ant-design/icons";
@@ -20,13 +21,23 @@ import { toNumeric } from "@/lib/format/form";
 import { LOT_STATUS, lotStatus, statusOptions } from "@/lib/status";
 import type { ProductLot } from "@/types/api";
 
-export default function LotsPage() {
+function LotsContent() {
   const list = useListState();
-  const [open, setOpen] = useState(false);
+  // Deep-link from a harvest row (`/lots?harvestId=12`): the create dialog opens
+  // with that harvest already selected, so "Tạo lô" starts from the real source.
+  const searchParams = useSearchParams();
+  const preselectedHarvest = searchParams.get("harvestId");
+  const [open, setOpen] = useState(Boolean(preselectedHarvest));
   const [qrLot, setQrLot] = useState<ProductLot | null>(null);
   const [form] = Form.useForm();
   const products = useProductOptions();
   const harvests = useHarvestOptions();
+
+  useEffect(() => {
+    if (preselectedHarvest) {
+      form.setFieldsValue({ harvestId: Number(preselectedHarvest) });
+    }
+  }, [preselectedHarvest, form]);
 
   const { data, isLoading, isError, refetch } = useListQuery<ProductLot>(
     queryKeys.lots(list.params),
@@ -207,5 +218,14 @@ export default function LotsPage() {
 
       <LotQrModal open={!!qrLot} lot={qrLot} onClose={() => setQrLot(null)} />
     </>
+  );
+}
+
+export default function LotsPage() {
+  // `useSearchParams` needs a Suspense boundary in the Next.js app router.
+  return (
+    <Suspense>
+      <LotsContent />
+    </Suspense>
   );
 }

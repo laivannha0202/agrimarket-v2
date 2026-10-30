@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { toDateTimeLocal } from "@/lib/format";
 import { num, toNumeric } from "@/lib/format/form";
 
 /**
@@ -26,5 +27,17 @@ describe("num / toNumeric", () => {
       latitude: 20.9821,
       name: "X",
     });
+  });
+});
+
+describe("toDateTimeLocal", () => {
+  it("keeps the author's wall clock instead of shifting it to UTC", () => {
+    expect(toDateTimeLocal(new Date(2026, 9, 24, 7, 5))).toBe("2026-10-24T07:05");
+    expect(toDateTimeLocal(new Date(2026, 0, 1, 0, 0))).toBe("2026-01-01T00:00");
+  });
+
+  it("returns an empty string for missing or invalid input", () => {
+    expect(toDateTimeLocal(null)).toBe("");
+    expect(toDateTimeLocal("not-a-date")).toBe("");
   });
 });

@@ -16,8 +16,11 @@ import { allocateByGross } from '../common/utils/refund-allocation.js';
 import {
   CreatePayoutDto,
   CreateSettlementDto,
+  DecideSettlementRecoveryDto,
+  RecordSettlementRecoveryDto,
   ReviewSettlementAdjustmentDto,
   SettlementAdjustmentQueryDto,
+  SettlementRecoveryQueryDto,
 } from './dto/finance.dto.js';
 import type { Payout, Prisma } from '../../generated/prisma/client.js';
 import {
@@ -27,8 +30,14 @@ import {
   RefundStatus,
   SettlementAdjustmentResolution,
   SettlementAdjustmentStatus,
+  SettlementRecoveryStatus,
   SettlementStatus,
 } from '../../generated/prisma/enums.js';
+
+const UNRESOLVED_RECOVERY_STATUSES = [
+  SettlementRecoveryStatus.PENDING_APPROVAL,
+  SettlementRecoveryStatus.APPROVED,
+] as const;
 
 const CODE_ATTEMPTS = 3;
 
@@ -248,6 +257,20 @@ export class SettlementsService {
         `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); review them before confirming`,
       );
     }
+    // A DEDUCT_NEXT review creates an approval-waiting recovery. Even though the
+    // adjustment is REVIEWED, confirming/paying before the recovery decision is
+    // made would let the partner keep money the customer already got back.
+    const unresolvedRecoveries = await this.prisma.settlementRecovery.count({
+      where: {
+        adjustment: { settlementId: id },
+        status: { in: [...UNRESOLVED_RECOVERY_STATUSES] },
+      },
+    });
+    if (unresolvedRecoveries > 0) {
+      throw new ConflictException(
+        `Settlement has ${unresolvedRecoveries} unresolved recovery request(s); approve or reject them before confirming`,
+      );
+    }
     const updated = await this.prisma.settlement.update({
       where: { id },
       data: { status: SettlementStatus.CONFIRMED, confirmedAt: new Date() },
@@ -291,8 +314,11 @@ export class SettlementsService {
   /**
    * Record the human decision for an OPEN adjustment. The reviewer, note and
    * timestamp live on the row; the original settlement is never rewritten.
-   * DEDUCT_NEXT/WRITE_OFF/MANUAL are policy choices, not money movements, so
-   * this method only closes the reconciliation item.
+   *
+   * DEDUCT_NEXT additionally opens a SettlementRecovery in PENDING_APPROVAL.
+   * That is intentionally NOT a debit: a second human must approve the recovery,
+   * and a payout is blocked for the partner until it is recorded or rejected.
+   * WRITE_OFF/MANUAL need no recovery row.
    */
   async reviewAdjustment(
     id: number,
@@ -307,22 +333,63 @@ export class SettlementsService {
     if (adjustment.status === SettlementAdjustmentStatus.REVIEWED) {
       return adjustment;
     }
-    const claimed = await this.prisma.settlementAdjustment.updateMany({
-      where: { id, status: SettlementAdjustmentStatus.OPEN },
-      data: {
-        status: SettlementAdjustmentStatus.REVIEWED,
-        resolution: dto.resolution as SettlementAdjustmentResolution,
-        resolutionNote: dto.note.trim(),
-        reviewedByUserId: actorUserId,
-        reviewedAt: new Date(),
-      },
+
+    const reviewed = await this.prisma.$transaction(async (tx) => {
+      // Serialise the decision with payout creation for this partner: a payout
+      // must either see the unresolved recovery or commit before it exists.
+      await tx.$queryRaw`SELECT id FROM partners WHERE id = ${adjustment.partnerId} FOR UPDATE`;
+      const claimed = await tx.settlementAdjustment.updateMany({
+        where: { id, status: SettlementAdjustmentStatus.OPEN },
+        data: {
+          status: SettlementAdjustmentStatus.REVIEWED,
+          resolution: dto.resolution as SettlementAdjustmentResolution,
+          resolutionNote: dto.note.trim(),
+          reviewedByUserId: actorUserId,
+          reviewedAt: new Date(),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The adjustment changed while this request was being processed, please reload',
+        );
+      }
+      const updated = await tx.settlementAdjustment.findUniqueOrThrow({ where: { id } });
+
+      if (
+        dto.resolution === SettlementAdjustmentResolution.DEDUCT_NEXT &&
+        Number(updated.amount) > 0
+      ) {
+        const recovery = await tx.settlementRecovery.upsert({
+          where: { adjustmentId: updated.id },
+          create: {
+            partnerId: updated.partnerId,
+            adjustmentId: updated.id,
+            amount: updated.amount,
+            status: SettlementRecoveryStatus.PENDING_APPROVAL,
+            reason: updated.reason,
+            requestedByUserId: actorUserId,
+          },
+          update: {},
+        });
+        await this.audit.record(
+          {
+            actorUserId,
+            action: 'SETTLEMENT_RECOVERY_REQUEST',
+            entityType: 'SettlementRecovery',
+            entityId: String(recovery.id),
+            afterJson: {
+              status: recovery.status,
+              amount: recovery.amount,
+              adjustmentId: recovery.adjustmentId,
+              partnerId: recovery.partnerId,
+            },
+          },
+          tx,
+        );
+      }
+      return updated;
     });
-    if (claimed.count === 0) {
-      throw new ConflictException(
-        'The adjustment changed while this request was being processed, please reload',
-      );
-    }
-    const updated = await this.prisma.settlementAdjustment.findUniqueOrThrow({ where: { id } });
+
     await this.audit.record({
       actorUserId,
       action: 'SETTLEMENT_ADJUSTMENT_REVIEW',
@@ -330,12 +397,173 @@ export class SettlementsService {
       entityId: String(id),
       beforeJson: { status: adjustment.status },
       afterJson: {
-        status: updated.status,
-        resolution: updated.resolution,
-        resolutionNote: updated.resolutionNote,
+        status: reviewed.status,
+        resolution: reviewed.resolution,
+        resolutionNote: reviewed.resolutionNote,
       },
     });
-    return updated;
+    return reviewed;
+  }
+
+  /** List recovery requests, newest first, with their source adjustment. */
+  async findRecoveries(query: SettlementRecoveryQueryDto) {
+    const { skip, take, page, limit } = buildPagination(query.page, query.limit);
+    const where: Prisma.SettlementRecoveryWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.partnerId ? { partnerId: query.partnerId } : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.settlementRecovery.findMany({
+        where,
+        skip,
+        take,
+        orderBy: { id: 'desc' },
+        include: {
+          partner: { select: { id: true, code: true, name: true } },
+          adjustment: {
+            include: {
+              settlement: { select: { id: true, code: true, status: true } },
+              partnerOrder: { select: { id: true, code: true } },
+              refund: { select: { id: true, amount: true, status: true, completedAt: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.settlementRecovery.count({ where }),
+    ]);
+    return paginate(data, total, page, limit);
+  }
+
+  /**
+   * Second human approval. Still moves no money; APPROVED keeps the payout
+   * block in place until the recovery is recorded or rejected.
+   */
+  async approveRecovery(id: number, dto: DecideSettlementRecoveryDto, actorUserId: number) {
+    const note = dto.note?.trim();
+    if (!note) throw new BadRequestException('A decision note is required');
+    return this.decideRecovery(id, 'approve', note, actorUserId);
+  }
+
+  /** Reject an approval-waiting recovery. Rejection also closes the payout block. */
+  async rejectRecovery(id: number, dto: DecideSettlementRecoveryDto, actorUserId: number) {
+    const note = dto.note?.trim();
+    if (!note) throw new BadRequestException('A decision note is required');
+    return this.decideRecovery(id, 'reject', note, actorUserId);
+  }
+
+  private async decideRecovery(
+    id: number,
+    decision: 'approve' | 'reject',
+    note: string,
+    actorUserId: number,
+  ) {
+    const recovery = await this.prisma.settlementRecovery.findUnique({ where: { id } });
+    if (!recovery) throw new NotFoundException('Settlement recovery not found');
+    const target =
+      decision === 'approve'
+        ? SettlementRecoveryStatus.APPROVED
+        : SettlementRecoveryStatus.REJECTED;
+    if (recovery.status === target) return recovery;
+    if (recovery.status !== SettlementRecoveryStatus.PENDING_APPROVAL) {
+      throw new ConflictException(
+        `Recovery is ${recovery.status}; only PENDING_APPROVAL can be ${decision === 'approve' ? 'approved' : 'rejected'}`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM partners WHERE id = ${recovery.partnerId} FOR UPDATE`;
+      const claimed = await tx.settlementRecovery.updateMany({
+        where: { id, status: SettlementRecoveryStatus.PENDING_APPROVAL },
+        data:
+          decision === 'approve'
+            ? {
+                status: SettlementRecoveryStatus.APPROVED,
+                decisionNote: note,
+                approvedByUserId: actorUserId,
+                approvedAt: new Date(),
+              }
+            : {
+                status: SettlementRecoveryStatus.REJECTED,
+                decisionNote: note,
+                rejectedByUserId: actorUserId,
+                rejectedAt: new Date(),
+              },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The recovery changed while this request was being processed, please reload',
+        );
+      }
+      const updated = await tx.settlementRecovery.findUniqueOrThrow({ where: { id } });
+      await this.audit.record(
+        {
+          actorUserId,
+          action:
+            decision === 'approve'
+              ? 'SETTLEMENT_RECOVERY_APPROVE'
+              : 'SETTLEMENT_RECOVERY_REJECT',
+          entityType: 'SettlementRecovery',
+          entityId: String(id),
+          beforeJson: { status: recovery.status },
+          afterJson: { status: updated.status, decisionNote: updated.decisionNote },
+        },
+        tx,
+      );
+      return updated;
+    });
+  }
+
+  /**
+   * Close an APPROVED recovery with proof (bank reference or the settlement it
+   * was offset against). Payouts unblock only after this explicit record.
+   */
+  async recordRecovery(id: number, dto: RecordSettlementRecoveryDto, actorUserId: number) {
+    const reference = dto.reference?.trim();
+    if (!reference) throw new BadRequestException('A recovery reference is required');
+    const recovery = await this.prisma.settlementRecovery.findUnique({ where: { id } });
+    if (!recovery) throw new NotFoundException('Settlement recovery not found');
+    if (recovery.status === SettlementRecoveryStatus.RECORDED) return recovery;
+    if (recovery.status !== SettlementRecoveryStatus.APPROVED) {
+      throw new ConflictException(
+        'Only an APPROVED recovery can be recorded as recovered',
+      );
+    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM partners WHERE id = ${recovery.partnerId} FOR UPDATE`;
+      const claimed = await tx.settlementRecovery.updateMany({
+        where: { id, status: SettlementRecoveryStatus.APPROVED },
+        data: {
+          status: SettlementRecoveryStatus.RECORDED,
+          recoveryReference: reference,
+          decisionNote: dto.note?.trim()
+            ? [recovery.decisionNote, dto.note.trim()].filter(Boolean).join('\n')
+            : recovery.decisionNote,
+          recordedByUserId: actorUserId,
+          recordedAt: new Date(),
+        },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The recovery changed while this request was being processed, please reload',
+        );
+      }
+      const updated = await tx.settlementRecovery.findUniqueOrThrow({ where: { id } });
+      await this.audit.record(
+        {
+          actorUserId,
+          action: 'SETTLEMENT_RECOVERY_RECORD',
+          entityType: 'SettlementRecovery',
+          entityId: String(id),
+          beforeJson: { status: recovery.status },
+          afterJson: {
+            status: updated.status,
+            recoveryReference: updated.recoveryReference,
+          },
+        },
+        tx,
+      );
+      return updated;
+    });
   }
 
   /**
@@ -511,6 +739,22 @@ export class PayoutsService {
             `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); resolve them before paying out`,
           );
         }
+        // Serialise against review/decision writes for this partner, then check
+        // the partner-level recovery obligations. A late refund can belong to
+        // an older settlement; paying any settlement of that partner would let
+        // the approved recovery be bypassed.
+        await tx.$queryRaw`SELECT id FROM partners WHERE id = ${settlement.partnerId} FOR UPDATE`;
+        const unresolvedRecoveries = await tx.settlementRecovery.count({
+          where: {
+            partnerId: settlement.partnerId,
+            status: { in: [...UNRESOLVED_RECOVERY_STATUSES] },
+          },
+        });
+        if (unresolvedRecoveries > 0) {
+          throw new BadRequestException(
+            `Partner has ${unresolvedRecoveries} unresolved recovery request(s); approve and record or reject them before paying out`,
+          );
+        }
 
         const alreadyPaid = await tx.payout.aggregate({
           where: { settlementId: settlement.id, status: { in: [PayoutStatus.PENDING, PayoutStatus.PAID] } },
@@ -585,55 +829,94 @@ export class PayoutsService {
   }
 
   async markPaid(id: number, actorUserId: number) {
-    const payout = await this.prisma.payout.findUnique({ where: { id } });
-    if (!payout) throw new NotFoundException('Payout not found');
-    if (payout.status !== PayoutStatus.PENDING) {
+    const existing = await this.prisma.payout.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Payout not found');
+    if (existing.status !== PayoutStatus.PENDING) {
       throw new BadRequestException('Only PENDING payouts can be marked as paid');
     }
-    // A payout created before a late refund must not be paid while that
-    // refund's recovery decision is still OPEN.
-    const openAdjustments = await this.prisma.settlementAdjustment.count({
-      where: {
-        settlementId: payout.settlementId,
-        status: SettlementAdjustmentStatus.OPEN,
-      },
-    });
-    if (openAdjustments > 0) {
-      throw new BadRequestException(
-        `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); resolve them before paying out`,
-      );
-    }
-    const updated = await this.prisma.payout.update({
-      where: { id },
-      data: { status: PayoutStatus.PAID, paidAt: new Date() },
-    });
 
-    // If the settlement is fully paid out, mark it PAID.
-    const settlement = await this.prisma.settlement.findUnique({
-      where: { id: payout.settlementId },
-      include: { payouts: true },
-    });
-    if (settlement) {
-      const paidTotal = settlement.payouts
-        .filter((p) => p.status === PayoutStatus.PAID)
-        .reduce((sum, p) => sum + Number(p.amount), 0);
-      if (paidTotal >= Number(settlement.payableAmount)) {
-        await this.prisma.settlement.update({
-          where: { id: settlement.id },
-          data: { status: SettlementStatus.PAID },
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Same lock order as create(): settlement, then partner. Re-read the
+        // payout after the locks so a concurrent payment attempt cannot use a
+        // stale PENDING row.
+        const locked = await tx.$queryRaw<
+          { id: number; partner_id: number; status: SettlementStatus }[]
+        >`
+          SELECT id, partner_id, status FROM settlements
+           WHERE id = ${existing.settlementId} FOR UPDATE
+        `;
+        if (locked.length === 0) throw new NotFoundException('Settlement not found');
+        const partnerId = locked[0].partner_id;
+        await tx.$queryRaw`SELECT id FROM partners WHERE id = ${partnerId} FOR UPDATE`;
+
+        const payout = await tx.payout.findUnique({ where: { id } });
+        if (!payout) throw new NotFoundException('Payout not found');
+        if (payout.status !== PayoutStatus.PENDING) {
+          throw new BadRequestException('Only PENDING payouts can be marked as paid');
+        }
+        // A payout created before a late refund must not be paid while that
+        // refund's recovery decision is still OPEN or waiting for approval.
+        const openAdjustments = await tx.settlementAdjustment.count({
+          where: {
+            settlementId: payout.settlementId,
+            status: SettlementAdjustmentStatus.OPEN,
+          },
         });
-      }
-    }
+        if (openAdjustments > 0) {
+          throw new BadRequestException(
+            `Settlement has ${openAdjustments} OPEN reconciliation adjustment(s); resolve them before paying out`,
+          );
+        }
+        const unresolvedRecoveries = await tx.settlementRecovery.count({
+          where: {
+            partnerId,
+            status: { in: [...UNRESOLVED_RECOVERY_STATUSES] },
+          },
+        });
+        if (unresolvedRecoveries > 0) {
+          throw new BadRequestException(
+            `Partner has ${unresolvedRecoveries} unresolved recovery request(s); approve and record or reject them before paying out`,
+          );
+        }
 
-    await this.audit.record({
-      actorUserId,
-      action: 'PAYOUT_PAID',
-      entityType: 'Payout',
-      entityId: String(id),
-      beforeJson: { status: payout.status },
-      afterJson: { status: updated.status },
-    });
-    return updated;
+        const updated = await tx.payout.update({
+          where: { id },
+          data: { status: PayoutStatus.PAID, paidAt: new Date() },
+        });
+
+        // If the settlement is fully paid out, mark it PAID.
+        const settlement = await tx.settlement.findUnique({
+          where: { id: payout.settlementId },
+          include: { payouts: true },
+        });
+        if (settlement) {
+          const paidTotal = settlement.payouts
+            .filter((p) => p.status === PayoutStatus.PAID)
+            .reduce((sum, p) => sum + Number(p.amount), 0);
+          if (paidTotal >= Number(settlement.payableAmount)) {
+            await tx.settlement.update({
+              where: { id: settlement.id },
+              data: { status: SettlementStatus.PAID },
+            });
+          }
+        }
+
+        await this.audit.record(
+          {
+            actorUserId,
+            action: 'PAYOUT_PAID',
+            entityType: 'Payout',
+            entityId: String(id),
+            beforeJson: { status: payout.status },
+            afterJson: { status: updated.status },
+          },
+          tx,
+        );
+        return updated;
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   async findAll(query: { page?: number; limit?: number; status?: PayoutStatus }) {

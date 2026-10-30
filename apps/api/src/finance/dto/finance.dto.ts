@@ -6,6 +6,7 @@ import {
   RecordStatus,
   SettlementAdjustmentResolution,
   SettlementAdjustmentStatus,
+  SettlementRecoveryStatus,
   SettlementStatus,
 } from '../../../generated/prisma/enums.js';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
@@ -122,6 +123,43 @@ export class ReviewSettlementAdjustmentDto {
   @ApiProperty({ example: 'Trừ vào kỳ đối soát kế tiếp theo xác nhận của kế toán' })
   @IsString()
   note!: string;
+}
+
+/** Query DTO for `GET /settlement-recoveries` (ADMIN). */
+export class SettlementRecoveryQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: SettlementRecoveryStatus })
+  @IsOptional()
+  @IsEnum(SettlementRecoveryStatus)
+  declare status?: SettlementRecoveryStatus;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  partnerId?: number;
+}
+
+/** Approve or reject a pending recovery. The note is the written basis. */
+export class DecideSettlementRecoveryDto {
+  @ApiProperty({ example: 'Kế toán trưởng xác nhận trừ vào kỳ kế tiếp' })
+  @IsString()
+  note!: string;
+}
+
+/**
+ * Record that an approved recovery was actually collected/offset. A reference
+ * to the bank transfer or offsetting settlement is mandatory so the closure is
+ * evidence, not a claim.
+ */
+export class RecordSettlementRecoveryDto {
+  @ApiProperty({ example: 'FT2610240001 / SET-20261024-0002' })
+  @IsString()
+  reference!: string;
+
+  @ApiPropertyOptional({ example: 'Đã trừ vào kỳ đối soát tháng 11' })
+  @IsOptional()
+  @IsString()
+  note?: string;
 }
 
 /** Query DTO for `GET /payouts` — strict enum, unknown status → 400. */

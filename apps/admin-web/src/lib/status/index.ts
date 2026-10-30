@@ -82,6 +82,15 @@ export const LOT_STATUS: Map = {
 
 export const lotStatus = (v?: string | null) => resolve(LOT_STATUS, v);
 
+/** Completeness of one lot's public trace chain (Admin audit). */
+export const TRACE_CHECK_STATUS: Map = {
+  OK: { label: "Đạt", color: "success" },
+  WARNING: { label: "Cảnh báo", color: "warning" },
+  MISSING: { label: "Thiếu", color: "error" },
+};
+
+export const traceCheckStatus = (v?: string | null) => resolve(TRACE_CHECK_STATUS, v);
+
 // QC ------------------------------------------------------------------------
 
 export const QC_RESULT: Map = {
@@ -313,6 +322,16 @@ export const SETTLEMENT_ADJUSTMENT_RESOLUTION: Map = {
 
 export const settlementAdjustmentResolution = (v?: string | null) =>
   resolve(SETTLEMENT_ADJUSTMENT_RESOLUTION, v);
+
+export const SETTLEMENT_RECOVERY_STATUS: Map = {
+  PENDING_APPROVAL: { label: "Chờ phê duyệt", color: "warning" },
+  APPROVED: { label: "Đã duyệt - chờ thu hồi", color: "processing" },
+  RECORDED: { label: "Đã thu hồi", color: "success" },
+  REJECTED: { label: "Từ chối", color: "error" },
+};
+
+export const settlementRecoveryStatus = (v?: string | null) =>
+  resolve(SETTLEMENT_RECOVERY_STATUS, v);
 
 export const PAYOUT_STATUS: Map = {
   PENDING: { label: "Chờ chi trả", color: "warning" },

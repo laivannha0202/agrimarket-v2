@@ -2,7 +2,9 @@
 
 Status: scripts and procedure added. **No restore drill has been claimed unless a
 dated result is recorded in the Drill Log below.** A dump that has never been
-restored is an unverified backup.
+restored is an unverified backup. The most recent recorded drill is
+**2026-10-24 — PASS** (isolated schema, checksum and row/table verification);
+see the Drill Log for scope and limitations.
 
 ## 1. Scope and objectives
 
@@ -129,7 +131,9 @@ DROP DATABASE agrimarket_v2_restore;
 
 `restore-db.mjs` is not a production cutover tool. Bypassing its test-name guard
 requires `ALLOW_NON_TEST_RESTORE=YES` and an owner-approved change; even then,
-the production restore is a separate, reviewed operation.
+the production restore is a separate, reviewed operation. See
+`docs/DEPLOYMENT-ROLLBACK-RUNBOOK.md` for the full deployment and rollback
+procedure.
 
 ## 6. Limitations and open decisions
 
@@ -149,10 +153,24 @@ the production restore is a separate, reviewed operation.
 
 | Date | Dump | Target schema | Checksum | Row counts | App smoke | Result | Operator |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-24 | `agrimarket_v2_c19_20261024t114145ztety_test-20261024T114405Z.sql.gz` (22,544 bytes) | `agrimarket_v2_c19_20261024t114145ztety_test_drill_mvmbzdwub39` (isolated, dropped after verification) | SHA-256 sidecar verified (`21f0b26b…5678e49`) | **56 tables / 464 rows matched**, all `CHECKSUM TABLE` values matched; core: users 6, orders 6, order_items 9, payments 6, refunds 0, inventory_movements 18, quarantine_cases 0, return_requests 1, shipments 6, `_prisma_migrations` 14 | Prisma read-only smoke: users 6, orders 6, payments 6, productLots 19, settlementRecoveries 0; latest order `ORD-20261022-0006` (PENDING_CONFIRMATION, 140,000); paid total 628,000; trace `LOT-20261006-0001` / `TRC-000001-CACHU` with 3 events | **PASS (drill only)** | Automated verification (`npm run verify:local`, run `20261024t114145ztety`) |
 | 2026-10-23 | `agrimarket_v2_test-20261023T065534Z.sql.gz` (23,275 bytes) | `agrimarket_v2_restore` (isolated) | SHA-256 sidecar verified (`e0d5b066…146f77`) | 10 table counts and 9 table checksums matched source (users 6, orders 6, order_items 9, payments 6, refunds 0, inventory_movements 18, quarantine_cases 0, return_requests 1, shipments 6, migrations 12) | Prisma read-only smoke: counts, paid total 628,000 and latest order/payments read successfully | **PASS (drill only)** | Automated verification |
 
-The drill above restored into a disposable schema and was dropped afterwards. It
-proves that the dump can be read by MySQL and queried by the application's
-Prisma client. It does **not** verify a production cutover, scheduled backup
-execution, offsite copy, encryption or alerting; those remain deployment
-responsibilities and are **NOT VERIFIED**.
+Both drills restored into disposable schemas and were dropped afterwards. They
+prove that the dump can be read by MySQL and queried by the application's Prisma
+client. They do **not** verify a production cutover, scheduled backup execution,
+offsite copy, encryption or alerting; those remain deployment responsibilities
+and are **NOT VERIFIED**.
+
+### 7.1 Automated drill used for C-19
+
+`npm run verify:backup` (or the `backup` step of `npm run verify:local`) runs
+`scripts/backup-restore-drill.mjs` against an isolated, seeded schema. It dumps
+the schema, verifies the SHA-256 sidecar, restores into a fresh
+`*_drill_<token>` schema, compares **all table row counts and `CHECKSUM TABLE`
+values**, replays the migration ledger, runs a Prisma read-only smoke, and drops
+the drill schema. It refuses to run against a non-test schema.
+
+Evidence: `.tmp-verify/c19/local-20261024t114145ztety/backup-restore.json` and
+the adjacent `backup-restore/` dump, sidecar and logs. The drill schema was
+dropped; no application, staging or production schema was written.

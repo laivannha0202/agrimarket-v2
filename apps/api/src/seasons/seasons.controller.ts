@@ -13,6 +13,8 @@ import { SeasonsService } from './seasons.service.js';
 import { CreateSeasonDto, SeasonQueryDto, UpdateSeasonDto } from './dto/season.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 
 @ApiTags('seasons')
 @Controller('seasons')
@@ -37,15 +39,19 @@ export class SeasonsController {
   @ApiBearerAuth()
   @Post()
   @ApiOperation({ summary: 'Create a season (ADMIN)' })
-  create(@Body() dto: CreateSeasonDto) {
-    return this.seasonsService.create(dto);
+  create(@Body() dto: CreateSeasonDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.seasonsService.create(dto, user.id);
   }
 
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Patch(':id')
   @ApiOperation({ summary: 'Update a season (ADMIN)' })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSeasonDto) {
-    return this.seasonsService.update(id, dto);
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateSeasonDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.seasonsService.update(id, dto, user.id);
   }
 }

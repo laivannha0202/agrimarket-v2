@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => "/lots",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("next/link", () => ({

@@ -32,6 +32,17 @@ export function formatDateTime(value: string | number | Date | null | undefined)
   return `${formatDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * Local-time value for `<input type="datetime-local">` (YYYY-MM-DDTHH:mm).
+ * Using the UTC ISO string here would silently shift the author's wall clock by
+ * the browser offset, so a log entered "07:30" would be stored as 00:30 UTC.
+ */
+export function toDateTimeLocal(value: string | number | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "";
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** Format a numeric/string amount as Vietnamese đồng, e.g. 136.000 ₫. */
 export function formatMoney(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return EMPTY;

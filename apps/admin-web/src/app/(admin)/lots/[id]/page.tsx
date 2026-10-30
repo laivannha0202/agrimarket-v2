@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Button, Form, Input, Table, Timeline, Typography } from "antd";
+import { Alert, Button, Form, Input, List, Table, Timeline, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { QrcodeOutlined, WarningOutlined } from "@ant-design/icons";
 import { DetailPage, DetailCard } from "@/components/common/DetailPage";
@@ -21,6 +21,7 @@ import {
   lotStatus,
   qcResult,
   traceEventType,
+  traceCheckStatus,
   inventoryMovementType,
   inventoryMovementBasis,
 } from "@/lib/status";
@@ -29,6 +30,7 @@ import type {
   InventoryMovement,
   ProductLot,
   QcInspection,
+  TraceChainAudit,
   TraceEvent,
 } from "@/types/api";
 
@@ -42,6 +44,14 @@ export default function LotDetailPage() {
   const { data: lot, isLoading, isError, refetch } = useDetailQuery<ProductLot>(
     queryKeys.lot(id),
     () => resources.lot(id),
+  );
+
+  // Server-side, read-only audit of the public trace chain. It never fills a
+  // gap: missing links are listed so an operator can fix the source record.
+  const audit = useDetailQuery<TraceChainAudit>(
+    queryKeys.lotTrace(id),
+    () => resources.lotTraceAudit(id),
+    !!lot,
   );
 
   const recall = useAction((reason: string) => resources.recallLot(id, reason), {
@@ -201,6 +211,58 @@ export default function LotDetailPage() {
                 },
               ]}
             />
+          </DetailCard>
+
+          <DetailCard title="Độ đầy đủ chuỗi truy xuất">
+            {audit.isLoading ? (
+              <Typography.Text type="secondary">Đang kiểm tra chuỗi truy xuất…</Typography.Text>
+            ) : audit.isError ? (
+              <Alert
+                type="warning"
+                showIcon
+                message="Không tải được kết quả kiểm tra"
+                description="Kiểm tra lại kết nối máy chủ rồi thử lại."
+              />
+            ) : audit.data ? (
+              <>
+                <Alert
+                  type={
+                    audit.data.missing > 0
+                      ? "error"
+                      : audit.data.warnings > 0
+                        ? "warning"
+                        : "success"
+                  }
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message={
+                    audit.data.missing > 0
+                      ? `Thiếu ${audit.data.missing} mục bắt buộc`
+                      : audit.data.warnings > 0
+                        ? `Đủ mục bắt buộc, còn ${audit.data.warnings} cảnh báo`
+                        : "Chuỗi truy xuất đầy đủ"
+                  }
+                  description={`${audit.data.farmingEventCount} nhật ký canh tác (${audit.data.publicFarmingEventCount} công khai) · ${audit.data.traceEventCount} sự kiện truy xuất. Hệ thống chỉ báo thiếu, không tự tạo dữ liệu.`}
+                />
+                <List
+                  size="small"
+                  dataSource={audit.data.checks}
+                  renderItem={(check) => (
+                    <List.Item>
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                        <StatusTag status={traceCheckStatus(check.status)} />
+                        <div>
+                          <div style={{ fontWeight: 500 }}>{check.label}</div>
+                          <div className="agri-muted" style={{ fontSize: 12 }}>
+                            {check.detail}
+                          </div>
+                        </div>
+                      </div>
+                    </List.Item>
+                  )}
+                />
+              </>
+            ) : null}
           </DetailCard>
 
           <DetailCard title="Kiểm định chất lượng">

@@ -953,6 +953,81 @@ export interface SettlementAdjustment {
   refund?: { id: number; amount: string; status: RefundStatus; completedAt: string | null } | null;
 }
 
+export type SettlementRecoveryStatus =
+  | "PENDING_APPROVAL"
+  | "APPROVED"
+  | "RECORDED"
+  | "REJECTED";
+
+/**
+ * Approval-waiting recovery of a late refund. DEDUCT_NEXT creates this row;
+ * money only moves after an explicit approve + record, and unresolved rows
+ * block all payouts for the partner.
+ */
+export interface SettlementRecovery {
+  id: number;
+  partnerId: number;
+  adjustmentId: number;
+  amount: string;
+  status: SettlementRecoveryStatus;
+  reason: string;
+  requestedByUserId: number | null;
+  decisionNote: string | null;
+  approvedByUserId: number | null;
+  approvedAt: string | null;
+  rejectedByUserId: number | null;
+  rejectedAt: string | null;
+  recordedByUserId: number | null;
+  recordedAt: string | null;
+  recoveryReference: string | null;
+  createdAt: string;
+  updatedAt: string;
+  partner?: { id: number; code: string; name: string };
+  adjustment?: SettlementAdjustment & {
+    settlement?: { id: number; code: string; status: SettlementStatus } | null;
+  };
+}
+
+export type TraceCheckStatus = "OK" | "WARNING" | "MISSING";
+
+export interface TraceChainCheck {
+  key: string;
+  label: string;
+  status: TraceCheckStatus;
+  detail: string;
+}
+
+/** ADMIN-only completeness audit of one lot's public trace chain. */
+export interface TraceChainAudit {
+  lot: {
+    id: number;
+    code: string;
+    traceCode: string;
+    status: ProductLotStatus;
+    quantity: string;
+    remainingQuantity: string;
+    unit: string;
+  };
+  product: { id: number; name: string };
+  partner: { id: number; code: string; name: string } | null;
+  farm: { id: number; code: string; name: string } | null;
+  season: { id: number; cropName: string } | null;
+  harvest: {
+    id: number;
+    harvestDate: string;
+    quantity: string;
+    unit: string;
+    grade: string;
+  } | null;
+  farmingEventCount: number;
+  publicFarmingEventCount: number;
+  traceEventCount: number;
+  checks: TraceChainCheck[];
+  complete: boolean;
+  missing: number;
+  warnings: number;
+}
+
 export type PayoutStatus = "PENDING" | "PAID" | "FAILED";
 
 export interface Payout {

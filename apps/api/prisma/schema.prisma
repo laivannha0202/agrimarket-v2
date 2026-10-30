@@ -198,6 +198,18 @@ enum SettlementAdjustmentResolution {
   MANUAL
 }
 
+/// A DEDUCT_NEXT review does not move money by itself. It opens a recovery row
+/// that must be explicitly approved, then either recorded as recovered (with a
+/// payment reference) or rejected by a human. While a recovery is unresolved,
+/// no payout may leave for that partner, so an approval decision can never be
+/// bypassed by paying the next settlement first.
+enum SettlementRecoveryStatus {
+  PENDING_APPROVAL
+  APPROVED
+  RECORDED
+  REJECTED
+}
+
 enum DiscountType {
   PERCENT
   FIXED
@@ -447,6 +459,7 @@ model Partner {
   settlements           Settlement[]
   payouts               Payout[]
   settlementAdjustments SettlementAdjustment[]
+  settlementRecoveries  SettlementRecovery[]
 
   @@index([name])
   @@index([phone])
@@ -1574,6 +1587,7 @@ model SettlementAdjustment {
   settlement   Settlement?   @relation(fields: [settlementId], references: [id])
   partnerOrder PartnerOrder? @relation(fields: [partnerOrderId], references: [id])
   refund       Refund?       @relation(fields: [refundId], references: [id])
+  recovery     SettlementRecovery?
 
   // One refund can produce at most one adjustment per partner order, so a
   // retried completion cannot double-book the same reconciliation.
@@ -1582,6 +1596,42 @@ model SettlementAdjustment {
   @@index([settlementId])
   @@index([partnerId])
   @@map("settlement_adjustments")
+}
+
+/// Human-approved recovery of money that a late refund already returned to the
+/// customer after the partner had been settled.
+///
+/// The row starts PENDING_APPROVAL when a reviewer chooses DEDUCT_NEXT. A
+/// second, explicit approval step is required before it can be recorded as
+/// recovered; neither step rewrites the historical settlement. PENDING_APPROVAL
+/// and APPROVED both block payouts for the partner, so the recovery cannot be
+/// forgotten while new money leaves. RECORDED/REJECTED close the obligation.
+/// This is deliberately a record of a human decision, not an automatic debit.
+model SettlementRecovery {
+  id               Int                     @id @default(autoincrement())
+  partnerId        Int                     @map("partner_id")
+  adjustmentId     Int                     @unique @map("adjustment_id")
+  amount           Decimal                 @db.Decimal(18, 2)
+  status           SettlementRecoveryStatus @default(PENDING_APPROVAL)
+  reason           String                  @db.Text
+  requestedByUserId Int?                   @map("requested_by_user_id")
+  decisionNote     String?                 @map("decision_note") @db.Text
+  approvedByUserId Int?                    @map("approved_by_user_id")
+  approvedAt       DateTime?               @map("approved_at")
+  rejectedByUserId Int?                    @map("rejected_by_user_id")
+  rejectedAt       DateTime?               @map("rejected_at")
+  recordedByUserId Int?                    @map("recorded_by_user_id")
+  recordedAt       DateTime?               @map("recorded_at")
+  recoveryReference String?                @map("recovery_reference")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  partner    Partner              @relation(fields: [partnerId], references: [id])
+  adjustment SettlementAdjustment @relation(fields: [adjustmentId], references: [id])
+
+  @@index([partnerId, status])
+  @@index([status])
+  @@map("settlement_recoveries")
 }
 
 // ---------------------------------------------------------------------------

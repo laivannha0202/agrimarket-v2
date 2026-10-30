@@ -538,10 +538,32 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
         (await prisma.settlement.findUniqueOrThrow({ where: { id: settlement.id } })).status,
       ).toBe('DRAFT');
 
-      // 2. After the human decision the same settlement confirms normally.
+      // 2. After the human decision the settlement still cannot confirm while
+      // the DEDUCT_NEXT recovery waits for its second approval, and only an
+      // explicit approve + record releases it.
       await settlements.reviewAdjustment(
         confirmBlocker.id,
         { resolution: 'DEDUCT_NEXT', note: 'Trừ vào kỳ sau' },
+        adminId,
+      );
+      const recovery = await prisma.settlementRecovery.findUniqueOrThrow({
+        where: { adjustmentId: confirmBlocker.id },
+      });
+      expect(recovery.status).toBe('PENDING_APPROVAL');
+      await expect(settlements.confirm(settlement.id, adminId)).rejects.toThrow(
+        /unresolved recovery/,
+      );
+      await settlements.approveRecovery(
+        recovery.id,
+        { note: 'Kế toán trưởng phê duyệt' },
+        adminId,
+      );
+      await expect(settlements.confirm(settlement.id, adminId)).rejects.toThrow(
+        /unresolved recovery/,
+      );
+      await settlements.recordRecovery(
+        recovery.id,
+        { reference: world.t('RECOVERY') },
         adminId,
       );
       const confirmed = await settlements.confirm(settlement.id, adminId);
@@ -588,6 +610,51 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
       );
       const paid = await payouts.markPaid(payout.id, adminId);
       expect(paid.status).toBe('PAID');
+    });
+
+    it('approve vs reject racing on one recovery: exactly one decision wins', async () => {
+      const b = await world.base(1, 'RR');
+      const adminId = await world.admin('rr');
+      const adjustment = await prisma.settlementAdjustment.create({
+        data: {
+          partnerId: b.partnerId,
+          amount: 15000,
+          type: 'REFUND_AFTER_SETTLEMENT',
+          status: 'REVIEWED',
+          resolution: 'DEDUCT_NEXT',
+          reason: 'Hoàn tiền chờ quyết định thu hồi',
+          reviewedAt: new Date(),
+        },
+      });
+      const recovery = await prisma.settlementRecovery.create({
+        data: {
+          partnerId: b.partnerId,
+          adjustmentId: adjustment.id,
+          amount: 15000,
+          status: 'PENDING_APPROVAL',
+          reason: adjustment.reason,
+          requestedByUserId: adminId,
+        },
+      });
+
+      const results = await Promise.allSettled([
+        settlements.approveRecovery(recovery.id, { note: 'Duyệt thu hồi' }, adminId),
+        settlements.rejectRecovery(recovery.id, { note: 'Từ chối thu hồi' }, adminId),
+      ]);
+      expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+
+      const row = await prisma.settlementRecovery.findUniqueOrThrow({
+        where: { id: recovery.id },
+      });
+      expect(['APPROVED', 'REJECTED']).toContain(row.status);
+      const decisions = await prisma.auditLog.count({
+        where: {
+          entityType: 'SettlementRecovery',
+          entityId: String(recovery.id),
+          action: { in: ['SETTLEMENT_RECOVERY_APPROVE', 'SETTLEMENT_RECOVERY_REJECT'] },
+        },
+      });
+      expect(decisions).toBe(1);
     });
   });
 

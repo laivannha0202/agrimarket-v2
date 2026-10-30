@@ -7,8 +7,8 @@
  * Safety interlocks:
  *   - target comes from RESTORE_DATABASE_URL only; DATABASE_URL is never used
  *     as a restore target;
- *   - the target schema must end with _test, _restore or _drill unless
- *     ALLOW_NON_TEST_RESTORE=YES;
+ *   - the target schema must end with _test, _restore, _drill or
+ *     _drill_<token> unless ALLOW_NON_TEST_RESTORE=YES;
  *   - it must not be the same host/schema as DATABASE_URL unless
  *     ALLOW_NON_TEST_RESTORE=YES;
  *   - NODE_ENV=production always refuses;
@@ -24,6 +24,7 @@ import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
 import { createGunzip } from 'node:zlib';
 import { basename, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { resolveMysqlBinary } from './lib/verify-common.mjs';
 
 const args = process.argv.slice(2);
 
@@ -38,7 +39,7 @@ Options:
 
 Environment:
   RESTORE_DATABASE_URL      Required target URL (isolated schema)
-  MYSQL_PATH                Path to mysql (default: mysql on PATH)
+  MYSQL_PATH                Path to mysql (default: PATH, then standard MySQL/MariaDB installs)
   RESTORE_CONFIRM=RESTORE   Required for a real restore
   ALLOW_NON_TEST_RESTORE=YES  Override the test-schema-name guard (owner approval only)`);
 }
@@ -111,9 +112,13 @@ if (!/^[A-Za-z0-9_$-]+$/.test(database)) {
 }
 
 const allowNonTest = process.env.ALLOW_NON_TEST_RESTORE === 'YES';
-const looksIsolated = /_(?:test|restore|drill)$/i.test(database);
+// `_drill_<token>` keeps repeated drills in unique schemas while still making
+// the disposable purpose obvious in the name.
+const looksIsolated = /_(?:test|restore|drill)(?:_[a-z0-9]+)?$/i.test(database);
 if (!looksIsolated && !allowNonTest) {
-  console.error(`Refusing target "${database}": name must end with _test, _restore or _drill.`);
+  console.error(
+    `Refusing target "${database}": name must end with _test, _restore, _drill or _drill_<token>.`,
+  );
   console.error('Create an isolated schema (for example agrimarket_v2_restore) and retry.');
   process.exit(1);
 }
@@ -141,7 +146,7 @@ if (!dryRun && process.env.RESTORE_CONFIRM !== 'RESTORE') {
   process.exit(1);
 }
 
-const mysql = process.env.MYSQL_PATH || 'mysql';
+const mysql = process.env.MYSQL_PATH || resolveMysqlBinary('mysql') || 'mysql';
 const maskedTarget = `${host}:${port}/${database}`;
 
 function sha256File(file) {

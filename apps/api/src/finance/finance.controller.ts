@@ -9,11 +9,14 @@ import {
   CreateCommissionRuleDto,
   CreatePayoutDto,
   CreateSettlementDto,
+  DecideSettlementRecoveryDto,
   PayoutQueryDto,
+  RecordSettlementRecoveryDto,
   ReviewSettlementAdjustmentDto,
   SettlementAdjustmentQueryDto,
   SettlementExportQueryDto,
   SettlementQueryDto,
+  SettlementRecoveryQueryDto,
   UpdateCommissionRuleStatusDto,
 } from './dto/finance.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -132,8 +135,9 @@ export class FinanceController {
   @ApiOperation({
     summary: 'Record the recovery decision for an OPEN adjustment (ADMIN)',
     description:
-      'Resolution DEDUCT_NEXT / WRITE_OFF / MANUAL plus a required note. Closing the row unblocks ' +
-      'settlement confirmation and payouts; the original settlement is not rewritten.',
+      'Resolution DEDUCT_NEXT / WRITE_OFF / MANUAL plus a required note. DEDUCT_NEXT opens a ' +
+      'PENDING_APPROVAL recovery; confirmation and payouts stay blocked until a human approves ' +
+      'and records (or rejects) it. The original settlement is not rewritten.',
   })
   reviewSettlementAdjustment(
     @Param('id', ParseIntPipe) id: number,
@@ -141,6 +145,51 @@ export class FinanceController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.settlementsService.reviewAdjustment(id, dto, user.id);
+  }
+
+  // Settlement recoveries (approval-waiting DEDUCT_NEXT decisions)
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('settlement-recoveries')
+  @ApiOperation({ summary: 'List post-settlement recovery requests (ADMIN)' })
+  listSettlementRecoveries(@Query() query: SettlementRecoveryQueryDto) {
+    return this.settlementsService.findRecoveries(query);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('settlement-recoveries/:id/approve')
+  @ApiOperation({ summary: 'Approve a recovery; payouts stay blocked until recorded (ADMIN)' })
+  approveSettlementRecovery(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecideSettlementRecoveryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.settlementsService.approveRecovery(id, dto, user.id);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('settlement-recoveries/:id/reject')
+  @ApiOperation({ summary: 'Reject a recovery request and unblock payouts (ADMIN)' })
+  rejectSettlementRecovery(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: DecideSettlementRecoveryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.settlementsService.rejectRecovery(id, dto, user.id);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('settlement-recoveries/:id/record')
+  @ApiOperation({ summary: 'Record an approved recovery with its bank/offset reference (ADMIN)' })
+  recordSettlementRecovery(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RecordSettlementRecoveryDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.settlementsService.recordRecovery(id, dto, user.id);
   }
 
   // Payouts

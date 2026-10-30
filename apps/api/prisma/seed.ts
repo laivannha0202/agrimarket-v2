@@ -829,7 +829,9 @@ async function main() {
     data: {
       seasonId: seasonTomato.id,
       harvestDate: addDays(-18),
-      quantity: 1200.0,
+      // Four demo lots (500 + 400 + 300 + 250 kg) are packed from this harvest.
+      // The harvest must remain the ceiling for its lots (C-14 service guard).
+      quantity: 1500.0,
       unit: 'kg',
       grade: 'Loại 1',
       note: 'Thu hoạch đợt 1, cà chua đều quả, độ chín vừa.',

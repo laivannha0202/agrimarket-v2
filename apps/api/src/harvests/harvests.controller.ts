@@ -14,6 +14,8 @@ import { CreateHarvestDto, UpdateHarvestDto } from './dto/harvest.dto.js';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
 
 @ApiTags('harvests')
 @Controller('harvests')
@@ -38,15 +40,19 @@ export class HarvestsController {
   @ApiBearerAuth()
   @Post()
   @ApiOperation({ summary: 'Create a harvest (ADMIN)' })
-  create(@Body() dto: CreateHarvestDto) {
-    return this.harvestsService.create(dto);
+  create(@Body() dto: CreateHarvestDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.harvestsService.create(dto, user.id);
   }
 
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Patch(':id')
   @ApiOperation({ summary: 'Update a harvest (ADMIN) — cannot go below allocated lots' })
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateHarvestDto) {
-    return this.harvestsService.update(id, dto);
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateHarvestDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.harvestsService.update(id, dto, user.id);
   }
 }

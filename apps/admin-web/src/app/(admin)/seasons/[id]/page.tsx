@@ -14,7 +14,7 @@ import { useDetailQuery } from "@/hooks/useDetailQuery";
 import { useAction } from "@/hooks/useAction";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
-import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
+import { formatDate, formatDateTime, formatNumber, toDateTimeLocal } from "@/lib/format";
 import { toNumeric } from "@/lib/format/form";
 import {
   seasonStatus,
@@ -31,9 +31,15 @@ export default function SeasonDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [harvestOpen, setHarvestOpen] = useState(false);
   const [eventOpen, setEventOpen] = useState(false);
+  const [harvestEditOpen, setHarvestEditOpen] = useState(false);
+  const [eventEditOpen, setEventEditOpen] = useState(false);
+  const [harvestEditing, setHarvestEditing] = useState<Harvest | null>(null);
+  const [eventEditing, setEventEditing] = useState<FarmingEvent | null>(null);
   const [editForm] = Form.useForm();
   const [harvestForm] = Form.useForm();
   const [eventForm] = Form.useForm();
+  const [harvestEditForm] = Form.useForm();
+  const [eventEditForm] = Form.useForm();
 
   const { data: season, isLoading, isError, refetch } = useDetailQuery<Season>(
     queryKeys.season(id),
@@ -92,6 +98,51 @@ export default function SeasonDetailPage() {
     },
   );
 
+  // A cancelled/completed season is a closed trace record. The API rejects
+  // every write to it, so the UI hides the controls instead of offering an
+  // action that can only fail.
+  const seasonLocked =
+    season?.status === "COMPLETED" || season?.status === "CANCELLED";
+
+  const updateHarvest = useAction(
+    (vars: { id: number; values: Record<string, unknown> }) =>
+      resources.updateHarvest(vars.id, {
+        harvestDate: vars.values.harvestDate,
+        quantity: Number(vars.values.quantity),
+        unit: String(vars.values.unit ?? "").trim(),
+        grade: String(vars.values.grade ?? "").trim(),
+        note: String(vars.values.note ?? "").trim(),
+      }),
+    {
+      invalidate: [queryKeys.season(id), ["seasons"], ["harvests"], ["lots"]],
+      successMessage: "Đã cập nhật vụ thu hoạch.",
+      onSuccess: () => {
+        setHarvestEditOpen(false);
+        setHarvestEditing(null);
+        harvestEditForm.resetFields();
+      },
+    },
+  );
+
+  const updateEvent = useAction(
+    (vars: { id: number; values: Record<string, unknown> }) =>
+      resources.updateFarmingEvent(vars.id, {
+        type: vars.values.type,
+        occurredAt: new Date(String(vars.values.occurredAt)).toISOString(),
+        content: String(vars.values.content ?? "").trim(),
+        isPublic: Boolean(vars.values.isPublic),
+      }),
+    {
+      invalidate: [queryKeys.season(id), ["seasons"]],
+      successMessage: "Đã cập nhật hoạt động canh tác.",
+      onSuccess: () => {
+        setEventEditOpen(false);
+        setEventEditing(null);
+        eventEditForm.resetFields();
+      },
+    },
+  );
+
   const harvestColumns: ColumnsType<Harvest> = [
     {
       title: "Ngày thu hoạch",
@@ -108,6 +159,37 @@ export default function SeasonDetailPage() {
       title: "Ngày tạo",
       dataIndex: "createdAt",
       render: (v: string) => <span className="agri-nowrap">{formatDateTime(v)}</span>,
+    },
+    {
+      title: "",
+      width: 170,
+      render: (_, row) => (
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            disabled={seasonLocked}
+            style={{ paddingInline: 0 }}
+            onClick={() => {
+              setHarvestEditing(row);
+              harvestEditForm.setFieldsValue({
+                harvestDate: row.harvestDate?.slice(0, 10),
+                quantity: Number(row.quantity),
+                unit: row.unit,
+                grade: row.grade,
+                note: row.note ?? "",
+              });
+              setHarvestEditOpen(true);
+            }}
+          >
+            Sửa
+          </Button>
+          <Link href={`/lots?harvestId=${row.id}`} className="agri-link">
+            Tạo lô
+          </Link>
+        </div>
+      ),
     },
   ];
 
@@ -128,6 +210,31 @@ export default function SeasonDetailPage() {
       dataIndex: "isPublic",
       render: (v: boolean) => (v ? <Tag color="green">Có</Tag> : <Tag>Không</Tag>),
     },
+    {
+      title: "",
+      width: 80,
+      render: (_, row) => (
+        <Button
+          type="link"
+          size="small"
+          icon={<EditOutlined />}
+          disabled={seasonLocked}
+          style={{ paddingInline: 0 }}
+          onClick={() => {
+            setEventEditing(row);
+            eventEditForm.setFieldsValue({
+              type: row.type,
+              occurredAt: toDateTimeLocal(row.occurredAt),
+              content: row.content,
+              isPublic: row.isPublic,
+            });
+            setEventEditOpen(true);
+          }}
+        >
+          Sửa
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -145,6 +252,7 @@ export default function SeasonDetailPage() {
             <StatusTag status={seasonStatus(season.status)} />
             <Button
               icon={<EditOutlined />}
+              disabled={seasonLocked}
               onClick={() => {
                 editForm.setFieldsValue({
                   cropName: season.cropName,
@@ -210,6 +318,7 @@ export default function SeasonDetailPage() {
               <Button
                 size="small"
                 icon={<PlusOutlined />}
+                disabled={seasonLocked}
                 onClick={() => {
                   harvestForm.setFieldsValue({
                     harvestDate: new Date().toISOString().slice(0, 10),
@@ -239,10 +348,11 @@ export default function SeasonDetailPage() {
               <Button
                 size="small"
                 icon={<PlusOutlined />}
+                disabled={seasonLocked}
                 onClick={() => {
                   eventForm.setFieldsValue({
                     type: "CARE",
-                    occurredAt: new Date().toISOString().slice(0, 16),
+                    occurredAt: toDateTimeLocal(new Date()),
                     isPublic: true,
                   });
                   setEventOpen(true);
@@ -350,6 +460,80 @@ export default function SeasonDetailPage() {
               rules={[{ required: true, message: "Nhập nội dung." }]}
             >
               <Input.TextArea rows={3} placeholder="VD: Tưới nhỏ giọt 30 phút buổi sáng" />
+            </Form.Item>
+            <Form.Item label="Hiển thị công khai" name="isPublic" valuePropName="checked">
+              <Switch />
+            </Form.Item>
+          </FormModal>
+
+          <FormModal
+            open={harvestEditOpen}
+            title="Sửa vụ thu hoạch"
+            form={harvestEditForm}
+            onCancel={() => {
+              setHarvestEditOpen(false);
+              setHarvestEditing(null);
+            }}
+            onSubmit={(values) => {
+              if (harvestEditing) updateHarvest.mutate({ id: harvestEditing.id, values });
+            }}
+            submitting={updateHarvest.isPending}
+          >
+            <Form.Item
+              label="Ngày thu hoạch"
+              name="harvestDate"
+              rules={[{ required: true, message: "Chọn ngày thu hoạch." }]}
+            >
+              <Input type="date" />
+            </Form.Item>
+            <Form.Item
+              label="Số lượng"
+              name="quantity"
+              rules={[{ required: true, message: "Nhập số lượng." }]}
+              extra="Không được nhỏ hơn tổng số lượng đã tạo lô từ vụ thu hoạch này."
+            >
+              <Input type="number" min={0} />
+            </Form.Item>
+            <Form.Item label="Đơn vị" name="unit" rules={[{ required: true, message: "Nhập đơn vị." }]}>
+              <Input placeholder="VD: kg, tấn" />
+            </Form.Item>
+            <Form.Item label="Phân loại" name="grade" rules={[{ required: true, message: "Nhập phân loại." }]}>
+              <Input placeholder="VD: Loại 1" />
+            </Form.Item>
+            <Form.Item label="Ghi chú" name="note">
+              <Input.TextArea rows={2} />
+            </Form.Item>
+          </FormModal>
+
+          <FormModal
+            open={eventEditOpen}
+            title="Sửa hoạt động canh tác"
+            form={eventEditForm}
+            onCancel={() => {
+              setEventEditOpen(false);
+              setEventEditing(null);
+            }}
+            onSubmit={(values) => {
+              if (eventEditing) updateEvent.mutate({ id: eventEditing.id, values });
+            }}
+            submitting={updateEvent.isPending}
+          >
+            <Form.Item label="Loại hoạt động" name="type" rules={[{ required: true }]}>
+              <Select options={statusOptions(FARMING_EVENT_TYPE)} />
+            </Form.Item>
+            <Form.Item
+              label="Thời điểm"
+              name="occurredAt"
+              rules={[{ required: true, message: "Chọn thời điểm." }]}
+            >
+              <Input type="datetime-local" />
+            </Form.Item>
+            <Form.Item
+              label="Nội dung"
+              name="content"
+              rules={[{ required: true, message: "Nhập nội dung." }]}
+            >
+              <Input.TextArea rows={3} />
             </Form.Item>
             <Form.Item label="Hiển thị công khai" name="isPublic" valuePropName="checked">
               <Switch />

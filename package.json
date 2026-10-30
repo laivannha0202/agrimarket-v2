@@ -23,6 +23,13 @@
     "test": "npm run test --workspaces --if-present",
     "test:e2e": "npm run test:e2e --workspace @agrimarket/api",
     "security:smoke": "node scripts/security-smoke.mjs",
+    "verify:local": "node scripts/local-verify.mjs",
+    "verify:migrations": "node scripts/verify-migrations.mjs",
+    "verify:invariants": "node scripts/db-invariant-audit.mjs",
+    "verify:backup": "node scripts/backup-restore-drill.mjs",
+    "verify:security": "node scripts/security-scan.mjs",
+    "verify:business": "node scripts/business-smoke.mjs",
+    "verify:ui": "node scripts/ui-smoke.mjs",
     "backup:db": "node scripts/backup-db.mjs",
     "restore:db": "node scripts/restore-db.mjs",
     "db:generate": "npm run db:generate --workspace @agrimarket/api",
@@ -30,9 +37,15 @@
     "db:deploy": "npm run db:deploy --workspace @agrimarket/api",
     "db:seed": "npm run db:seed --workspace @agrimarket/api"
   },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "2.5.0"
+    },
+    "multer": "2.5.0"
+  },
   "allowScripts": {
-    "prisma@7.10.0": true,
-    "@prisma/engines@7.10.0": true,
+    "prisma@7.10.1": true,
+    "@prisma/engines@7.10.1": true,
     "esbuild@0.28.2": true,
     "unrs-resolver@1.12.2": true,
     "@scarf/scarf": false

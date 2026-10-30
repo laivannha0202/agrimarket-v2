@@ -262,6 +262,10 @@ export async function purgeCreated(
   await prisma.voucherRedemption.deleteMany({ where: { customerId: { in: users } } });
   // Reconciliation rows reference refunds/settlements; quarantine cases
   // reference lots, orders and returns. Both must go before their parents.
+  // Recovery rows reference the adjustment (RESTRICT), so they go first.
+  await prisma.settlementRecovery.deleteMany({
+    where: { partnerId: { in: created.partners } },
+  });
   await prisma.settlementAdjustment.deleteMany({
     where: {
       OR: [

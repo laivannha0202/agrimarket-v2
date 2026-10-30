@@ -22,6 +22,7 @@ import { createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync
 import { createGzip } from 'node:zlib';
 import { basename, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import { resolveMysqlBinary } from './lib/verify-common.mjs';
 
 const args = process.argv.slice(2);
 
@@ -37,7 +38,7 @@ Options:
 Environment:
   BACKUP_DATABASE_URL   Source database URL (preferred)
   DATABASE_URL          Fallback source database URL
-  MYSQLDUMP_PATH        Path to mysqldump (default: mysqldump on PATH)
+  MYSQLDUMP_PATH        Path to mysqldump (default: PATH, then standard MySQL/MariaDB installs)
   BACKUP_CONFIRM=YES    Required when NODE_ENV=production`);
 }
 
@@ -106,7 +107,7 @@ function timestamp() {
 const stamp = timestamp();
 const dumpPath = join(outDir, `${database}-${stamp}.sql.gz`);
 const metadataPath = `${dumpPath}.json`;
-const mysqldump = process.env.MYSQLDUMP_PATH || 'mysqldump';
+const mysqldump = process.env.MYSQLDUMP_PATH || resolveMysqlBinary('mysqldump') || 'mysqldump';
 const toolArgs = [
   '--host', host,
   '--port', port,

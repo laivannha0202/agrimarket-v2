@@ -8,6 +8,7 @@ import type {
   Paginated,
   ReturnRequest,
   SettlementAdjustment,
+  SettlementRecovery,
 } from "@/types/api";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,10 @@ const resourcesMock = vi.hoisted(() => ({
   partners: vi.fn(),
   settlementAdjustments: vi.fn(),
   reviewSettlementAdjustment: vi.fn(),
+  settlementRecoveries: vi.fn(),
+  approveSettlementRecovery: vi.fn(),
+  rejectSettlementRecovery: vi.fn(),
+  recordSettlementRecovery: vi.fn(),
 }));
 
 vi.mock("@/lib/api/resources", () => ({ resources: resourcesMock }));
@@ -119,6 +124,42 @@ const ADJUSTMENT_ROW: SettlementAdjustment = {
   },
 };
 
+const RECOVERY_PENDING: SettlementRecovery = {
+  id: 91,
+  partnerId: 9,
+  adjustmentId: 51,
+  amount: "80000",
+  status: "PENDING_APPROVAL",
+  reason: "Hoàn tiền sau khi kỳ đối soát đã chốt",
+  requestedByUserId: 1,
+  decisionNote: null,
+  approvedByUserId: null,
+  approvedAt: null,
+  rejectedByUserId: null,
+  rejectedAt: null,
+  recordedByUserId: null,
+  recordedAt: null,
+  recoveryReference: null,
+  createdAt: "2026-10-03T09:00:00.000Z",
+  updatedAt: "2026-10-03T09:00:00.000Z",
+  partner: { id: 9, code: "PT-0001", name: "HTX Minh Châu" },
+  adjustment: {
+    ...ADJUSTMENT_ROW,
+    status: "REVIEWED",
+    resolution: "DEDUCT_NEXT",
+    settlement: { id: 61, code: "STL-0061", status: "CONFIRMED" },
+  },
+};
+
+const RECOVERY_APPROVED: SettlementRecovery = {
+  ...RECOVERY_PENDING,
+  id: 92,
+  status: "APPROVED",
+  approvedByUserId: 2,
+  approvedAt: "2026-10-04T09:00:00.000Z",
+  decisionNote: "Kế toán trưởng phê duyệt",
+};
+
 function modalByTitle(title: string): HTMLElement {
   return screen.getByText(title, { selector: ".ant-modal-title" }).closest(".ant-modal") as HTMLElement;
 }
@@ -163,6 +204,12 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue(paginated([ADJUSTMENT_ROW]));
   resourcesMock.reviewSettlementAdjustment.mockReset().mockResolvedValue({});
+  resourcesMock.settlementRecoveries
+    .mockReset()
+    .mockResolvedValue(paginated<SettlementRecovery>([]));
+  resourcesMock.approveSettlementRecovery.mockReset().mockResolvedValue({});
+  resourcesMock.rejectSettlementRecovery.mockReset().mockResolvedValue({});
+  resourcesMock.recordSettlementRecovery.mockReset().mockResolvedValue({});
   takeAntdWarnings();
 });
 
@@ -287,6 +334,73 @@ describe("C-08 settlement adjustment review", () => {
       expect(resourcesMock.reviewSettlementAdjustment).toHaveBeenCalledWith(51, {
         resolution: "DEDUCT_NEXT",
         note: "Trừ vào kỳ kế tiếp theo xác nhận của kế toán.",
+      }),
+    );
+    expect(takeAntdWarnings()).toEqual([]);
+  });
+});
+
+describe("C-08 recovery approval UI", () => {
+  it("requires a written basis before approving a pending recovery", async () => {
+    resourcesMock.settlementRecoveries
+      .mockResolvedValue(paginated<SettlementRecovery>([RECOVERY_PENDING]));
+
+    renderWithProviders(<SettlementsPage />);
+    await userEvent.click(screen.getByRole("tab", { name: "Thu hồi sau đối soát" }));
+
+    await waitFor(() => expect(resourcesMock.settlementRecoveries).toHaveBeenCalled());
+    await userEvent.click(await screen.findByRole("button", { name: "Phê duyệt" }));
+    const dialog = modalByTitle("Phê duyệt thu hồi");
+
+    expect(within(dialog).getByText(/không tự động trừ tiền/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Phê duyệt" }));
+    await waitFor(() =>
+      expect(within(dialog).getByText("Nhập căn cứ quyết định.")).toBeInTheDocument(),
+    );
+    expect(resourcesMock.approveSettlementRecovery).not.toHaveBeenCalled();
+
+    await userEvent.type(
+      within(dialog).getByLabelText("Căn cứ quyết định"),
+      "Kế toán trưởng xác nhận trừ vào kỳ sau.",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Phê duyệt" }));
+
+    await waitFor(() =>
+      expect(resourcesMock.approveSettlementRecovery).toHaveBeenCalledWith(
+        91,
+        "Kế toán trưởng xác nhận trừ vào kỳ sau.",
+      ),
+    );
+    expect(takeAntdWarnings()).toEqual([]);
+  });
+
+  it("requires a recovery reference before closing an approved recovery", async () => {
+    resourcesMock.settlementRecoveries
+      .mockResolvedValue(paginated<SettlementRecovery>([RECOVERY_APPROVED]));
+
+    renderWithProviders(<SettlementsPage />);
+    await userEvent.click(screen.getByRole("tab", { name: "Thu hồi sau đối soát" }));
+
+    await waitFor(() => expect(resourcesMock.settlementRecoveries).toHaveBeenCalled());
+    await userEvent.click(await screen.findByRole("button", { name: "Ghi nhận thu hồi" }));
+    const dialog = modalByTitle("Ghi nhận đã thu hồi");
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Ghi nhận" }));
+    await waitFor(() =>
+      expect(within(dialog).getByText("Nhập mã tham chiếu.")).toBeInTheDocument(),
+    );
+    expect(resourcesMock.recordSettlementRecovery).not.toHaveBeenCalled();
+
+    await userEvent.type(
+      within(dialog).getByLabelText("Mã tham chiếu thu hồi"),
+      "FT-2026-0001",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Ghi nhận" }));
+
+    await waitFor(() =>
+      expect(resourcesMock.recordSettlementRecovery).toHaveBeenCalledWith(92, {
+        reference: "FT-2026-0001",
+        note: undefined,
       }),
     );
     expect(takeAntdWarnings()).toEqual([]);

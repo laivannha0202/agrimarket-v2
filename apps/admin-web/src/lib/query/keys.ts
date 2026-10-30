@@ -31,6 +31,7 @@ export const queryKeys = {
   qc: (params?: ListParams) => ["qc", params ?? {}] as const,
   lots: (params?: ListParams) => ["lots", params ?? {}] as const,
   lot: (id: number | string) => ["lot", String(id)] as const,
+  lotTrace: (id: number | string) => ["lot", String(id), "trace-audit"] as const,
   certificates: (params?: ListParams) => ["certificates", params ?? {}] as const,
   quarantineCases: (params?: ListParams) => ["quarantine-cases", params ?? {}] as const,
   quarantineCase: (id: number | string) => ["quarantine-case", String(id)] as const,
@@ -54,6 +55,8 @@ export const queryKeys = {
   settlement: (id: number | string) => ["settlement", String(id)] as const,
   settlementAdjustments: (params?: ListParams) =>
     ["settlement-adjustments", params ?? {}] as const,
+  settlementRecoveries: (params?: ListParams) =>
+    ["settlement-recoveries", params ?? {}] as const,
   payouts: (params?: ListParams) => ["payouts", params ?? {}] as const,
   refunds: (params?: ListParams) => ["refunds", params ?? {}] as const,
   refund: (id: number | string) => ["refund", String(id)] as const,

@@ -803,6 +803,11 @@ async function purgeRun(prisma: PrismaClient, runId: string, userIds: number[]):
   });
   // Reconciliation rows point at refunds, partner orders and settlements, so
   // they have to go before any of those parents.
+  // Recovery approval rows reference the adjustment (RESTRICT), so remove them
+  // first or the adjustment delete below fails for a run that used C-08.
+  await prisma.settlementRecovery.deleteMany({
+    where: { partnerId: { in: [...partnerIdSet] } },
+  });
   await prisma.settlementAdjustment.deleteMany({
     where: {
       OR: [

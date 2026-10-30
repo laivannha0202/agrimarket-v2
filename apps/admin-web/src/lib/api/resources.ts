@@ -29,6 +29,7 @@ import type {
   Settlement,
   SettlementAdjustment,
   SettlementAdjustmentResolution,
+  SettlementRecovery,
   Shipment,
   Voucher,
   Warehouse,
@@ -43,6 +44,7 @@ import type {
   QuarantineCase,
   AuditLog,
   FarmingEvent,
+  TraceChainAudit,
 } from "@/types/api";
 
 function toQuery(params?: ListParams): Record<string, QueryValue> {
@@ -111,15 +113,21 @@ export const resources = {
   updateSeason: (id: number | string, body: unknown) => api.patch<Season>(`/seasons/${id}`, body),
   harvests: (p?: ListParams) => api.get<Paginated<Harvest>>("/harvests", toQuery(p)),
   createHarvest: (body: unknown) => api.post<Harvest>("/harvests", body),
+  updateHarvest: (id: number | string, body: unknown) =>
+    api.patch<Harvest>(`/harvests/${id}`, body),
   farmingEvents: (seasonId: number | string) =>
     api.get<FarmingEvent[]>(`/farming-events/season/${seasonId}`),
   createFarmingEvent: (body: unknown) => api.post<FarmingEvent>("/farming-events", body),
+  updateFarmingEvent: (id: number | string, body: unknown) =>
+    api.patch<FarmingEvent>(`/farming-events/${id}`, body),
 
   // QC & lots & certificates
   qc: (p?: ListParams) => api.get<Paginated<QcInspection>>("/qc", toQuery(p)),
   createQc: (body: unknown) => api.post<QcInspection>("/qc", body),
   lots: (p?: ListParams) => api.get<Paginated<ProductLot>>("/lots", toQuery(p)),
   lot: (id: number | string) => api.get<ProductLot>(`/lots/${id}`),
+  lotTraceAudit: (id: number | string) =>
+    api.get<TraceChainAudit>(`/trace/admin/lot/${id}`),
   createLot: (body: unknown) => api.post<ProductLot>("/lots", body),
   recallLot: (id: number | string, reason: string) =>
     api.post<ProductLot>(`/lots/${id}/recall`, { reason }),
@@ -198,6 +206,14 @@ export const resources = {
     id: number | string,
     body: { resolution: SettlementAdjustmentResolution; note: string },
   ) => api.post<SettlementAdjustment>(`/settlement-adjustments/${id}/review`, body),
+  settlementRecoveries: (p?: ListParams) =>
+    api.get<Paginated<SettlementRecovery>>("/settlement-recoveries", toQuery(p)),
+  approveSettlementRecovery: (id: number | string, note: string) =>
+    api.post<SettlementRecovery>(`/settlement-recoveries/${id}/approve`, { note }),
+  rejectSettlementRecovery: (id: number | string, note: string) =>
+    api.post<SettlementRecovery>(`/settlement-recoveries/${id}/reject`, { note }),
+  recordSettlementRecovery: (id: number | string, body: { reference: string; note?: string }) =>
+    api.post<SettlementRecovery>(`/settlement-recoveries/${id}/record`, body),
   payouts: (p?: ListParams) => api.get<Paginated<Payout>>("/payouts", toQuery(p)),
   createPayout: (body: unknown, idempotencyKey: string) =>
     api.post<Payout>("/payouts", body, { "Idempotency-Key": idempotencyKey }),

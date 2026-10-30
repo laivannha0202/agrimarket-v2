@@ -27,6 +27,7 @@ export class CreateSeasonDto {
   @ApiPropertyOptional({ example: 'Cà chua bi đỏ F1' })
   @IsOptional()
   @IsString()
+  @MaxLength(150)
   variety?: string;
 
   @ApiPropertyOptional({ example: '2026-01-15' })
@@ -39,15 +40,17 @@ export class CreateSeasonDto {
   @IsDateString()
   expectedHarvestDate?: string;
 
-  @ApiPropertyOptional({ example: 8.5 })
+  @ApiPropertyOptional({ example: 8.5, minimum: 0.001 })
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
+  @Min(0.001)
   expectedYield?: number;
 
   @ApiPropertyOptional({ example: 'tấn' })
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   yieldUnit?: string;
 
   @ApiPropertyOptional({ enum: SeasonStatus })

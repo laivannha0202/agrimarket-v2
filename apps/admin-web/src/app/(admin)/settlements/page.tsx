@@ -23,10 +23,12 @@ import {
   SETTLEMENT_STATUS,
   SETTLEMENT_ADJUSTMENT_STATUS,
   SETTLEMENT_ADJUSTMENT_RESOLUTION,
+  SETTLEMENT_RECOVERY_STATUS,
   payoutStatus,
   settlementStatus,
   settlementAdjustmentStatus,
   settlementAdjustmentResolution,
+  settlementRecoveryStatus,
   statusOptions,
 } from "@/lib/status";
 import type {
@@ -34,6 +36,7 @@ import type {
   Settlement,
   SettlementAdjustment,
   SettlementAdjustmentResolution,
+  SettlementRecovery,
 } from "@/types/api";
 
 type SettlementForm = {
@@ -378,9 +381,290 @@ function AdjustmentsTab() {
           />
         </Form.Item>
         <p className="agri-muted" style={{ margin: 0 }}>
-          Kỳ đối soát gốc không bị sửa; quyết định chỉ đóng khoản điều chỉnh và mở khóa xác
-          nhận/chi trả.
+          Kỳ đối soát gốc không bị sửa. Chọn “Trừ vào kỳ sau” sẽ mở một yêu cầu thu hồi
+          chờ phê duyệt; xác nhận/chi trả vẫn bị khóa cho đến khi kế toán phê duyệt và ghi
+          nhận đã thu hồi (hoặc từ chối).
         </p>
+      </FormModal>
+    </>
+  );
+}
+
+function RecoveriesTab() {
+  const list = useListState();
+  const [decision, setDecision] = useState<{
+    row: SettlementRecovery;
+    action: "approve" | "reject";
+  } | null>(null);
+  const [recording, setRecording] = useState<SettlementRecovery | null>(null);
+  const [decisionForm] = Form.useForm<{ note: string }>();
+  const [recordForm] = Form.useForm<{ reference: string; note?: string }>();
+
+  const { data, isLoading, isError, refetch } = useListQuery<SettlementRecovery>(
+    queryKeys.settlementRecoveries(list.params),
+    resources.settlementRecoveries,
+    list.params,
+  );
+
+  const decide = useAction(
+    (vars: { id: number; action: "approve" | "reject"; note: string }) =>
+      vars.action === "approve"
+        ? resources.approveSettlementRecovery(vars.id, vars.note)
+        : resources.rejectSettlementRecovery(vars.id, vars.note),
+    {
+      invalidate: [
+        ["settlement-recoveries"],
+        ["settlement-adjustments"],
+        ["settlements"],
+        ["payouts"],
+      ],
+      successMessage: "Đã ghi nhận quyết định thu hồi.",
+      onSuccess: () => {
+        setDecision(null);
+        decisionForm.resetFields();
+      },
+    },
+  );
+
+  const record = useAction(
+    (vars: { id: number; reference: string; note?: string }) =>
+      resources.recordSettlementRecovery(vars.id, {
+        reference: vars.reference,
+        note: vars.note,
+      }),
+    {
+      invalidate: [["settlement-recoveries"], ["settlements"], ["payouts"]],
+      successMessage: "Đã ghi nhận thu hồi và mở khóa chi trả.",
+      onSuccess: () => {
+        setRecording(null);
+        recordForm.resetFields();
+      },
+    },
+  );
+
+  const columns: ColumnsType<SettlementRecovery> = [
+    { title: "Đối tác", render: (_, row) => row.partner?.name ?? `#${row.partnerId}` },
+    {
+      title: "Kỳ đối soát nguồn",
+      render: (_, row) =>
+        row.adjustment?.settlement ? (
+          <Link
+            href={`/settlements/${row.adjustment.settlement.id}`}
+            className="agri-link agri-mono"
+          >
+            {row.adjustment.settlement.code}
+          </Link>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Hoàn tiền",
+      align: "right",
+      render: (_, row) =>
+        row.adjustment?.refund ? (
+          <span className="agri-nowrap">{formatMoney(row.adjustment.refund.amount)}</span>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      title: "Số tiền cần thu hồi",
+      dataIndex: "amount",
+      align: "right",
+      render: (v: string) => <strong className="agri-nowrap">{formatMoney(v)}</strong>,
+    },
+    { title: "Lý do", dataIndex: "reason", ellipsis: true },
+    {
+      title: "Trạng thái",
+      dataIndex: "status",
+      render: (s: string) => <StatusTag status={settlementRecoveryStatus(s)} />,
+    },
+    {
+      title: "Căn cứ / tham chiếu",
+      render: (_, row) => row.recoveryReference ?? row.decisionNote ?? "—",
+      ellipsis: true,
+    },
+    {
+      title: "Ngày tạo",
+      dataIndex: "createdAt",
+      render: (v: string) => <span className="agri-nowrap">{formatDateTime(v)}</span>,
+    },
+    {
+      title: "Thao tác",
+      width: 190,
+      fixed: "right",
+      render: (_, row) => {
+        if (row.status === "PENDING_APPROVAL") {
+          return (
+            <div style={{ display: "flex", gap: 4 }}>
+              <Button
+                type="link"
+                size="small"
+                style={{ paddingInline: 0 }}
+                onClick={() => {
+                  decisionForm.resetFields();
+                  setDecision({ row, action: "approve" });
+                }}
+              >
+                Phê duyệt
+              </Button>
+              <Button
+                type="link"
+                size="small"
+                danger
+                style={{ paddingInline: 0 }}
+                onClick={() => {
+                  decisionForm.resetFields();
+                  setDecision({ row, action: "reject" });
+                }}
+              >
+                Từ chối
+              </Button>
+            </div>
+          );
+        }
+        if (row.status === "APPROVED") {
+          return (
+            <Button
+              type="link"
+              size="small"
+              style={{ paddingInline: 0 }}
+              onClick={() => {
+                recordForm.resetFields();
+                setRecording(row);
+              }}
+            >
+              Ghi nhận thu hồi
+            </Button>
+          );
+        }
+        return <Tag>Đã khép lại</Tag>;
+      },
+    },
+  ];
+
+  return (
+    <>
+      <ListPage<SettlementRecovery>
+        title="Thu hồi sau đối soát"
+        searchValue={list.search}
+        onSearchChange={list.setSearch}
+        hideSearch
+        filters={[
+          {
+            key: "status",
+            placeholder: "Trạng thái",
+            value: list.filters.status,
+            options: statusOptions(SETTLEMENT_RECOVERY_STATUS),
+          },
+        ]}
+        onFilterChange={list.setFilter}
+        onReset={list.reset}
+        columns={columns}
+        data={data?.data ?? []}
+        loading={isLoading}
+        error={isError ? new Error("Không tải được danh sách thu hồi.") : undefined}
+        onRetry={() => void refetch()}
+        emptyText="Không có khoản thu hồi chờ xử lý"
+        total={data?.meta.total ?? 0}
+        page={list.page}
+        limit={list.limit}
+        onPageChange={list.setPage}
+        onLimitChange={list.setLimit}
+        scrollX={1500}
+        itemLabel="khoản thu hồi"
+      />
+
+      <FormModal
+        open={!!decision}
+        title={decision?.action === "approve" ? "Phê duyệt thu hồi" : "Từ chối thu hồi"}
+        form={decisionForm}
+        onCancel={() => {
+          setDecision(null);
+          decisionForm.resetFields();
+        }}
+        onSubmit={(values) => {
+          if (!decision) return;
+          decide.mutate({
+            id: decision.row.id,
+            action: decision.action,
+            note: String(values.note ?? "").trim(),
+          });
+        }}
+        submitting={decide.isPending}
+        okText={decision?.action === "approve" ? "Phê duyệt" : "Từ chối"}
+        width={540}
+      >
+        {decision ? (
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ marginTop: 0 }}>
+              <strong>Đối tác:</strong>{" "}
+              {decision.row.partner?.name ?? `#${decision.row.partnerId}`}
+            </p>
+            <p>
+              <strong>Số tiền:</strong> {formatMoney(decision.row.amount)}
+            </p>
+            <p>
+              <strong>Lý do:</strong> {decision.row.reason}
+            </p>
+            <p className="agri-muted" style={{ margin: 0 }}>
+              Phê duyệt không tự động trừ tiền. Khoản thu hồi chỉ khép lại khi kế toán ghi
+              nhận đã thu/đã trừ kèm mã tham chiếu. Trong lúc chờ, mọi lệnh chi trả của đối
+              tác này bị khóa.
+            </p>
+          </div>
+        ) : null}
+        <Form.Item
+          label="Căn cứ quyết định"
+          name="note"
+          rules={[{ required: true, whitespace: true, message: "Nhập căn cứ quyết định." }]}
+        >
+          <Input.TextArea rows={3} placeholder="VD: Kế toán trưởng xác nhận thu hồi qua kỳ sau" />
+        </Form.Item>
+      </FormModal>
+
+      <FormModal
+        open={!!recording}
+        title="Ghi nhận đã thu hồi"
+        form={recordForm}
+        onCancel={() => {
+          setRecording(null);
+          recordForm.resetFields();
+        }}
+        onSubmit={(values) => {
+          if (!recording) return;
+          record.mutate({
+            id: recording.id,
+            reference: String(values.reference ?? "").trim(),
+            note: String(values.note ?? "").trim() || undefined,
+          });
+        }}
+        submitting={record.isPending}
+        okText="Ghi nhận"
+        width={540}
+      >
+        {recording ? (
+          <div style={{ marginBottom: 12 }}>
+            <p style={{ marginTop: 0 }}>
+              <strong>Đối tác:</strong> {recording.partner?.name ?? `#${recording.partnerId}`}
+            </p>
+            <p>
+              <strong>Số tiền:</strong> {formatMoney(recording.amount)}
+            </p>
+          </div>
+        ) : null}
+        <Form.Item
+          label="Mã tham chiếu thu hồi"
+          name="reference"
+          rules={[{ required: true, whitespace: true, message: "Nhập mã tham chiếu." }]}
+          extra="Mã chuyển khoản hoặc mã kỳ đối soát đã trừ khoản này."
+        >
+          <Input placeholder="VD: FT2610240001 / SET-20261024-0002" />
+        </Form.Item>
+        <Form.Item label="Ghi chú" name="note">
+          <Input.TextArea rows={2} />
+        </Form.Item>
       </FormModal>
     </>
   );
@@ -573,6 +857,11 @@ export default function SettlementsPage() {
       items={[
         { key: "settlements", label: "Đối soát", children: <SettlementsTab /> },
         { key: "adjustments", label: "Điều chỉnh đối soát", children: <AdjustmentsTab /> },
+        {
+          key: "recoveries",
+          label: "Thu hồi sau đối soát",
+          children: <RecoveriesTab />,
+        },
         { key: "payouts", label: "Chi trả", children: <PayoutsTab /> },
       ]}
     />
