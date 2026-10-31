@@ -231,12 +231,12 @@ hoặc các row payment/refund đã lưu.
 | Customer typecheck | `npm run typecheck --workspace @agrimarket/customer-web` | **PASS** |
 | Customer production build | `npm run build --workspace @agrimarket/customer-web` | **PASS** |
 | Mobile typecheck | `npm run typecheck --workspace @agrimarket/mobile` | **PASS** |
-| Mobile Android bundle | `npx expo export --platform android` | **PASS** — 3.8 MB Hermes, ảnh/asset đầy đủ |
+| Mobile Android bundle | `npx expo export --platform android` | **PASS** — 3.8 MB Hermes (3.6 MB sau khi nâng SDK 58), ảnh/asset đầy đủ |
 | Browser E2E | `npx playwright test` | **14 passed / 0 failed / 0 skipped** |
 | Seed chạy lại | `DATABASE_URL=<test> npx prisma db seed` | **PASS** (sau khi sửa wipe) |
 | Bất biến DB | `node scripts/db-invariant-audit.mjs --url <test>` | **PASS — 50/50 check, 0 vi phạm** |
-| Business smoke (API build + schema test) | `node scripts/business-smoke.mjs --url <test>` | **PASS — 73/73 check**, exit 0 |
-| Security scan | `node scripts/security-scan.mjs` | **FAIL một phần** — xem mục K.6 |
+| Business smoke (API build + schema test) | `node scripts/business-smoke.mjs --url <test>` | **PASS — 72/72 check** trong gate J.1, exit 0 |
+| Security scan | `node scripts/security-scan.mjs` | **PASS toàn bộ** sau khi nâng SDK 58 (trước đó mobile còn 3 advisory — mục K.6, báo cáo 26) |
 | PDF từ bản build `dist` | render trực tiếp `dist/src/orders/order-document.service.js` | **PASS** — 45 KB, logo 512×512, 1 trang |
 | Migration verification | `node scripts/verify-migrations.mjs --url <test>` | **FAIL** trên schema test tái sử dụng; **PASS 14/14** trên schema mới `migrate deploy` — xem K.7 |
 
