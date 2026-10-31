@@ -362,7 +362,10 @@ khi winner commit.
 **NO-GO cho các điểm sau** (không tuyên bố production-ready):
 
 - Chưa kiểm chứng mobile trên thiết bị thật (share sheet, quyền truy cập file).
-- Chưa chạy staging/UAT, chưa có kiểm thử tải, chưa tích hợp cổng thanh toán thật.
+- Chưa chạy staging/UAT, chưa tích hợp cổng thanh toán thật.
+- ~~Chưa có kiểm thử tải~~ — **một phần**: đã có harness `npm run verify:load` và
+  baseline local ~250 rps trên một instance (báo cáo 27); kiểm thử tải trên
+  staging vẫn chưa chạy.
 - Chưa có đánh giá thẩm mỹ PDF/UI bởi người dùng cuối.
 - ~~Security gate mobile còn 3 advisory high **có sẵn** trong `expo-router` →
   `query-string` → `decode-uri-component`~~ — **đã đóng**: nâng Expo SDK 58, xem

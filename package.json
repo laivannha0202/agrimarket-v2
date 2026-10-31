@@ -29,6 +29,7 @@
     "verify:backup": "node scripts/backup-restore-drill.mjs",
     "verify:security": "node scripts/security-scan.mjs",
     "verify:business": "node scripts/business-smoke.mjs",
+    "verify:load": "node scripts/load-test.mjs",
     "verify:ui": "node scripts/ui-smoke.mjs",
     "backup:db": "node scripts/backup-db.mjs",
     "restore:db": "node scripts/restore-db.mjs",
