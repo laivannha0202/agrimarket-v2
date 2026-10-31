@@ -79,13 +79,22 @@ Chỉ sửa kiểu, không đổi hành vi:
 `grep decode-uri-component package-lock.json` còn 3 dòng, tất cả là gói khác tên
 `fast-decode-uri-component` — không phải advisory.
 
+Sau khi commit, chạy lại toàn bộ trên HEAD `3f12a02`:
+
+| Hạng mục | Lệnh | Kết quả |
+|---|---|---|
+| Gate một lệnh | `npm run verify:local` | **PASS 20/20** — 917 unit, 484 API E2E, 53 stress, 72 business smoke, 50×2 bất biến DB, security PASS (chi tiết: báo cáo 25 mục J.1) |
+| Browser E2E | `npx playwright test` | **14/14 PASS** (1,4 phút, Chromium, API/Admin/Customer thật trên schema `agrimarket_v2_test`) |
+
+Lần chạy browser E2E đầu tiên FAIL 11/14 vì cache token của harness sống qua lần seed
+lại (không liên quan SDK 58); đã sửa `e2e/global-setup.ts` — xem báo cáo 25 mục H.
+Không đổi assertion.
+
 ## E. Chưa kiểm chứng
 
 - Chưa chạy Expo Go trên máy thật/emulator sau khi nâng SDK (môi trường không có thiết bị).
   Đã có: typecheck, lint, bundle Android, config parse, cây phụ thuộc sạch.
 - Chưa chạy iOS. Cùng code path, chưa có thiết bị.
-- Không chạy lại browser E2E: thay đổi chỉ nằm trong `apps/mobile`; API/Admin/Customer
-  chỉ được kiểm tra hồi quy bằng typecheck + unit test ở mục D.
 
 ## F. Kết luận
 

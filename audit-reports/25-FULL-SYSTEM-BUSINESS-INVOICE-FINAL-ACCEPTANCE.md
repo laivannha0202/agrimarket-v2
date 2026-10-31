@@ -192,6 +192,15 @@ nên E2E dùng `127.0.0.1` bị chặn đăng nhập; (2) trang admin scroll nga
 (3) API rate-limit login 10/phút khiến harness tự gây 429 (đã cache token + đăng nhập
 một lần/role). Không có test nào bị bỏ qua để "cho xanh".
 
+**Chạy lại trên HEAD cuối (`3f12a02`, sau khi nâng SDK 58): 14/14 PASS** (1,4 phút,
+Chromium, API + Admin + Customer thật trên schema `agrimarket_v2_test`). Lần chạy đầu
+FAIL 11/14 vì một lỗi thật của harness, không phải của sản phẩm: `e2e/support/api.ts`
+cache bearer token trong `e2e/.auth/api-tokens.json` **qua các lần chạy**, trong khi
+global setup seed lại DB nên id user đổi — token còn hạn nhưng trỏ tới user không còn
+tồn tại, mọi call trả `401 "Invalid token"`. Đã sửa: `e2e/global-setup.ts` xoá cache
+token ngay sau khi seed (token không thể sống qua một lần re-seed). Không sửa assertion,
+không skip test nào; lần chạy lại 14/14 PASS.
+
 ## I. Đồng bộ liên hệ thống
 
 | Trường | API (snapshot) | Admin | Customer | Mobile | PDF |
@@ -231,10 +240,33 @@ hoặc các row payment/refund đã lưu.
 | PDF từ bản build `dist` | render trực tiếp `dist/src/orders/order-document.service.js` | **PASS** — 45 KB, logo 512×512, 1 trang |
 | Migration verification | `node scripts/verify-migrations.mjs --url <test>` | **FAIL** trên schema test tái sử dụng; **PASS 14/14** trên schema mới `migrate deploy` — xem K.7 |
 
-Tổng kiểm chứng tự động trong phiên: **592 unit + 484 API E2E + 14 browser E2E +
-50 bất biến DB + 73 business smoke + 14 migration check = 1.227**, tất cả PASS
-(riêng security scan có 1 gate mobile FAIL do advisory có sẵn — mục K.6). Không có test nào bị sửa assertion
-để "qua" — hai chỗ thay đổi có chủ đích:
+### J.1 Gate một lệnh trên HEAD cuối cùng — `npm run verify:local`
+
+Chạy trên HEAD `3f12a02` (sau khi nâng Expo SDK 58), schema dùng một lần
+`agrimarket_v2_c19_20261031t203538z01up_test` (drop sau khi chạy), DB ứng dụng
+`agrimarket_v2` không bị ghi. **PASS — 20/20 bước, 0 failed, 0 skipped**
+(evidence: `.tmp-verify/c19/local-20261031t203538z01up/` gồm `summary.json`,
+`manifest.json`, `SHA256SUMS.txt` và log từng bước).
+
+| Bước | Kết quả | Chi tiết |
+|---|---|---|
+| preflight | PASS | 16 check; MySQL 8.0.46; 14 migration; Playwright có sẵn |
+| generate / typecheck / lint | PASS | Prisma client; typecheck 5 workspace; lint toàn bộ |
+| unit | PASS | **917 passed / 3 skipped** — admin 48, API 592, customer 37, mobile 175 (+3 skip test gọi API live), shared-domain 65 |
+| build | PASS | API + Admin + Customer |
+| db-create / migrate / seed / locations | PASS | 14 migration; seed 6 user, 14 sản phẩm, 18 lô, 6 đơn; 1 tỉnh + 104 xã |
+| migrations | PASS | 14 migration, checksum khớp, drift exit 0 |
+| invariants | PASS | **50/50** check; trace coverage 18 lô |
+| backup | PASS | 56 bảng / 464 dòng; dump 22.531 byte, sha256 khớp, bản restore trùng |
+| api-e2e | PASS | **484/484** (22 file) |
+| stress | PASS | **53/53** với `CONCURRENCY_ROUNDS=10` (settlement/payout + money/stock) |
+| business-smoke | PASS | **72/72** HTTP/business check, 0 warning |
+| invariants-final | PASS | **50/50** sau khi chạy toàn bộ E2E |
+| security | PASS | 9 check + `npm audit`, 0 secret finding |
+| ui-smoke | PASS | 64 route/asset check |
+| cleanup | PASS | đã drop schema test |
+
+Không có test nào bị sửa assertion để "qua" — hai chỗ thay đổi có chủ đích:
 (1) test "empty period" nay kỳ vọng 400 thay vì tạo settlement rỗng (hành vi mới đúng);
 (2) test "loser" của settlement create chấp nhận 400 hoặc 409 vì loser có thể chạy sau
 khi winner commit.
@@ -290,6 +322,10 @@ khi winner commit.
 - Không có secret mới: `.env.example` chỉ thêm biến cấu hình; mật khẩu trong `e2e/support/api.ts`
   là tài khoản seed công khai, không phải secret thật.
 - Đã tạo **commit local**, không push/merge/deploy.
+- Trạng thái sau cùng: commit `3f12a02` (nâng SDK 58) và một commit cuối chỉ chứa
+  `e2e/global-setup.ts` (xoá cache token sau khi seed) + cập nhật báo cáo 25/26 —
+  không có thay đổi mã sản phẩm. Working tree sạch tại `HEAD` (`git status` trống,
+  `git diff --check` sạch).
 
 ## M. Kết luận GO/NO-GO
 
@@ -302,12 +338,15 @@ khi winner commit.
   hoàn một phần/toàn phần, đơn nhiều trang, ngày xuất, không `[object Object]`).
 - Admin order detail: redesign đủ 5 tab, loading/error/empty/permission, responsive
   390px không scroll ngang — kiểm chứng bằng browser thật ở cả 2 viewport.
-- Browser E2E: 14/14 PASS trên API + Admin + Customer thật, DB test.
+- Browser E2E: 14/14 PASS trên API + Admin + Customer thật, DB test — chạy lại lần cuối
+  trên HEAD sau khi nâng SDK 58 (sau khi sửa cache token của harness, mục H).
 - Mobile: PDF card đã tích hợp, typecheck + Android bundle PASS.
 - Bất biến DB: 50/50 check PASS trên schema test sau khi chạy toàn bộ E2E
   (không có đơn/refund/settlement/payout/tồn kho nào sai công thức).
-- Business smoke trên API đã build: 73/73 check PASS (catalog, trace, settlement reads,
+- Business smoke trên API đã build: 72/72 check PASS (catalog, trace, settlement reads,
   checkout COD + idempotent replay + cancel, đồng bộ Admin/Customer, OpenAPI mobile).
+- Gate một lệnh `npm run verify:local` trên HEAD `3f12a02`: **PASS 20/20** (917 unit,
+  484 API E2E, 53 stress, 72 business smoke, 50×2 bất biến, security PASS) — mục J.1.
 
 **NO-GO cho các điểm sau** (không tuyên bố production-ready):
 

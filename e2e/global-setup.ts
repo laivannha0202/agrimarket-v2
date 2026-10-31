@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import path from 'node:path';
 import { config as loadEnv } from 'dotenv';
 
@@ -42,4 +43,11 @@ export default async function globalSetup(): Promise<void> {
     stdio: 'inherit',
     shell: process.platform === 'win32',
   });
+
+  // The seed wipes and re-inserts users, so their ids change. `support/api.ts`
+  // caches bearer tokens per e-mail across runs; a token minted for the previous
+  // dataset still has a valid signature but points at a user id that no longer
+  // exists, and every authenticated helper call answers 401 "Invalid token".
+  // Tokens cannot survive a re-seed, so the cache is dropped with it.
+  rmSync(path.resolve(__dirname, '.auth', 'api-tokens.json'), { force: true });
 }
