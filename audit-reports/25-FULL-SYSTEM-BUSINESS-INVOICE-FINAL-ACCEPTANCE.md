@@ -260,6 +260,8 @@ khi winner commit.
    `decode-uri-component@0.5.1` là **ESM-only**, không thể override vào `query-string@7`
    (CJS) mà không phá runtime; `expo-router` được vá từ 58.0.13 (SDK 58). Vì vậy không
    sửa trong phiên này — cần nâng Expo SDK 58 ở một thay đổi riêng, có test lại bundle.
+   **Đã xử lý ở phiên sau — xem `26-EXPO-SDK-58-SECURITY-UPGRADE.md`** (mobile nay
+   0 high/critical, security scan PASS).
    `api`, `admin-web`, `customer-web`: **0 high/critical**; guardrail repo (env file,
    private key, secret pattern, CORS fail-closed) đều PASS.
 7. **Migration verification — drift có sẵn trên schema test tái sử dụng**: `verify-migrations`
@@ -312,9 +314,9 @@ khi winner commit.
 - Chưa kiểm chứng mobile trên thiết bị thật (share sheet, quyền truy cập file).
 - Chưa chạy staging/UAT, chưa có kiểm thử tải, chưa tích hợp cổng thanh toán thật.
 - Chưa có đánh giá thẩm mỹ PDF/UI bởi người dùng cuối.
-- Security gate mobile còn 3 advisory high **có sẵn** trong `expo-router` →
-  `query-string` → `decode-uri-component`; bản vá nằm ngoài SDK 57 (mục K.6), cần
-  nâng Expo SDK 58 trước khi phát hành.
+- ~~Security gate mobile còn 3 advisory high **có sẵn** trong `expo-router` →
+  `query-string` → `decode-uri-component`~~ — **đã đóng**: nâng Expo SDK 58, xem
+  báo cáo 26.
 
 Nói cách khác: hệ thống đã **sẵn sàng cho UAT local** với đầy đủ bằng chứng tự động,
 nhưng **chưa đủ căn cứ để tuyên bố production GO** khi thiếu kiểm chứng thiết bị thật

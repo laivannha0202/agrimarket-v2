@@ -324,7 +324,7 @@ export default function CatalogScreen() {
                   : undefined
               }
             />
-          ) : null
+          ) : undefined
         }
         refreshControl={
           <RefreshControl

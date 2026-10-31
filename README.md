@@ -7,7 +7,7 @@ Monorepo gồm **4 ứng dụng** chạy chung trên một backend duy nhất:
 | `apps/api`        | Backend REST API — **nguồn sự thật duy nhất**        | NestJS 12 · Prisma 7 · MySQL 8.4   | `3000`        |
 | `apps/admin-web`  | Web quản trị (đơn, kho, lô, QC, tài chính, báo cáo…) | Next.js 16 · Ant Design 6          | `3001`        |
 | `apps/customer-web` | Web khách hàng (mua hàng, tra cứu, khiếu nại…)     | Next.js 16 · Mantine 9             | `3002`        |
-| `apps/mobile`     | App khách hàng cho điện thoại (**chỉ Expo Go**)      | Expo SDK 57 · Expo Router · RN     | `8081`        |
+| `apps/mobile`     | App khách hàng cho điện thoại (**chỉ Expo Go**)      | Expo SDK 58 · Expo Router · RN     | `8081`        |
 
 > **Quy tắc vàng:** mọi con số (giá, tồn kho, phí ship, voucher, tổng tiền, trạng thái đơn)
 > đều do backend quyết định. Admin web, customer web và mobile chỉ hiển thị và gọi API —

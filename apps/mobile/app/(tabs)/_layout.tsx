@@ -47,7 +47,7 @@ function TabIcon({ routeName, focused, color }: { routeName: RouteName; focused:
   const set = ICONS[routeName];
   return (
     <View style={styles.iconWrap}>
-      <Ionicons name={focused ? set.on : set.off} size={22} color={color} />
+      <Ionicons name={focused ? set.on : set.off} size={22} color={typeof color === "string" ? color : colors.muted} />
     </View>
   );
 }
@@ -75,7 +75,11 @@ function CartTabIcon({ focused, color }: { focused: boolean; color: ColorValue }
 
   return (
     <View style={styles.iconWrap}>
-      <Ionicons name={focused ? ICONS.cart.on : ICONS.cart.off} size={22} color={color} />
+      <Ionicons
+        name={focused ? ICONS.cart.on : ICONS.cart.off}
+        size={22}
+        color={typeof color === "string" ? color : colors.muted}
+      />
       {count > 0 ? (
         <View style={styles.cartBadge}>
           <Text style={styles.cartBadgeText}>{count > 99 ? "99+" : count}</Text>

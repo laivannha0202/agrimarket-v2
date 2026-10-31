@@ -31,6 +31,7 @@ import {
   Text,
   TextInput,
   View,
+  type TextInputInstance,
 } from "react-native";
 import { GhostButton, PrimaryButton } from "../src/components/ui";
 import { ApiError, errorMessage, isNetworkError } from "../src/lib/api-client";
@@ -60,11 +61,11 @@ export default function RegisterScreen() {
   // One ref per field, so submit can focus the first invalid one and each
   // "Next" can advance to the next box. A network error must never clear what
   // the customer already typed, so the values live in state, not the inputs.
-  const fullNameRef = useRef<TextInput>(null);
-  const emailRef = useRef<TextInput>(null);
-  const phoneRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
-  const confirmRef = useRef<TextInput>(null);
+  const fullNameRef = useRef<TextInputInstance>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const phoneRef = useRef<TextInputInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
+  const confirmRef = useRef<TextInputInstance>(null);
 
   // Focusing a ref is an event-handler action, never something done during
   // render, so it lives in a named callback rather than an inline JSX arrow.
@@ -299,7 +300,7 @@ export default function RegisterScreen() {
 interface FieldProps {
   label: string;
   icon: React.ComponentProps<typeof Ionicons>["name"];
-  inputRef: React.RefObject<TextInput | null>;
+  inputRef: React.RefObject<TextInputInstance | null>;
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
