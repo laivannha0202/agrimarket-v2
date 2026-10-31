@@ -63,8 +63,9 @@ export const PAYMENT_STATUS_LABEL: Record<string, string> = {
 };
 
 export const PAYMENT_METHOD_LABEL: Record<string, string> = {
-  COD: 'Thanh toán khi nhận hàng',
+  COD: 'Thanh toán khi nhận hàng (COD)',
   VNPAY: 'VNPAY',
+  MOCK_ONLINE: 'Thanh toán trực tuyến',
 };
 
 /** Fall back to the raw enum so an unmapped value is never blank. */

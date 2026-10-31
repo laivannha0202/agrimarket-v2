@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Layout, Menu, Breadcrumb, Button, Dropdown, Avatar, Tag, type MenuProps } from "antd";
@@ -180,9 +181,14 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         onBreakpoint={(broken) => setCollapsed(broken)}
       >
         <div className="agri-brand">
-          <span className="agri-brand-mark" aria-hidden>
-            🌿
-          </span>
+          <Image
+            src="/design/brand/leaf_mark_512.png"
+            alt=""
+            width={28}
+            height={28}
+            className="agri-brand-logo"
+            priority
+          />
           {!collapsed && <span>AgriMarket Admin</span>}
         </div>
         <Menu
@@ -192,7 +198,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           style={{ borderInlineEnd: "none", paddingTop: 8, paddingBottom: 24 }}
         />
       </Sider>
-      <Layout>
+      {/*
+        A flex item defaults to `min-width: auto`, so a wide child (the five
+        order-detail tabs) used to push this column past the viewport and the
+        whole page scrolled sideways on a phone. `agri-main` pins it to the
+        space left by the sider.
+      */}
+      <Layout className="agri-main">
         <Header className="agri-header">
           <Button
             type="text"
@@ -200,12 +212,22 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed((c) => !c)}
           />
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            {user && <Tag color="green" style={{ marginInlineEnd: 0 }}>Quản trị viên</Tag>}
+          {/*
+            The role tag + full name need ~317px; together with the collapse
+            button that is wider than a 390px phone, which pushed the whole
+            page sideways. On phones only the avatar remains (the name is in
+            the dropdown menu and the page title).
+          */}
+          <div className="agri-header-user">
+            {user && (
+              <Tag color="green" className="agri-header-role" style={{ marginInlineEnd: 0 }}>
+                Quản trị viên
+              </Tag>
+            )}
             <Dropdown menu={{ items: userMenu }} placement="bottomRight" trigger={["click"]}>
               <Button type="text" style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Avatar size={28} icon={<UserOutlined />} />
-                <span>{user?.fullName ?? "Quản trị viên"}</span>
+                <span className="agri-header-name">{user?.fullName ?? "Quản trị viên"}</span>
               </Button>
             </Dropdown>
           </div>

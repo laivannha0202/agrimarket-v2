@@ -7,6 +7,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
+import { assertPaymentMethodAvailable } from './payment-methods.js';
 import { AuditService } from '../common/audit/audit.service.js';
 import { IdempotencyService } from '../common/idempotency/idempotency.service.js';
 import { IDEMPOTENCY_SCOPES } from '../common/idempotency/idempotency.constants.js';
@@ -42,15 +43,39 @@ export class PaymentsService {
   ) {}
 
   async create(dto: CreatePaymentDto) {
-    const order = await this.prisma.order.findUnique({ where: { id: dto.orderId } });
-    if (!order) throw new NotFoundException('Order not found');
-    return this.prisma.payment.create({
-      data: {
-        orderId: dto.orderId,
-        method: dto.method,
-        amount: dto.amount,
-        status: PaymentStatus.PENDING,
-      },
+    // Method must be one this deployment can settle — same rule as checkout.
+    assertPaymentMethodAvailable(dto.method);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Lock the order row first: without it, two admins both read "no payment
+      // yet" and both insert, leaving the order with two liabilities.
+      const locked = await tx.$queryRaw<Array<{ id: number }>>`
+        SELECT id FROM orders WHERE id = ${dto.orderId} FOR UPDATE
+      `;
+      if (locked.length === 0) throw new NotFoundException('Order not found');
+
+      const order = await tx.order.findUniqueOrThrow({
+        where: { id: dto.orderId },
+        select: { id: true, status: true, grandTotal: true, payments: { select: { id: true } } },
+      });
+
+      // A payment is a liability of an order, never a free input: the amount is
+      // derived from the order's grandTotal, and the client cannot choose it.
+      if (order.status === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Cannot create a payment for a cancelled order');
+      }
+      if (order.payments.length > 0) {
+        throw new ConflictException('This order already has a payment record');
+      }
+
+      return tx.payment.create({
+        data: {
+          orderId: dto.orderId,
+          method: dto.method,
+          amount: order.grandTotal,
+          status: PaymentStatus.PENDING,
+        },
+      });
     });
   }
 
@@ -511,7 +536,7 @@ export class PaymentsService {
     if (refund.status === RefundStatus.COMPLETED) {
       throw new BadRequestException('A completed refund cannot be failed');
     }
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const claimed = await tx.refund.updateMany({
         where: {
           id,

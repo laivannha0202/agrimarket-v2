@@ -22,7 +22,8 @@ import {
   SettlementAdjustmentQueryDto,
   SettlementRecoveryQueryDto,
 } from './dto/finance.dto.js';
-import type { Payout, Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import type { Payout } from '../../generated/prisma/client.js';
 import {
   PartnerOrderStatus,
   PaymentStatus,
@@ -74,21 +75,6 @@ export class SettlementsService {
     private readonly audit: AuditService,
   ) {}
 
-  /**
-   * Runs a code-generating insert, retrying when a concurrent insert claimed
-   * the same code first (unique index on `code` is the final guard).
-   */
-  private async createWithRetry<T>(create: () => Promise<T>): Promise<T> {
-    for (let attempt = 1; ; attempt += 1) {
-      try {
-        return await create();
-      } catch (error) {
-        if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
-        throw error;
-      }
-    }
-  }
-
   async create(dto: CreateSettlementDto, actorUserId: number) {
     const periodStart = new Date(dto.periodStart);
     const periodEnd = new Date(dto.periodEnd);
@@ -96,103 +82,161 @@ export class SettlementsService {
       throw new BadRequestException('periodEnd must be after periodStart');
     }
 
-    // Only DELIVERED partner orders whose ORDER actually carries collected
-    // money are settled. A delivered parcel with no PAID payment (e.g. COD not
-    // confirmed yet) is not revenue and must not be paid out. `paidAt` is part
-    // of the check so a mis-set status cannot book money never collected.
-    // `settlementLines: { none: {} }` excludes every order already claimed by a
-    // settlement (DRAFT included), so the same order can never be paid twice
-    // across two periods.
-    const partnerOrders = await this.prisma.partnerOrder.findMany({
-      where: {
-        partnerId: dto.partnerId,
-        status: PartnerOrderStatus.DELIVERED,
-        createdAt: { gte: periodStart, lte: periodEnd },
-        settlementLines: { none: {} },
-        order: {
-          payments: {
-            some: {
-              status: {
-                in: [
-                  PaymentStatus.PAID,
-                  PaymentStatus.PARTIALLY_REFUNDED,
-                  PaymentStatus.REFUNDED,
-                ],
-              },
-              paidAt: { not: null },
-            },
-          },
-        },
-      },
-    });
-
     /**
-     * Completed refunds are deducted from the line of the partner order that
-     * actually bears them:
-     *  - a refund linked to a return is a direct liability of that return's
-     *    partner order;
-     *  - an unlinked refund is spread over every partner order of the same
-     *    order by gross value (exact remainder on the last line).
-     * PENDING/APPROVED refunds are decisions, not money movements, so they are
-     * deliberately excluded; only COMPLETED reduces a settlement.
+     * SETTLEMENT vs REFUND COMPLETION
+     *
+     * A settlement snapshots the completed refunds it knows about. Reading
+     * those refunds and inserting the lines used to be separate, unlocked
+     * steps: a refund could complete in the gap and then be counted in
+     * NEITHER place — the settlement had already read the refund table (so the
+     * line deducted nothing) and `recordSettlementAdjustments` ran before the
+     * line existed (so it recorded no reconciliation row). The partner was
+     * silently overpaid and the refund left no trace.
+     *
+     * The whole create now runs in one READ COMMITTED transaction that claims
+     * every payment of the orders being settled with `FOR UPDATE` (ascending id,
+     * so two settlements cannot deadlock each other). `completeRefund` locks the
+     * same payment row before it writes, so the two operations serialise:
+     *   - refund commits first  -> its refund row is visible here and is
+     *     deducted from the line (no adjustment needed);
+     *   - settlement commits first -> the refund waits, then finds the
+     *     settlement line and records an OPEN reconciliation adjustment.
+     * Either way the money is accounted for exactly once.
      */
-    const orderIds = [...new Set(partnerOrders.map((po) => po.orderId))];
-    const refundsByPartnerOrder = await this.loadCompletedRefundAttribution(orderIds);
+    const attemptCreate = () =>
+      this.prisma.$transaction(
+        async (tx) => {
+          // Only DELIVERED partner orders whose ORDER actually carries
+          // collected money are settled. A delivered parcel with no PAID
+          // payment (e.g. COD not confirmed yet) is not revenue and must not be
+          // paid out. `paidAt` is part of the check so a mis-set status cannot
+          // book money never collected. `settlementLines: { none: {} }`
+          // excludes every order already claimed by a settlement (DRAFT
+          // included), so the same order can never be paid twice across two
+          // periods.
+          const partnerOrders = await tx.partnerOrder.findMany({
+            where: {
+              partnerId: dto.partnerId,
+              status: PartnerOrderStatus.DELIVERED,
+              createdAt: { gte: periodStart, lte: periodEnd },
+              settlementLines: { none: {} },
+              order: {
+                payments: {
+                  some: {
+                    status: {
+                      in: [
+                        PaymentStatus.PAID,
+                        PaymentStatus.PARTIALLY_REFUNDED,
+                        PaymentStatus.REFUNDED,
+                      ],
+                    },
+                    paidAt: { not: null },
+                  },
+                },
+              },
+            },
+          });
 
-    let gross = 0;
-    let refundTotal = 0;
-    let commissionTotal = 0;
-    const lines = partnerOrders.map((po) => {
-      const grossAmount = round2(Number(po.subtotal) - Number(po.discountTotal));
-      const refundAmount = round2(refundsByPartnerOrder.get(po.id) ?? 0);
-      const commissionAmount = round2(Number(po.commissionAmount));
-      const payableAmount = round2(grossAmount - refundAmount - commissionAmount);
-      gross += grossAmount;
-      refundTotal += refundAmount;
-      commissionTotal += commissionAmount;
-      return {
-        partnerOrderId: po.id,
-        grossAmount,
-        refundAmount,
-        commissionAmount,
-        payableAmount,
-      };
-    });
+          const orderIds = [...new Set(partnerOrders.map((po) => po.orderId))];
+          // A settlement is a statement about money that is actually owed for
+          // delivered, collected orders. If nothing is eligible, creating an
+          // empty DRAFT only pollutes the period (and a concurrent create that
+          // starts after the winner commits would otherwise leave a second,
+          // empty settlement behind). Fail with a business error instead.
+          if (partnerOrders.length === 0) {
+            throw new BadRequestException(
+              'No delivered, paid partner orders are eligible for this settlement period',
+            );
+          }
+          await tx.$queryRaw`
+            SELECT id FROM payments
+             WHERE order_id IN (${Prisma.join(orderIds)})
+             ORDER BY id
+               FOR UPDATE
+          `;
 
-    const adjustment = dto.adjustmentAmount ?? 0;
-    const payable = round2(gross - refundTotal - commissionTotal + adjustment);
+          /**
+           * Completed refunds are deducted from the line of the partner order
+           * that actually bears them:
+           *  - a refund linked to a return is a direct liability of that
+           *    return's partner order;
+           *  - an unlinked refund is spread over every partner order of the
+           *    same order by gross value (exact remainder on the last line).
+           * PENDING/APPROVED refunds are decisions, not money movements, so
+           * they are deliberately excluded; only COMPLETED reduces a
+           * settlement. Read AFTER the payment locks (see above).
+           */
+          const refundsByPartnerOrder = await this.loadCompletedRefundAttribution(
+            orderIds,
+            tx,
+          );
 
-    // Sequence from the highest existing code (never a row count), with a retry
-    // when a concurrent insert wins the race for the same number.
+          let gross = 0;
+          let refundTotal = 0;
+          let commissionTotal = 0;
+          const lines = partnerOrders.map((po) => {
+            const grossAmount = round2(Number(po.subtotal) - Number(po.discountTotal));
+            const refundAmount = round2(refundsByPartnerOrder.get(po.id) ?? 0);
+            const commissionAmount = round2(Number(po.commissionAmount));
+            const payableAmount = round2(grossAmount - refundAmount - commissionAmount);
+            gross += grossAmount;
+            refundTotal += refundAmount;
+            commissionTotal += commissionAmount;
+            return {
+              partnerOrderId: po.id,
+              grossAmount,
+              refundAmount,
+              commissionAmount,
+              payableAmount,
+            };
+          });
+
+          const adjustment = dto.adjustmentAmount ?? 0;
+          const payable = round2(gross - refundTotal - commissionTotal + adjustment);
+
+          // Sequence from the highest existing code (never a row count); the
+          // caller retries the whole transaction if a concurrent insert wins
+          // the race for the same number.
+          const existing = await tx.settlement.findMany({
+            where: { code: { startsWith: 'SET-' } },
+            select: { code: true },
+          });
+          const code = buildCode('SET', nextSequence(existing.map((row) => row.code), 'SET'));
+          return tx.settlement.create({
+            data: {
+              code,
+              partnerId: dto.partnerId,
+              periodStart,
+              periodEnd,
+              grossAmount: round2(gross),
+              refundAmount: round2(refundTotal),
+              commissionAmount: round2(commissionTotal),
+              adjustmentAmount: adjustment,
+              payableAmount: payable,
+              status: SettlementStatus.DRAFT,
+              lines: { create: lines },
+            },
+            include: { lines: true },
+          });
+        },
+        { isolationLevel: 'ReadCommitted' },
+      );
+
     let settlement;
     try {
-      settlement = await this.createWithRetry(async () => {
-        const existing = await this.prisma.settlement.findMany({
-          where: { code: { startsWith: 'SET-' } },
-          select: { code: true },
-        });
-        const code = buildCode('SET', nextSequence(existing.map((row) => row.code), 'SET'));
-        return this.prisma.settlement.create({
-          data: {
-            code,
-            partnerId: dto.partnerId,
-            periodStart,
-            periodEnd,
-            grossAmount: round2(gross),
-            refundAmount: round2(refundTotal),
-            commissionAmount: round2(commissionTotal),
-            adjustmentAmount: adjustment,
-            payableAmount: payable,
-            status: SettlementStatus.DRAFT,
-            lines: { create: lines },
-          },
-          include: { lines: true },
-        });
-      });
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          settlement = await attemptCreate();
+          break;
+        } catch (error) {
+          if (isUniqueViolationOn(error, 'code') && attempt < CODE_ATTEMPTS) continue;
+          throw error;
+        }
+      }
     } catch (error) {
       // A concurrent create claimed one of these partner orders first. The
-      // nested create is one transaction, so the loser leaves no partial
-      // settlement behind — it is told to reload and pick the period again.
+      // create is one transaction, so the loser leaves no partial settlement
+      // behind — it is told to reload and pick the period again.
       if (isUniqueViolationOn(error, 'partner_order_id')) {
         throw new ConflictException(
           'One or more partner orders were claimed by another settlement just now, please reload',
@@ -572,17 +616,18 @@ export class SettlementsService {
    */
   private async loadCompletedRefundAttribution(
     orderIds: number[],
+    client: Prisma.TransactionClient,
   ): Promise<Map<number, number>> {
     const result = new Map<number, number>();
     if (orderIds.length === 0) return result;
 
     const [partnerOrders, refunds] = await Promise.all([
-      this.prisma.partnerOrder.findMany({
+      client.partnerOrder.findMany({
         where: { orderId: { in: orderIds } },
         select: { id: true, orderId: true, subtotal: true, discountTotal: true },
         orderBy: { id: 'asc' },
       }),
-      this.prisma.refund.findMany({
+      client.refund.findMany({
         where: {
           status: RefundStatus.COMPLETED,
           payment: { orderId: { in: orderIds } },

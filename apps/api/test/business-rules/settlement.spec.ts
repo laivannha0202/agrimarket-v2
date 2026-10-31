@@ -142,14 +142,20 @@ describe('Settlement formula', () => {
       async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
     );
 
-    await service.create(
-      {
-        partnerId: 1,
-        periodStart: '2026-04-01T00:00:00.000Z',
-        periodEnd: '2026-04-30T23:59:59.000Z',
-      },
-      99,
-    );
+    // Nothing eligible is a business error, not an empty statement: a DRAFT
+    // with no lines is not a payable period, and a create that starts after a
+    // concurrent winner commits would otherwise leave a second, empty row.
+    await expect(
+      service.create(
+        {
+          partnerId: 1,
+          periodStart: '2026-04-01T00:00:00.000Z',
+          periodEnd: '2026-04-30T23:59:59.000Z',
+        },
+        99,
+      ),
+    ).rejects.toThrow(/No delivered, paid partner orders/);
+    expect(prisma.settlement.create).not.toHaveBeenCalled();
 
     // Money on an order still in transit is not payable: READY_TO_SHIP and
     // SHIPPING are excluded. A DELIVERED parcel whose COD was never confirmed
@@ -191,7 +197,10 @@ describe('Settlement formula', () => {
   });
 
   it('still retries a code collision (unique index on settlements.code)', async () => {
-    prisma.partnerOrder.findMany.mockResolvedValue([]);
+    // A real eligible order, otherwise the empty-period guard fires first.
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      partnerOrder({ id: 7, orderId: 10, subtotal: 100000, commissionAmount: 0 }),
+    ]);
     prisma.settlement.findMany.mockResolvedValue([{ code: 'SET-0001' }]);
     prisma.settlement.create
       .mockRejectedValueOnce(

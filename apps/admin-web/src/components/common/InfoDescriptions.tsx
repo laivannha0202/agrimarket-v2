@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Descriptions } from "antd";
+import { Descriptions, Grid } from "antd";
 import type { DescriptionsProps } from "antd";
 
 export type DescItem = {
@@ -11,16 +11,28 @@ export type DescItem = {
   span?: number;
 };
 
+const BREAKPOINTS = ["xs", "sm", "md", "lg", "xl", "xxl"] as const;
+
 /**
- * Resolve the column count for the current breakpoint.
+ * Resolve the column count for the CURRENT breakpoint.
  *
- * `column` may be a plain number or antd's responsive map, so the padding maths
- * has to read the same value antd will use.
+ * `column` may be a plain number or antd's responsive map. Reading the first
+ * entry of the map (as this helper used to) is wrong: `{ xs: 1, sm: 2 }` was
+ * normalised for one column while antd rendered two, and on a phone a
+ * `span: 2` item exceeded `column: 1` — which is exactly the
+ * "Sum of column `span` in a line not match `column`" warning, with antd
+ * silently clamping the row. `useBreakpoint` gives the same value antd uses.
  */
-function resolveColumn(column: number | Record<string, number>): number {
+function useActiveColumn(column: number | Record<string, number>): number {
+  const screens = Grid.useBreakpoint();
   if (typeof column === "number") return column;
-  const first = Object.values(column)[0];
-  return typeof first === "number" ? first : 1;
+  let active = column.xs ?? 1;
+  for (const bp of BREAKPOINTS) {
+    const value = column[bp];
+    if (typeof value !== "number") continue;
+    if (bp === "xs" || screens[bp]) active = value;
+  }
+  return active;
 }
 
 /**
@@ -50,7 +62,10 @@ function resolveColumn(column: number | Record<string, number>): number {
  * and a page can add or remove a field without breaking its own layout.
  */
 function normalizeSpans(items: DescItem[], column: number): DescItem[] {
-  if (column <= 1 || items.length === 0) return items;
+  if (items.length === 0) return items;
+  // A single-column grid has no room for a full-width span; leaving `span: 2`
+  // in place is what antd complains about (and then clamps silently).
+  if (column <= 1) return items.map((i) => (i.span && i.span > 1 ? { ...i, span: 1 } : i));
 
   const out: DescItem[] = [];
   let filled = 0;
@@ -89,11 +104,12 @@ export function InfoDescriptions({
   items: DescItem[];
   column?: number | Record<string, number>;
 }) {
+  const activeColumn = useActiveColumn(column);
   const props: DescriptionsProps = {
     column,
     size: "middle",
     bordered: true,
-    items: normalizeSpans(items, resolveColumn(column)).map((i) => ({
+    items: normalizeSpans(items, activeColumn).map((i) => ({
       key: i.key,
       label: i.label,
       children: i.children,

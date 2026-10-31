@@ -32,7 +32,8 @@ import { calculateShippingFee } from './shipping-policy.js';
 import { LocationsService } from '../locations/locations.service.js';
 import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
 import { normalizeWhitespace } from '../common/utils/vietnamese-text.js';
-import { orderReservationTtlMs } from './reservation-policy.js';
+import { reservationTtlMsForMethod } from './reservation-policy.js';
+import { assertPaymentMethodAvailable } from '../payments/payment-methods.js';
 import type { Order, Prisma } from '../../generated/prisma/client.js';
 import {
   InventoryMovementType,
@@ -262,6 +263,67 @@ const customerOrderInclude = {
   voucherRedemptions: true,
 } satisfies Prisma.OrderInclude;
 
+/**
+ * Admin order detail payload.
+ *
+ * Adds the internal finance trail (partner commission -> settlement line ->
+ * payouts, plus late-refund reconciliation rows) and the full shipment event
+ * timeline on top of the customer shape. It is read-only: nothing here is
+ * recomputed, and every amount is the stored snapshot. Customers never receive
+ * this shape — `findOneForCustomer` keeps its own whitelist.
+ */
+const adminOrderInclude = {
+  customer: { select: { id: true, fullName: true, email: true, phone: true } },
+  partnerOrders: {
+    include: {
+      partner: { select: { id: true, code: true, name: true } },
+      items: {
+        include: {
+          productVariant: { select: { saleUnit: true, weightUnit: true } },
+          allocations: {
+            include: { productLot: { select: { code: true, traceCode: true, unit: true } } },
+          },
+        },
+      },
+      shipments: {
+        include: { events: { orderBy: { occurredAt: 'asc' as const } } },
+        orderBy: { id: 'asc' as const },
+      },
+      fulfillments: true,
+      settlementLines: {
+        include: {
+          settlement: {
+            select: {
+              id: true,
+              code: true,
+              status: true,
+              payableAmount: true,
+              refundAmount: true,
+              adjustmentAmount: true,
+              confirmedAt: true,
+              payouts: {
+                select: {
+                  id: true,
+                  code: true,
+                  amount: true,
+                  status: true,
+                  reference: true,
+                  paidAt: true,
+                },
+                orderBy: { id: 'asc' as const },
+              },
+            },
+          },
+        },
+      },
+      settlementAdjustments: { orderBy: { id: 'asc' as const } },
+    },
+    orderBy: { id: 'asc' as const },
+  },
+  payments: { include: { refunds: true } },
+  voucherRedemptions: true,
+} satisfies Prisma.OrderInclude;
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -444,6 +506,11 @@ export class OrdersService {
     const lines = await this.resolveLines(rawItems, customerId);
 
     const paymentMethod = dto.paymentMethod ?? PaymentMethod.COD;
+    // A method in the enum is not a method this deployment can settle. Online
+    // gateways are refused until one is actually integrated, so an order can
+    // never be created in a state that can only be paid by a callback that
+    // does not exist.
+    assertPaymentMethodAvailable(paymentMethod);
     const checkoutSource = resolveCheckoutSource(dto);
     const now = new Date();
 
@@ -556,7 +623,11 @@ export class OrdersService {
             // sweep only cancels orders whose deadline has passed AND that have
             // no paid payment and no shipment.
             reservationExpiresAt: new Date(
-              now.getTime() + orderReservationTtlMs(process.env.ORDER_RESERVATION_TTL_MINUTES),
+              now.getTime() +
+                reservationTtlMsForMethod(paymentMethod, {
+                  defaultTtl: process.env.ORDER_RESERVATION_TTL_MINUTES,
+                  codTtl: process.env.ORDER_RESERVATION_TTL_MINUTES_COD,
+                }),
             ),
             note: dto.note,
           },
@@ -1037,7 +1108,12 @@ export class OrdersService {
         partnerOrders: {
           include: {
             partner: { select: { id: true, code: true, name: true } },
-            items: true,
+            items: {
+              include: {
+                productVariant: { select: { saleUnit: true, weightUnit: true } },
+                allocations: { include: { productLot: { select: { code: true, traceCode: true, unit: true } } } },
+              },
+            },
             shipments: true,
             fulfillments: true,
           },
@@ -1050,6 +1126,16 @@ export class OrdersService {
     if (customerId !== undefined && order.customerId !== customerId) {
       throw new NotFoundException('Order not found');
     }
+    return order;
+  }
+
+  /** Admin detail: the full operational + internal-finance view of one order. */
+  async findOneForAdmin(id: number) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+      include: adminOrderInclude,
+    });
+    if (!order) throw new NotFoundException('Order not found');
     return order;
   }
 

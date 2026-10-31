@@ -56,6 +56,19 @@ async function wipe() {
   // Delete children before parents (respecting FK order).
   await prisma.auditLog.deleteMany();
 
+  // Quarantine cases point at orders, return requests, warehouses, lots,
+  // variants and users, so they must go before any of those. They were added
+  // after the original wipe order, which made `db seed` fail with a foreign
+  // key error on any database that already had a case.
+  await prisma.quarantineCase.deleteMany();
+
+  // Auth artefacts and API idempotency rows reference users (and, for
+  // checkout keys, orders). The E2E suites create them, so a re-seed after a
+  // test run must clear them too.
+  await prisma.passwordResetToken.deleteMany();
+  await prisma.appIdempotencyKey.deleteMany();
+  await prisma.checkoutIdempotencyKey.deleteMany();
+
   // Settlement / payout chain
   await prisma.settlementLine.deleteMany();
   await prisma.payout.deleteMany();
@@ -63,6 +76,7 @@ async function wipe() {
   await prisma.commissionRule.deleteMany();
 
   // Return / refund / review / complaint (all reference order_item)
+  await prisma.evidenceImage.deleteMany();
   await prisma.returnRequest.deleteMany();
   await prisma.refund.deleteMany();
   await prisma.review.deleteMany();

@@ -18,6 +18,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Badge, Card, EmptyView, ErrorView, LinkPress, LoadingView } from "../../src/components/ui";
+import { OrderPdfCard } from "../../src/components/OrderPdfCard";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
 import { formatDateTime, formatMoney, formatQuantity } from "../../src/lib/format";
 import { resources } from "../../src/lib/resources";
@@ -191,6 +192,9 @@ export default function OrderDetailScreen() {
           </Pressable>
         </Card>
 
+        {/* ------------------------------------------------------- document -- */}
+        <OrderPdfCard orderId={o.id} orderCode={o.code} />
+
         {/* ------------------------------------------------------- progress -- */}
         <Card>
           <Text style={styles.section}>Tiến trình đơn hàng</Text>
@@ -349,8 +353,8 @@ export default function OrderDetailScreen() {
           ) : null}
           {o.voucherRedemptions.map((v) => (
             <View key={v.id} style={styles.totalRow}>
-              <Text style={styles.muted}>Mã giảm giá #{v.voucherId}</Text>
-              <Text style={styles.discount}>−{formatMoney(v.discountAmount)}</Text>
+              <Text style={styles.muted}>Mã voucher #{v.voucherId}</Text>
+              <Text style={styles.discount}>đã tính trong Giảm giá</Text>
             </View>
           ))}
           <View style={styles.totalRow}>

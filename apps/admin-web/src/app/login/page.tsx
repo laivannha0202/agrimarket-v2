@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button, Card, Form, Input, Alert } from "antd";
 import { LockOutlined, MailOutlined } from "@ant-design/icons";
@@ -45,9 +46,14 @@ export default function LoginPage() {
     <div className="agri-login">
       <Card className="agri-login-card" variant="borderless">
         <div className="agri-login-brand">
-          <span className="agri-brand-mark" aria-hidden>
-            🌿
-          </span>
+          <Image
+            src="/design/brand/leaf_mark_512.png"
+            alt=""
+            width={28}
+            height={28}
+            className="agri-brand-logo"
+            priority
+          />
           <span>AgriMarket Admin</span>
         </div>
         {error ? (

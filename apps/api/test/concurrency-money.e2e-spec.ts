@@ -471,12 +471,13 @@ describe.skipIf(!hasTestDb)('AgriMarket API — money & stock race acceptance (e
           ),
         ]);
 
-        // At least one create must succeed; a losing create that hits the DB
-        // unique guard must come back as a 409 conflict, never a silent
-        // double-claim.
+        // At least one create must succeed. The loser is either a 409 (both
+        // read the same unclaimed set and the unique guard fired) or a 400
+        // ("no eligible orders" — it started after the winner committed and
+        // the orders were already claimed). Neither may silently double-claim.
         expect(res.some((x) => x.status === 'fulfilled')).toBe(true);
         for (const rejected of res.filter((x) => x.status === 'rejected')) {
-          expect((rejected as PromiseRejectedResult).reason?.status).toBe(409);
+          expect([400, 409]).toContain((rejected as PromiseRejectedResult).reason?.status);
         }
 
         const lines = await prisma.settlementLine.findMany({

@@ -14,11 +14,11 @@ export class CreatePaymentDto {
   @IsEnum(PaymentMethod)
   method!: PaymentMethod;
 
-  @ApiProperty({ example: 250000 })
+  @ApiPropertyOptional({ example: 250000, description: 'Ignored: the amount is derived from the order grandTotal' })
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0)
-  amount!: number;
+  amount?: number;
 }
 
 export class UpdatePaymentStatusDto {

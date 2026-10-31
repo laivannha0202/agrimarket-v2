@@ -43,6 +43,13 @@ Thumbs.db
 .playwright-mcp/
 .tmp-verify/
 
+# Playwright: saved browser sessions contain live JWTs, and the report/trace
+# output is build artefact, not source.
+e2e/.auth/
+test-results/
+playwright-report/
+blob-report/
+
 # Expo local state (device history, dev-server settings) even if an app-level
 # .gitignore is ever removed: `npx expo-doctor` flags it, and it is machine-specific.
 .expo/

@@ -549,6 +549,13 @@ export interface OrderItem {
   discountAmount: string;
   createdAt: string;
   updatedAt: string;
+  /** Units only; the admin detail payload selects `saleUnit`/`weightUnit`. */
+  productVariant?: { saleUnit?: string | null; weightUnit?: string | null } | null;
+  allocations?: Array<{
+    id: number;
+    quantity: string;
+    productLot?: { code?: string | null; traceCode?: string | null; unit?: string | null } | null;
+  }>;
 }
 
 export interface PartnerOrder {
@@ -567,6 +574,58 @@ export interface PartnerOrder {
   items?: OrderItem[];
   shipments?: Shipment[];
   fulfillments?: Fulfillment[];
+  /** Present on the admin detail payload only (one line per partner order). */
+  settlementLines?: OrderSettlementLine[];
+  settlementAdjustments?: OrderSettlementAdjustment[];
+}
+
+/**
+ * Internal settlement trail for one partner order.
+ *
+ * These rows are what the back office reconciles against: the commission that
+ * was charged, the refund snapshot taken when the statement was built, and the
+ * payouts actually requested for that statement. The admin page only displays
+ * them — no amount is recomputed from the order.
+ */
+export interface OrderSettlementLine {
+  id: number;
+  settlementId: number;
+  partnerOrderId: number;
+  grossAmount: string;
+  refundAmount: string;
+  commissionAmount: string;
+  payableAmount: string;
+  settlement?: {
+    id: number;
+    code: string;
+    status: string;
+    payableAmount: string;
+    refundAmount: string;
+    adjustmentAmount: string;
+    confirmedAt: string | null;
+    payouts?: {
+      id: number;
+      code: string;
+      amount: string;
+      status: string;
+      reference: string | null;
+      paidAt: string | null;
+    }[];
+  };
+}
+
+export interface OrderSettlementAdjustment {
+  id: number;
+  partnerOrderId: number | null;
+  refundId: number | null;
+  amount: string;
+  type: string;
+  status: string;
+  resolution: string | null;
+  reason: string;
+  resolutionNote: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
 }
 
 /**

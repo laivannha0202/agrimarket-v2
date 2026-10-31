@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Res,
   Headers,
   Param,
   ParseIntPipe,
@@ -11,6 +12,8 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrdersService } from './orders.service.js';
+import { OrderDocumentService } from './order-document.service.js';
+import type { Response } from 'express';
 import { CheckoutDto, CheckoutPreviewDto } from './dto/checkout.dto.js';
 import { MyOrderQueryDto, OrderQueryDto, UpdateOrderStatusDto } from './dto/order-status.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -20,7 +23,10 @@ import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.
 @ApiTags('orders')
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly orderDocuments: OrderDocumentService,
+  ) {}
 
   /**
    * The idempotency key can be sent as a body field or as the standard
@@ -103,7 +109,7 @@ export class OrdersController {
   @Get(':id')
   @ApiOperation({ summary: 'Get an order (ADMIN)' })
   findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.ordersService.findOne(id);
+    return this.ordersService.findOneForAdmin(id);
   }
 
   @Roles('ADMIN')
@@ -123,4 +129,34 @@ export class OrdersController {
   ) {
     return this.ordersService.updateStatus(id, dto.status, user.id);
   }
+  @Roles('ADMIN', 'CUSTOMER')
+  @ApiBearerAuth()
+  @Get(':id/pdf')
+  @ApiOperation({ summary: 'Download order confirmation PDF' })
+  async orderPdf(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Res() res: Response,
+  ): Promise<void> {
+    const customerId = user.role === 'CUSTOMER' ? user.id : undefined;
+    const buffer = await this.orderDocuments.renderOrderPdf(id, customerId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="order-' + id + '.pdf"');
+    res.end(buffer);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get(':id/packing-slip')
+  @ApiOperation({ summary: 'Download packing slip PDF (ADMIN)' })
+  async packingSlip(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ): Promise<void> {
+    const buffer = await this.orderDocuments.renderPackingSlip(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="packing-' + id + '.pdf"');
+    res.end(buffer);
+  }
+
 }

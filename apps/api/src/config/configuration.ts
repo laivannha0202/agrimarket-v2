@@ -1,4 +1,7 @@
-import { resolveOrderReservationTtlMinutes } from '../orders/reservation-policy.js';
+import {
+  resolveCodReservationTtlMinutes,
+  resolveOrderReservationTtlMinutes,
+} from '../orders/reservation-policy.js';
 
 /**
  * Hardening for the JWT signing secret.
@@ -110,6 +113,8 @@ export interface AppConfig {
   smtpPassword: string;
   /** Minutes a PENDING_CONFIRMATION order keeps its stock reservation. */
   orderReservationTtlMinutes: number;
+  /** Minutes a COD order keeps its stock reservation while a human confirms. */
+  orderReservationTtlMinutesCod: number;
 }
 
 export default (): AppConfig => ({
@@ -136,5 +141,8 @@ export default (): AppConfig => ({
   // can never disagree about the value.
   orderReservationTtlMinutes: resolveOrderReservationTtlMinutes(
     process.env.ORDER_RESERVATION_TTL_MINUTES,
+  ),
+  orderReservationTtlMinutesCod: resolveCodReservationTtlMinutes(
+    process.env.ORDER_RESERVATION_TTL_MINUTES_COD,
   ),
 });

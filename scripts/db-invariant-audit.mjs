@@ -209,16 +209,23 @@ const CHECKS = [
   {
     name: 'partner_order_total_mismatch',
     domain: 'orders',
-    description: 'partner-order subtotals add up to the order subtotal',
+    description:
+      'partner-order subtotals add up to the order subtotal, and partner discounts plus the platform-funded voucher add up to the order discount',
     sql: `SELECT COUNT(*) AS c FROM (
             SELECT o.id, o.subtotal, o.discount_total,
                    SUM(po.subtotal) AS partner_subtotal,
-                   SUM(po.discount_total) AS partner_discount
+                   SUM(po.discount_total) AS partner_discount,
+                   COALESCE(v.voucher_discount, 0) AS voucher_discount
               FROM orders o
               JOIN partner_orders po ON po.order_id = o.id
-             GROUP BY o.id, o.subtotal, o.discount_total
+              LEFT JOIN (
+                    SELECT order_id, SUM(discount_amount) AS voucher_discount
+                      FROM voucher_redemptions
+                     GROUP BY order_id
+                   ) v ON v.order_id = o.id
+             GROUP BY o.id, o.subtotal, o.discount_total, v.voucher_discount
             HAVING ABS(partner_subtotal - o.subtotal) > 0.01
-                OR ABS(partner_discount - o.discount_total) > 0.01
+                OR ABS(partner_discount + voucher_discount - o.discount_total) > 0.01
           ) x`,
   },
   {

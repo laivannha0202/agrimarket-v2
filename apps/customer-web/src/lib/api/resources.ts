@@ -185,6 +185,13 @@ export const resources = {
   getMyOrder: (id: number) => api.get<Order>(`/orders/me/${id}`),
 
   /**
+   * Own order confirmation PDF. The backend scopes the document to the caller
+   * (a CUSTOMER token may only read its own order), so the same route is safe
+   * for the storefront and the admin app.
+   */
+  orderPdf: (id: number) => api.download(`/orders/${id}/pdf`),
+
+  /**
    * Checkout. The backend re-resolves prices, re-validates the voucher and
    * re-checks sellable stock, then FEFO-allocates. The client never sends a
    * price and never chooses a lot.

@@ -36,15 +36,17 @@ import {
   IconCircleX,
   IconClock,
   IconCreditCard,
+  IconFileText,
   IconMapPin,
   IconMessageCircle,
+  IconPrinter,
   IconQrcode,
   IconStar,
   IconTruck,
   IconUser,
 } from "@tabler/icons-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notifications } from "@mantine/notifications";
 import { ApiError } from "@/lib/api/client";
@@ -287,6 +289,145 @@ function PartnerOrderCard({ partnerOrder }: { partnerOrder: PartnerOrder }) {
   );
 }
 
+/** Trigger a browser save-as from an object URL. */
+function saveBlob(url: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/**
+ * Customer-facing order document.
+ *
+ * The PDF is produced by the backend from the order snapshot, fetched with the
+ * session token (never a token in the URL) and shown as the real bytes in an
+ * iframe. "In phiếu" prints that same viewer; if a browser refuses to script
+ * its PDF plugin, the file is opened in a tab so the customer can still print
+ * or save it.
+ */
+function OrderDocumentCard({ orderId, code }: { orderId: number; code: string }) {
+  const [busy, setBusy] = useState<null | "view" | "download">(null);
+  const [preview, setPreview] = useState<{ url: string; filename: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    const url = preview?.url;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [preview]);
+
+  const load = async (mode: "view" | "download") => {
+    setBusy(mode);
+    setError(null);
+    try {
+      const { blob, filename } = await resources.orderPdf(orderId);
+      const url = URL.createObjectURL(blob);
+      if (mode === "view") {
+        setPreview({ url, filename });
+      } else {
+        saveBlob(url, filename);
+        window.setTimeout(() => URL.revokeObjectURL(url), 5_000);
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Không tải được phiếu đơn hàng.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const print = () => {
+    const frame = frameRef.current;
+    try {
+      frame?.contentWindow?.focus();
+      frame?.contentWindow?.print();
+    } catch {
+      if (preview) window.open(preview.url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  return (
+    <AppCard padding={16}>
+      <SectionTitle>Phiếu đơn hàng</SectionTitle>
+      <Text fz={12.5} lh="18px" c="var(--agri-muted)" mb={8}>
+        Phiếu xác nhận do hệ thống tạo từ dữ liệu của đơn này. Bản xem trước là
+        chính tệp PDF, không phải bản HTML khác.
+      </Text>
+      <Group gap={8} wrap="wrap">
+        <GhostButton
+          onClick={() => void load("view")}
+          loading={busy === "view"}
+          radius={8}
+          size="compact-sm"
+          leftSection={<IconFileText size={15} aria-hidden />}
+          styles={{ root: { minHeight: 34 }, label: { fontSize: 12.5, fontWeight: 600 } }}
+        >
+          Xem phiếu
+        </GhostButton>
+        <GhostButton
+          onClick={() => void load("download")}
+          loading={busy === "download"}
+          radius={8}
+          size="compact-sm"
+          leftSection={<IconFileText size={15} aria-hidden />}
+          styles={{ root: { minHeight: 34 }, label: { fontSize: 12.5, fontWeight: 600 } }}
+        >
+          Tải PDF
+        </GhostButton>
+      </Group>
+      {error ? (
+        <Text fz={12} lh="17px" c="var(--agri-danger)" mt={8}>
+          {error}
+        </Text>
+      ) : null}
+
+      <Modal
+        opened={!!preview}
+        onClose={() => setPreview(null)}
+        title={`Phiếu đơn ${code}`}
+        centered
+        size="xl"
+      >
+        {preview ? (
+          <iframe
+            ref={frameRef}
+            src={preview.url}
+            title={`Phiếu đơn ${code}`}
+            style={{ width: "100%", height: "70vh", border: 0 }}
+          />
+        ) : null}
+        <Group justify="flex-end" gap={8} mt={12}>
+          <Button variant="default" radius={8} onClick={() => setPreview(null)}>
+            Đóng
+          </Button>
+          <Button
+            variant="light"
+            radius={8}
+            leftSection={<IconPrinter size={15} aria-hidden />}
+            onClick={print}
+          >
+            In phiếu
+          </Button>
+          <Button
+            radius={8}
+            onClick={() => {
+              if (preview) saveBlob(preview.url, preview.filename);
+            }}
+          >
+            Tải xuống
+          </Button>
+        </Group>
+      </Modal>
+    </AppCard>
+  );
+}
+
 function PaymentCard({ payment, order }: { payment: Payment | undefined; order: Order }) {
   const meta = payment ? paymentStatusMeta(payment.status) : null;
 
@@ -315,10 +456,10 @@ function PaymentCard({ payment, order }: { payment: Payment | undefined; order: 
       {order.voucherRedemptions.map((redemption) => (
         <Group key={redemption.id} justify="space-between" gap={12} wrap="nowrap" py={3}>
           <Text fz={13} c="var(--agri-muted)">
-            Mã giảm giá #{redemption.voucherId}
+            Mã voucher #{redemption.voucherId}
           </Text>
-          <Text fz={13.5} fw={700} c="var(--agri-primary)">
-            −{formatMoney(redemption.discountAmount)}
+          <Text fz={13.5} fw={600} c="var(--agri-primary)">
+            đã tính trong Giảm giá
           </Text>
         </Group>
       ))}
@@ -551,6 +692,8 @@ export function OrderDetail({ orderId }: { orderId: number }) {
           {/* ------------------------------------------------------ aside ---- */}
           <Stack gap={8} w={{ base: "100%", md: 340 }} style={{ flexShrink: 0 }}>
             <PaymentCard payment={payment} order={order} />
+
+            <OrderDocumentCard orderId={order.id} code={order.code} />
 
             {canCancel ? (
               <AppCard padding={16}>

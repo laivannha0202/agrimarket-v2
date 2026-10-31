@@ -202,6 +202,32 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => apiFetch<T>(path, { method: "PATCH", body }),
   delete: <T>(path: string, params?: Record<string, QueryValue>) =>
     apiFetch<T>(path, { method: "DELETE", params }),
+  /**
+   * Authenticated binary download (order PDF).
+   *
+   * The bytes are fetched with the bearer token and turned into a blob, so the
+   * token never appears in a URL or a browser history entry. The filename is
+   * read from `Content-Disposition` (the backend sets it) and falls back to a
+   * safe name.
+   */
+  download: async (path: string): Promise<{ blob: Blob; filename: string }> => {
+    const token = getToken();
+    let res: Response;
+    try {
+      res = await fetch(buildUrl(path), {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        cache: "no-store",
+      });
+    } catch {
+      throw new ApiError(0, "Không kết nối được máy chủ. Vui lòng kiểm tra kết nối.");
+    }
+    if (!res.ok) {
+      throw new ApiError(res.status, extractMessage(res.status, await parseBody(res)));
+    }
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    return { blob: await res.blob(), filename: match?.[1] ?? "order.pdf" };
+  },
 };
 
 /**

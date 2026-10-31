@@ -63,6 +63,8 @@ export const resources = {
   // Orders
   orders: (p?: ListParams) => api.get<Paginated<Order>>("/orders", toQuery(p)),
   order: (id: number | string) => api.get<Order>(`/orders/${id}`),
+  orderPdf: (id: number | string) => api.download(`/orders/${id}/pdf`),
+  packingSlip: (id: number | string) => api.download(`/orders/${id}/packing-slip`),
   updateOrderStatus: (id: number | string, status: string) =>
     api.patch<Order>(`/orders/${id}/status`, { status }),
 
