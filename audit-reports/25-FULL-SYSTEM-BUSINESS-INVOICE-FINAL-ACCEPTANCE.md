@@ -262,7 +262,7 @@ Chạy trên HEAD `3f12a02` (sau khi nâng Expo SDK 58), schema dùng một lầ
 | stress | PASS | **53/53** với `CONCURRENCY_ROUNDS=10` (settlement/payout + money/stock) |
 | business-smoke | PASS | **72/72** HTTP/business check, 0 warning |
 | invariants-final | PASS | **50/50** sau khi chạy toàn bộ E2E |
-| security | PASS | 9 check + `npm audit`, 0 secret finding |
+| security | PASS | 9 check + `npm audit --omit=dev` theo workspace, 0 secret finding |
 | ui-smoke | PASS | 64 route/asset check |
 | cleanup | PASS | đã drop schema test |
 
@@ -310,6 +310,17 @@ khi winner commit.
    C-08 và C-14). Schema drill đã được xoá sau khi kiểm tra. Việc còn lại chỉ là
    `prisma migrate reset` schema test dùng-một-lần (thao tác phá huỷ dữ liệu nên cần
    người dùng xác nhận) nếu muốn schema test hết drift.
+8. **`npm audit` toàn repo vẫn báo 1 high + 41 moderate — toàn bộ ở dev/test path**:
+   gate chỉ audit **dependency production** (`--omit=dev`, theo từng workspace) nên
+   không thấy nhóm này. Kiểm tra lại trên HEAD `24273c2`:
+   `npm audit --omit=dev --workspace @agrimarket/api` → **0 high/critical**, 10 moderate;
+   `npm audit` toàn repo → 42 mục, trong đó mục high duy nhất là `undici@8.12.1`
+   (GHSA-4qv8-2p9j-2685 và 8 advisory khác) kéo vào qua `jsdom@30.1.3` —
+   devDependency của `admin-web` dùng cho môi trường test, không nằm trong bundle
+   Admin/Customer/API/Mobile và không có `effects` lan sang package khác.
+   Moderate còn lại đến từ chuỗi `exceljs` → `archiver`/`glob`/`minimatch`/`uuid`
+   trong API; bản vá `uuid@11` là major, `exceljs@3.4.0` là hạ cấp phá vỡ API nên
+   không sửa trong phiên này. Cần theo dõi khi có bản `exceljs` mới.
 
 ## L. Git
 
