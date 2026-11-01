@@ -560,7 +560,7 @@ the address the customer chose.
 | GET    | `/payouts`                 | ADMIN  | List payouts (`status`)           |
 | POST   | `/payouts`                 | ADMIN  | Create a payout                   |
 | POST   | `/payouts/:id/pay`         | ADMIN  | Mark a payout as paid             |
-| GET    | `/finance/reconciliation`  | ADMIN  | Read-only payment/settlement reconciliation (`from`, `to`, `page`, `limit`) |
+| GET    | `/finance/reconciliation`  | ADMIN  | Read-only payment/settlement reconciliation (`from`, `to`, `status`, `issue`, `collection`, `refundState`, `search`, `includeMatched`, `page`, `limit`) |
 
 `POST /settlements` only claims a partner order when the order is `DELIVERED`
 **and** its payments show full collection evidence: `Σ payments.amount` with
@@ -570,7 +570,9 @@ for the full partner payable.
 
 `GET /finance/reconciliation` answers "which orders disagree about money" without
 writing anything. Each row carries `obligation`, `collected`, `refunded`,
-`outstanding`, `refundState` (`NONE` / `PARTIAL` / `FULL`) and an `issues` list:
+`outstanding`, `collection` (`NONE` / `PARTIAL` / `FULL` / `OVER`),
+`refundState` (`NONE` / `PARTIAL` / `FULL`), the `settlements` that already
+claimed the order, and an `issues` list:
 
 | Issue | Meaning |
 |---|---|
@@ -579,9 +581,17 @@ writing anything. Each row carries `obligation`, `collected`, `refunded`,
 | `SETTLED_WITHOUT_FULL_COLLECTION` | A settlement line exists while collection is short |
 | `REFUND_WITHOUT_COLLECTION` | A COMPLETED refund belongs to a payment never collected |
 | `REFUND_STATUS_MISMATCH` | Payment status disagrees with the COMPLETED refund total |
+| `MISSING_COLLECTION_EVIDENCE` | A payment claims money moved (`PAID`/`*_REFUNDED`) but has no `paid_at`, so it is not counted as collected |
 
 `refundState` is reported separately on purpose: a fully refunded order and an
 under-collected one look alike in a totals column but mean opposite things.
+
+Filters (`status`, `issue`, `collection`, `refundState`, `search`) narrow the
+**list** only; `summary` (including `byIssue` and `byCollection`) always
+describes the scanned window, so opening a tab cannot make a period look
+healthier than it is. `includeMatched=true` also lists orders with no finding —
+needed for the "already fully collected" and "nothing collected yet" views.
+Unknown enum values are rejected with 400 (the query is whitelisted).
 
 `PATCH /payments/:id/status` accepts `PAID` / `FAILED` only. `PARTIALLY_REFUNDED`
 and `REFUNDED` are **derived** from COMPLETED refunds and can only be reached

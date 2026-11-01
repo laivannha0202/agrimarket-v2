@@ -248,6 +248,16 @@ payableAmount = grossAmount − refundAmount − commissionAmount + adjustmentAm
   a PAID row whose amount is short is skipped and logged, and the finance
   reconciliation view lists it as `UNDER_COLLECTED` /
   `SETTLED_WITHOUT_FULL_COLLECTION`.
+- The collection rule lives in **one** place —
+  `apps/api/src/common/utils/payment-collection.ts` (`collectedAmount`,
+  `hasFullCollection`, `MONEY_EPSILON`) — and both the settlement guard and the
+  reconciliation report import it. Two copies of "how much did we actually
+  receive" would eventually disagree, and then an order could be settleable and
+  under-collected at the same time.
+- A payment that claims money moved (`PAID`, `PARTIALLY_REFUNDED`, `REFUNDED`)
+  but carries no `paid_at` is **not** counted as collected and is reported as
+  `MISSING_COLLECTION_EVIDENCE`. The money it claims is invisible until the
+  timestamp is recorded through the normal collection flow.
 - A fully refunded order still gets a line (refund deducted, net 0). It is shown
   at zero rather than omitted, so a period can be reconciled against the order
   list; `refundState = FULL` distinguishes it from an order that was never fully
