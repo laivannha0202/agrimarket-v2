@@ -91,6 +91,19 @@ export default defineConfig({
         viewport: { width: 1366, height: 900 },
       },
     },
+    {
+      // Evidence run for the visual acceptance: writes screenshots into
+      // `audit-reports/assets/29/` at 1440, 768 and 390 px.
+      name: 'visual-acceptance',
+      testDir: './e2e/visual',
+      dependencies: ['admin-setup', 'customer-setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: ADMIN_URL,
+        storageState: 'e2e/.auth/admin.json',
+        viewport: { width: 1440, height: 900 },
+      },
+    },
   ],
   webServer: [
     {
