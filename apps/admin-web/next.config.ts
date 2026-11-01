@@ -8,7 +8,12 @@ import type { NextConfig } from "next";
 // of which can be prerendered. Since there is nothing to cache for a
 // client-only dashboard, Cache Components is disabled.
 const nextConfig: NextConfig = {
-  /* config options here */
+  /**
+   * Workspace packages ship raw TypeScript (`main`/`exports` point at `src/*.ts`),
+   * so they must be compiled by the Next.js compiler instead of being treated as
+   * pre-built runtime code from `node_modules`.
+   */
+  transpilePackages: ["@agrimarket/shared-domain"],
 };
 
 export default nextConfig;

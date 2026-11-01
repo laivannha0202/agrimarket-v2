@@ -11,6 +11,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agrimarket/design-tokens": "*",
+    "@agrimarket/shared-domain": "*",
     "@hookform/resolvers": "^5.9.1",
     "@mantine/core": "^9.7.1",
     "@mantine/hooks": "^9.7.1",
