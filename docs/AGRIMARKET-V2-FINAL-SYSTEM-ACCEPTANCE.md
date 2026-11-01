@@ -72,7 +72,7 @@ Chạy thực qua `mutation-acceptance.e2e-spec.ts` (113 tests) + `concurrency.e
 ## 4. Đối soát tiền và kho
 
 - TEST DB: mọi đối soát nằm trong e2e (grandTotal = items − discount + ship; OUTBOUND = qty consume; `available = onHand − reserved − blocked`; settlement lines khớp). ✅
-- DEV (SELECT, `qa-audit-final.mjs`): 36 đơn, **grandTotal mismatch 0/36**; 4 DELIVERED đều đã PAID (cơ chế cũ, lịch sử); movements 74 (INBOUND 18 / RESERVE 30 / RELEASE 26 / OUTBOUND 0 — thiếu OUTBOUND lịch sử đã kết luận A2, không backfill); warehouse docs 11 (10 COMPLETED + 1 CANCELLED); DELIVERED revenue 672.000đ từ 4 đơn; settlement lines 3; reviews 2, users 7.
+- DEV (SELECT, `qa/qa-audit-final.mjs`): 36 đơn, **grandTotal mismatch 0/36**; 4 DELIVERED đều đã PAID (cơ chế cũ, lịch sử); movements 74 (INBOUND 18 / RESERVE 30 / RELEASE 26 / OUTBOUND 0 — thiếu OUTBOUND lịch sử đã kết luận A2, không backfill); warehouse docs 11 (10 COMPLETED + 1 CANCELLED); DELIVERED revenue 672.000đ từ 4 đơn; settlement lines 3; reviews 2, users 7.
 - Phát hiện mới khi đối soát DEV: **lot#44 và lot#53 SELLABLE nhưng `expiresAt` 2026-10-11 đã qua** (EXPIRED-SELLABLE). Không phải lỗi bán hàng: `LotsService.isSellable` + FEFO đều chặn `expiresAt < now`, nên 2 lô này không thể allocate/consume từ code hiện tại. Đưa vào danh sách phê duyệt (chuyển status EXPIRED/QUARANTINED + kiểm định lại, không tự sửa).
 
 ---
@@ -112,7 +112,7 @@ Chạy thực qua `mutation-acceptance.e2e-spec.ts` (113 tests) + `concurrency.e
 
 ## 8. Git status & bàn giao
 
-- HEAD `c7220ee` main, staged 0. Modified ~35 file (A1–A6 services + tests + Admin/Customer/Mobile tối thiểu). Untracked: 4 báo cáo nghiệm thu trước + báo cáo này, `certificate-validity.spec.ts`, QA scripts (`apps/api/qa-*.mjs`, `apps/customer-web/qa/*`), `apps/customer-web/.../ma-giam-gia`, `FarmListView`, `VoucherCard/ListView`, `lib/vouchers.ts`, `icon.svg`.
+- HEAD `c7220ee` main, staged 0. Modified ~35 file (A1–A6 services + tests + Admin/Customer/Mobile tối thiểu). Untracked: 4 báo cáo nghiệm thu trước + báo cáo này, `certificate-validity.spec.ts`, QA scripts (`apps/api/qa/qa-*.mjs`, `apps/customer-web/qa/*`), `apps/customer-web/.../ma-giam-gia`, `FarmListView`, `VoucherCard/ListView`, `lib/vouchers.ts`, `icon.svg`.
 - Không mất source: mọi sửa A1–A6 còn nguyên trong tree (xác minh qua status + typecheck/tests xanh sau cùng).
 - Secrets: `apps/api/.env` gitignored (không staged); check-ignore xác nhận. Không phát hiện secret trong diff (không commit nên không quét toàn bộ lịch sử — ghi nhận).
 - **Không nên commit:** `apps/api/.env`, `apps/api/s.name` (file 0 byte lạ), QA scripts `qa-*.mjs`/`qa/*.mjs`, `qa/out/*` nếu có, `ma-giam-gia`, `FarmListView`, voucher views (thay đổi ngoài phạm vi A1–A6 từ phiên trước — cần chủ dự án quyết định giữ hay bỏ trước khi đưa lên GitHub).

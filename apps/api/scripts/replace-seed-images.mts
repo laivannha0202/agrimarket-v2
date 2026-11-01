@@ -20,8 +20,8 @@
  * `<uploads>/products/`, absolute public URLs, mime/size/dimension metadata.
  *
  * Usage (from apps/api):
- *   pnpm exec tsx scripts/replace-seed-images.mts --db dev
- *   pnpm exec tsx scripts/replace-seed-images.mts --db dev --write --confirm
+ *   npx tsx scripts/replace-seed-images.mts --db dev
+ *   npx tsx scripts/replace-seed-images.mts --db dev --write --confirm
  */
 import { randomUUID } from 'node:crypto';
 import { existsSync, promises as fs } from 'node:fs';

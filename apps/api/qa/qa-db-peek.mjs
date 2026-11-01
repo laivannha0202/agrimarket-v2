@@ -10,7 +10,7 @@
  * printed in full.
  */
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaClient } from "../generated/prisma/client.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

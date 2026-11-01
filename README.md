@@ -408,17 +408,27 @@ agrimarket-v2/
 │   │   ├── prisma/          # schema.prisma, migrations/, seed.ts
 │   │   ├── src/             # auth, orders, inventory, lots, finance, reports…
 │   │   ├── test/            # unit (business-rules/) + e2e
+│   │   ├── qa/              # script QA read-only của các vòng trước (bằng chứng)
+│   │   ├── scripts/         # script một lần cho seed/asset
 │   │   └── uploads/         # ảnh sản phẩm & minh chứng (không commit)
 │   ├── admin-web/           # Web quản trị (Next.js + Ant Design)
-│   │   └── src/app/(admin)/ # dashboard, orders, inventory, lots, reports…
+│   │   ├── src/app/(admin)/ # dashboard, orders, inventory, lots, reports…
+│   │   ├── src/components/  # component theo nghiệp vụ (orders/, common/, ui/)
+│   │   └── src/lib/         # format, status, api, auth, hooks
 │   ├── customer-web/        # Web khách hàng (Next.js + Mantine)
 │   │   └── src/app/         # trang chủ, sản phẩm, giỏ hàng, đơn, truy xuất…
 │   └── mobile/              # App Expo Go (Expo Router)
-│       └── app/             # (tabs), product, order, trace, complaint…
-├── docs/                    # Tài liệu kỹ thuật chi tiết (xem mục 9)
-├── scripts/                 # sql tạo database + script smoke test
-├── package.json             # lệnh chạy chung (npm run dev:api, dev:admin…)
-└── package-lock.json        # lockfile npm (workspaces khai báo trong package.json)
+│       ├── app/             # (tabs), product, order, trace, complaint…
+│       └── src/             # components, lib (api-client, status, format), providers
+├── packages/
+│   ├── shared-domain/       # types + format + status dùng chung Web/Mobile/Admin
+│   └── design-tokens/       # màu, spacing, typography
+├── e2e/                     # Playwright (auth setup, admin/customer specs)
+├── docs/                    # Tài liệu hiện hành — xem docs/README.md
+├── audit-reports/           # Biên bản nghiệm thu theo vòng (lịch sử)
+├── scripts/                 # verify:local, invariant audit, smoke, backup…
+├── package.json             # lệnh chạy chung + khai báo npm workspaces
+└── package-lock.json        # lockfile duy nhất (npm workspaces)
 ```
 
 ---
@@ -496,7 +506,8 @@ Repo có bộ tài liệu đầy đủ trong `docs/` — đọc khi cần hiểu
 | `docs/DATABASE.md`                | Thiết kế database, mã code, quy ước dữ liệu                  |
 | `docs/DOMAIN.md`                  | Mô hình miền: farm, season, harvest, lot, partner order…     |
 | `docs/CONCURRENCY-AUDIT.md`       | Kiểm toán xử lý đồng thời (chống oversell, race condition)   |
-| `docs/AGRIMARKET-V2-FINAL-BUSINESS-AUDIT.md` | Kiểm toán nghiệp vụ tổng thể lần cuối             |
+| `docs/README.md`                  | Mục lục tài liệu: hiện hành vs. biên bản lịch sử             |
+| `docs/DEPLOYMENT-ROLLBACK-RUNBOOK.md` | Triển khai, rollback, kiểm tra sau deploy               |
 | `apps/api/README.md`              | Hướng dẫn riêng backend                                     |
 | `apps/mobile/README.md`           | Hướng dẫn riêng app mobile                                  |
 

@@ -12,9 +12,9 @@
  */
 import { readFileSync } from "node:fs";
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaClient } from "../generated/prisma/client.ts";
 
-const env = readFileSync(new URL("./.env", import.meta.url), "utf8");
+const env = readFileSync(new URL("../.env", import.meta.url), "utf8");
 const line = env.split(/\r?\n/).find((l) => l.startsWith("DATABASE_URL="));
 const url = line.slice("DATABASE_URL=".length).replace(/^"|"$/g, "").trim();
 console.log("URL (password masked):", url.replace(/:[^:@]+@/, ":***@"));

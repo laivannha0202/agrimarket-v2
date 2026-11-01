@@ -1,5 +1,5 @@
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaClient } from "../generated/prisma/client.ts";
 import { readFileSync } from "node:fs";
 const db = readFileSync(".env", "utf8").match(/^DATABASE_URL\s*=\s*"?([^"\r\n]+)"?/m)[1];
 const p = new PrismaClient({ adapter: new PrismaMariaDb(db) });

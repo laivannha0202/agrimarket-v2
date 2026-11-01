@@ -15,8 +15,8 @@
  *   `--allow-production` is given AND a fresh backup file exists in /backups.
  *
  * Usage (from apps/api so its dependencies resolve):
- *   pnpm exec tsx scripts/import-demo-images.mts --db test
- *   pnpm exec tsx scripts/import-demo-images.mts --db test --write --confirm
+ *   npx tsx scripts/import-demo-images.mts --db test
+ *   npx tsx scripts/import-demo-images.mts --db test --write --confirm
  *
  * These are illustration images only — not farm evidence, origin proof,
  * certification or inspection records.

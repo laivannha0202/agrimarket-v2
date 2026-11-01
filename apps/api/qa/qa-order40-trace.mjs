@@ -3,7 +3,7 @@
  * Only SELECTs — never writes. Run: cd apps/api && npx tsx qa-order40-trace.mjs
  */
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaClient } from "../generated/prisma/client.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

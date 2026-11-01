@@ -186,6 +186,16 @@ Failed deliveries never return goods straight to sellable stock.
   (or `REJECTED`).
 - Marking a return `REFUNDED` requires a linked `Refund`.
 - Returned goods must pass QC again before they can be sellable.
+- A refund moves through `PENDING → APPROVED → COMPLETED` (or `FAILED`).
+  **Only `COMPLETED` moved money**; `PENDING`/`APPROVED` are decisions and never
+  reduce a settlement or count as returned money in any UI.
+- `payment.status = PARTIALLY_REFUNDED / REFUNDED` is **derived** from the sum of
+  COMPLETED refunds. It is never set by hand: `PATCH /payments/:id/status`
+  accepts only `PAID`/`FAILED`, and refunds go through
+  `POST /payments/:id/refunds`.
+- A refund completed after its partner order was settled records an OPEN
+  `SettlementAdjustment` for recovery; the historical settlement is never
+  rewritten.
 
 ## 9. Voucher ≠ ProductDiscount ≠ FlashSale
 
@@ -232,6 +242,16 @@ payableAmount = grossAmount − refundAmount − commissionAmount + adjustmentAm
   transit (`READY_TO_SHIP`, `SHIPPING`) are excluded — their money is not payable
   yet — and an order already claimed by any settlement (DRAFT included) is
   excluded too, so the same order can never be paid twice across periods.
+- A partner order is only claimed when its order has **full collection
+  evidence**: `Σ payments.amount` (with `paid_at` set, status ≠ `FAILED`) must
+  cover the order's `grand_total`. A payment *status* alone is not evidence —
+  a PAID row whose amount is short is skipped and logged, and the finance
+  reconciliation view lists it as `UNDER_COLLECTED` /
+  `SETTLED_WITHOUT_FULL_COLLECTION`.
+- A fully refunded order still gets a line (refund deducted, net 0). It is shown
+  at zero rather than omitted, so a period can be reconciled against the order
+  list; `refundState = FULL` distinguishes it from an order that was never fully
+  collected.
 - Each `SettlementLine` records `gross − refund − commission = payable` for one
   partner order.
 - A settlement starts `DRAFT` and must be `CONFIRMED` before a payout.

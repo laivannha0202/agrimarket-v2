@@ -1,14 +1,14 @@
 # AgriMarket V2 — FINAL DATA & BUSINESS AUDIT
 
 **Ngày kiểm toán:** 2026-10-11 · **Phạm vi:** READ-ONLY, không sửa dữ liệu, không reseed, không commit/push.
-**DB:** `agrimarket_v2` (DEV). **Công cụ:** `apps/api/qa-db-peek.mjs`, `qa-audit-final.mjs`, `qa-addr.mjs` (chỉ SELECT).
+**DB:** `agrimarket_v2` (DEV). **Công cụ:** `apps/api/qa/qa-db-peek.mjs`, `qa/qa-audit-final.mjs`, `qa/qa-addr.mjs` (chỉ SELECT).
 
 ---
 
 ## 0. Git & bảo toàn source
 
 - Commit mới nhất: `c7220ee docs: add complete step-by-step root README`.
-- `git status`: **19 file modified** trong `apps/customer-web` (home, catalog, checkout, account, header/footer, flash sale, promotion…) **chưa commit**; cùng các file mới (`qa/`, `ma-giam-gia/`, `promotion/`, `FarmListView.tsx`, `vouchers.ts`, `icon.svg`) và `apps/api/qa-db-*.mjs`.
+- `git status`: **19 file modified** trong `apps/customer-web` (home, catalog, checkout, account, header/footer, flash sale, promotion…) **chưa commit**; cùng các file mới (`qa/`, `ma-giam-gia/`, `promotion/`, `FarmListView.tsx`, `vouchers.ts`, `icon.svg`) và `apps/api/qa/qa-db-*.mjs`.
 - **Hành động:** không stash, không checkout, không sửa/xóa. Toàn bộ thay đổi local Customer Web/Mobile giữ nguyên trạng để ngườidùng commit thủ công.
 - Không reset/reseed DEV, không sửa dữ liệu lịch sử, không commit/push — đúng yêu cầu.
 
@@ -127,4 +127,4 @@ Công thức trong `apps/api/src/reports/reports.service.ts` (định nghĩa rõ
 - **Không sửa gì trong đợt này.** Mọi thay đổi dữ liệu DEV (A1–A6) cần duyệt; chỉ sửa **code** có bằng chứng (A3: auto-expire cert) được đề xuất làm tiếp.
 - **Ưu tiên trước demo:** (1) A1 đối soát tồn kho bằng bút toán chuẩn, (2) A3 job hết hạn chứng nhận, (3) A6 bổ sung chứng từ hoặc hạ cờ VERIFIED, (4) A4/A5 chuẩn hóa seed flash-sale & địa chỉ farm.
 
-> Báo cáo này chỉ đọc; toàn bộ số liệu trích trực tiếp từ `agrimarket_v2` tại thờidiểm kiểm toán bằng các script SELECT trong `apps/api/qa-*.mjs`.
+> Báo cáo này chỉ đọc; toàn bộ số liệu trích trực tiếp từ `agrimarket_v2` tại thờidiểm kiểm toán bằng các script SELECT trong `apps/api/qa/qa-*.mjs`.

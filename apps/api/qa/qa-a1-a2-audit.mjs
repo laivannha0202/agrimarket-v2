@@ -5,7 +5,7 @@
  *   cd apps/api && node qa-a1-a2-audit.mjs
  */
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaClient } from "../generated/prisma/client.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 

@@ -560,6 +560,32 @@ the address the customer chose.
 | GET    | `/payouts`                 | ADMIN  | List payouts (`status`)           |
 | POST   | `/payouts`                 | ADMIN  | Create a payout                   |
 | POST   | `/payouts/:id/pay`         | ADMIN  | Mark a payout as paid             |
+| GET    | `/finance/reconciliation`  | ADMIN  | Read-only payment/settlement reconciliation (`from`, `to`, `page`, `limit`) |
+
+`POST /settlements` only claims a partner order when the order is `DELIVERED`
+**and** its payments show full collection evidence: `Σ payments.amount` with
+`paid_at` set (status ≠ `FAILED`) must cover the order's `grand_total`. A
+delivered order whose collection is short is skipped and logged, never settled
+for the full partner payable.
+
+`GET /finance/reconciliation` answers "which orders disagree about money" without
+writing anything. Each row carries `obligation`, `collected`, `refunded`,
+`outstanding`, `refundState` (`NONE` / `PARTIAL` / `FULL`) and an `issues` list:
+
+| Issue | Meaning |
+|---|---|
+| `UNDER_COLLECTED` | Money arrived, but less than the order total |
+| `OVER_COLLECTED` | More was collected than the order total |
+| `SETTLED_WITHOUT_FULL_COLLECTION` | A settlement line exists while collection is short |
+| `REFUND_WITHOUT_COLLECTION` | A COMPLETED refund belongs to a payment never collected |
+| `REFUND_STATUS_MISMATCH` | Payment status disagrees with the COMPLETED refund total |
+
+`refundState` is reported separately on purpose: a fully refunded order and an
+under-collected one look alike in a totals column but mean opposite things.
+
+`PATCH /payments/:id/status` accepts `PAID` / `FAILED` only. `PARTIALLY_REFUNDED`
+and `REFUNDED` are **derived** from COMPLETED refunds and can only be reached
+through `POST /payments/:id/refunds` (create → approve → complete).
 
 ## Reports — ADMIN
 

@@ -1,6 +1,6 @@
 /** READ-ONLY final business audit — SELECT only. cd apps/api && npx tsx qa-audit-final.mjs */
 import { PrismaMariaDb } from "@prisma/adapter-mariadb";
-import { PrismaClient } from "./generated/prisma/client.ts";
+import { PrismaClient } from "../generated/prisma/client.ts";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 const envText = readFileSync(resolve(".env"), "utf8");

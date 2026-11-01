@@ -23,7 +23,7 @@ Luồng đã chứng minh: order DELIVERED qua `OrdersService` consume 1 lần (
 
 ### 1.3. Lot lịch sử vs guard mới (read-only DEV)
 
-Quét `qa-a1-a2-audit.mjs` trên DEV: mọi lot SELLABLE có `remaining <= onHand` và `remaining + allocated = onHand` (seed trừ `remaining` khi reserve). Guard mới `remaining >= qty` khi DELIVERED luôn thỏa vì `remaining` chỉ giảm khi consume thật, còn allocation đang giữ không làm `remaining` âm. Lot #41 REJECTED/QC FAIL không balance nên không bao giờ vào FEFO/consume. **Không lot nào gây 409 oan; không sửa dữ liệu DEV.** Rủi ro duy nhất còn lại là reservation treo của đơn DELIVERED cũ (lot #53, `reserved 32` gồm 2 đơn #40) — đã ghi kế hoạch dry-run ở báo cáo A1/A2, không backfill.
+Quét `qa/qa-a1-a2-audit.mjs` trên DEV: mọi lot SELLABLE có `remaining <= onHand` và `remaining + allocated = onHand` (seed trừ `remaining` khi reserve). Guard mới `remaining >= qty` khi DELIVERED luôn thỏa vì `remaining` chỉ giảm khi consume thật, còn allocation đang giữ không làm `remaining` âm. Lot #41 REJECTED/QC FAIL không balance nên không bao giờ vào FEFO/consume. **Không lot nào gây 409 oan; không sửa dữ liệu DEV.** Rủi ro duy nhất còn lại là reservation treo của đơn DELIVERED cũ (lot #53, `reserved 32` gồm 2 đơn #40) — đã ghi kế hoạch dry-run ở báo cáo A1/A2, không backfill.
 
 ---
 

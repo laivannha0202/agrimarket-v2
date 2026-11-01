@@ -42,7 +42,7 @@ Trạng thái trước commit (đã xác minh bằng lệnh thật):
 | Shared packages (`packages/*`) | Thư mục `packages/` trống (không có `package.json` con nào, không bị ignore, không có file nào bị bỏ sót — đã kiểm tra `Get-ChildItem -Force packages` + `git ls-files packages/`) | `pnpm-workspace.yaml` khai báo `apps/*` + `packages/*` | N/A | N/A | PASS (không thiếu) |
 | Prisma | `schema.prisma` + 9 migrations (`20260101_init_v2` … `20261013_evidence_images`) + `seed.ts` + `.env.example` placeholder (đã có trong tree từ trước, không thuộc commit này nhưng được xác minh tồn tại) | `prisma` 7.10 trong `apps/api` | `nest build` PASS | E2E chạy trên schema này (331/331) | PASS |
 | Documentation | 6 báo cáo nghiệm thu mới + toàn bộ docs hiện có (`API.md`, `BUSINESS-RULES.md`, `DATABASE.md`, `DOMAIN.md`, `CONCURRENCY-AUDIT.md`…) + root `README.md` (hướng dẫn clone → MySQL → `.env` → migrate → seed → chạy 4 app + Expo Go + Swagger + tests + TEST DB) | N/A | N/A | N/A | PASS |
-| QA/ops scripts | 10 `apps/api/qa-*.mjs` + `qa-run-e2e.cmd` (đã sửa: bỏ credential hardcoded, đọc `TEST_DATABASE_URL` từ `.env` qua `setup-e2e.ts`) + 7 `apps/customer-web/qa/*` (đã sửa: bỏ absolute path `E:/dev/...`, dùng `QA_OUT`/relative import) | Chạy bằng `node`/`tsx` có sẵn | `vouchers-parity.ts` PASS 22/22 sau sửa | Read-only (SELECT/fetch), không ghi DEV | PASS |
+| QA/ops scripts | 10 `apps/api/qa/qa-*.mjs` + `qa/run-e2e.cmd` (đã sửa: bỏ credential hardcoded, đọc `TEST_DATABASE_URL` từ `.env` qua `setup-e2e.ts`) + 7 `apps/customer-web/qa/*` (đã sửa: bỏ absolute path `E:/dev/...`, dùng `QA_OUT`/relative import) | Chạy bằng `node`/`tsx` có sẵn | `vouchers-parity.ts` PASS 22/22 sau sửa | Read-only (SELECT/fetch), không ghi DEV | PASS |
 
 Không thiếu source đang sử dụng: route/import/API usage đã truy vết (voucher views được Header/Footer/AccountNav/Checkout tham chiếu; `FarmListView` được `/trang-trai` tham chiếu; `icon.svg` theo quy ước App Router).
 
@@ -53,7 +53,7 @@ Không thiếu source đang sử dụng: route/import/API usage đã truy vết 
 - **Secrets scan:** quét toàn bộ staged diff (`git diff --cached`) + toàn bộ file QA untracked + docs mới:
   - Không hardcoded password, JWT secret, SMTP secret, API key, access/refresh token, private key, production credentials trong bất kỳ file nào được commit.
   - 2 phát hiện duy nhất đều an toàn và đã xử lý:
-    1. `apps/api/qa-run-e2e.cmd` chứa `TEST_DATABASE_URL=mysql://agrimarket:agrimarket_local@...` (credential local) → **đã xóa**, script giờ đọc từ `apps/api/.env` (gitignored).
+    1. `apps/api/qa/run-e2e.cmd` chứa `TEST_DATABASE_URL=mysql://agrimarket:agrimarket_local@...` (credential local) → **đã xóa**, script giờ đọc từ `apps/api/.env` (gitignored).
     2. `apps/customer-web/qa/NOTES.md` chứa `Agri@12345` → đây là **demo credential công khai** do `npm run db:seed` sinh ra và đã ghi trong root README → giữ lại nhưng ghi rõ nguồn (`public demo credential from npm run db:seed`).
 - **File bị loại khỏi Git:** `apps/api/s.name` (0 byte, không rõ nguồn gốc — giữ tại local, không commit, không xóa); toàn bộ `.env` thật (`apps/api/.env`, `apps/mobile/.env`), `node_modules`, `.next`, `.expo`, `uploads`, `backups`, `.tmp-verify`, `qa/out` đều đã gitignored (xác minh bằng `git check-ignore`).
 - **`.env` được bảo vệ:** chỉ commit `.env.example` với placeholder (`USER:PASSWORD`, `CHANGE_ME`, `YOUR_PC_LAN_IP`); không commit `.env` nào.
@@ -95,7 +95,7 @@ Tất cả chạy bằng lệnh thật, trên TEST DB độc lập (`agrimarket_
 |---|---|---|
 | 40 modified file (services A1–A4 + tests + Admin/Customer/Mobile) | **Commit toàn bộ** | Source đang sử dụng, đã qua quality gates |
 | 6 docs nghiệm thu mới | **Commit toàn bộ** | Báo cáo có giá trị, được task yêu cầu đưa lên GitHub |
-| 17 QA scripts (`apps/api/qa-*.mjs`, `apps/customer-web/qa/*`) | **Commit sau khi sửa an toàn** | Công cụ kiểm thử/vận hành có giá trị lâu dài; đã loại bỏ credential hardcoded + absolute path máy cá nhân; read-only với DEV |
+| 17 QA scripts (`apps/api/qa/qa-*.mjs`, `apps/customer-web/qa/*`) | **Commit sau khi sửa an toàn** | Công cụ kiểm thử/vận hành có giá trị lâu dài; đã loại bỏ credential hardcoded + absolute path máy cá nhân; read-only với DEV |
 | Voucher views + `FarmListView` + `icon.svg` + `lib/vouchers.ts` | **Commit toàn bộ** | Đang được route/import tham chiếu (Header/Footer/AccountNav/Checkout/`/trang-trai`); loại bỏ sẽ gây thiếu source |
 | `certificate-validity.spec.ts` | **Commit** | Unit test cho A3, qua gates |
 | `apps/api/s.name` (0 byte) | **Không commit, giữ tại local, không xóa** | Không rõ nguồn gốc, không chứa source; xóa khi chưa xác minh vi phạm quy tắc an toàn |
