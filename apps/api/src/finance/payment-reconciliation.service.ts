@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import { buildPagination } from '../common/dto/pagination-query.dto.js';
+import {
+  MONEY_EPSILON,
+  collectedAmount,
+  hasFullCollection,
+  round2,
+} from '../common/utils/payment-collection.js';
 import type { PaymentStatus } from '../../generated/prisma/enums.js';
 
 /**
@@ -23,13 +29,27 @@ import type { PaymentStatus } from '../../generated/prisma/enums.js';
  *                non-FAILED status (a failed attempt moved no money)
  *   refunded   = SUM(refunds.amount) for COMPLETED refunds only (PENDING and
  *                APPROVED are decisions, not money)
+ *
+ * The classification (`collection`) is computed here, never in the browser:
+ * the Admin screen displays these numbers, it does not re-add them.
  */
 export type ReconciliationIssue =
   | 'UNDER_COLLECTED'
   | 'OVER_COLLECTED'
   | 'SETTLED_WITHOUT_FULL_COLLECTION'
   | 'REFUND_WITHOUT_COLLECTION'
-  | 'REFUND_STATUS_MISMATCH';
+  | 'REFUND_STATUS_MISMATCH'
+  | 'MISSING_COLLECTION_EVIDENCE';
+
+/** Runtime list for query validation and Swagger; mirrors the union above. */
+export const RECONCILIATION_ISSUES: readonly ReconciliationIssue[] = [
+  'UNDER_COLLECTED',
+  'OVER_COLLECTED',
+  'SETTLED_WITHOUT_FULL_COLLECTION',
+  'REFUND_WITHOUT_COLLECTION',
+  'REFUND_STATUS_MISMATCH',
+  'MISSING_COLLECTION_EVIDENCE',
+];
 
 /**
  * How much of the collected money was returned. Reported on every row so a
@@ -38,6 +58,30 @@ export type ReconciliationIssue =
  * money never arrived).
  */
 export type RefundState = 'NONE' | 'PARTIAL' | 'FULL';
+
+export const RECONCILIATION_REFUND_STATES: readonly RefundState[] = ['NONE', 'PARTIAL', 'FULL'];
+
+/**
+ * How much of the order obligation the recorded payments cover.
+ *
+ * Derived from the two numbers above with the same epsilon the settlement
+ * guard uses, so "settleable" and "fully collected" cannot disagree.
+ */
+export type CollectionState = 'NONE' | 'PARTIAL' | 'FULL' | 'OVER';
+
+export const RECONCILIATION_COLLECTION_STATES: readonly CollectionState[] = [
+  'NONE',
+  'PARTIAL',
+  'FULL',
+  'OVER',
+];
+
+/** A settlement that already claimed a line of this order. */
+export interface ReconciliationSettlementRef {
+  id: number;
+  code: string;
+  status: string;
+}
 
 export interface ReconciliationFinding {
   orderId: number;
@@ -48,9 +92,11 @@ export interface ReconciliationFinding {
   collected: number;
   refunded: number;
   outstanding: number;
+  collection: CollectionState;
   paymentStatuses: PaymentStatus[];
   refundState: RefundState;
   settled: boolean;
+  settlements: ReconciliationSettlementRef[];
   issues: ReconciliationIssue[];
 }
 
@@ -59,15 +105,28 @@ export interface ReconciliationQuery {
   to?: string;
   page?: number;
   limit?: number;
+  /** Order status, e.g. `DELIVERED`. */
+  status?: string;
+  issue?: ReconciliationIssue;
+  collection?: CollectionState;
+  refundState?: RefundState;
+  /** Case-insensitive substring of the order code. */
+  search?: string;
+  /**
+   * Include orders with no finding. Off by default: the report is a worklist of
+   * discrepancies, and a clean order is not an action item. The Admin screen
+   * turns it on for the "already fully collected" view.
+   */
+  includeMatched?: boolean;
 }
 
 /** Upper bound on rows read in one report; the response says when it clipped. */
 export const MAX_RECONCILIATION_SCAN = 2000;
 
-const MONEY_EPSILON = 0.01;
-
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
+function collectionState(collected: number, obligation: number): CollectionState {
+  if (collected <= 0) return 'NONE';
+  if (collected > obligation + MONEY_EPSILON) return 'OVER';
+  return hasFullCollection(collected, obligation) ? 'FULL' : 'PARTIAL';
 }
 
 @Injectable()
@@ -107,7 +166,15 @@ export class PaymentReconciliationService {
             refunds: { select: { amount: true, status: true } },
           },
         },
-        partnerOrders: { select: { settlementLines: { select: { id: true } } } },
+        partnerOrders: {
+          select: {
+            settlementLines: {
+              select: {
+                settlement: { select: { id: true, code: true, status: true } },
+              },
+            },
+          },
+        },
       },
       orderBy: { id: 'desc' },
       take: MAX_RECONCILIATION_SCAN + 1,
@@ -116,13 +183,21 @@ export class PaymentReconciliationService {
     const truncated = orders.length > MAX_RECONCILIATION_SCAN;
     const scanned = truncated ? orders.slice(0, MAX_RECONCILIATION_SCAN) : orders;
 
-    const findings: ReconciliationFinding[] = [];
+    /** Every scanned order, with or without a finding. */
+    const rows: ReconciliationFinding[] = [];
     const byIssue: Record<ReconciliationIssue, number> = {
       UNDER_COLLECTED: 0,
       OVER_COLLECTED: 0,
       SETTLED_WITHOUT_FULL_COLLECTION: 0,
       REFUND_WITHOUT_COLLECTION: 0,
       REFUND_STATUS_MISMATCH: 0,
+      MISSING_COLLECTION_EVIDENCE: 0,
+    };
+    const byCollection: Record<CollectionState, number> = {
+      NONE: 0,
+      PARTIAL: 0,
+      FULL: 0,
+      OVER: 0,
     };
     let totalObligation = 0;
     let totalCollected = 0;
@@ -130,11 +205,7 @@ export class PaymentReconciliationService {
 
     for (const order of scanned) {
       const obligation = round2(Number(order.grandTotal));
-      const collected = round2(
-        order.payments
-          .filter((payment) => payment.paidAt !== null && payment.status !== 'FAILED')
-          .reduce((sum, payment) => sum + Number(payment.amount), 0),
-      );
+      const collected = collectedAmount(order.payments);
       const refunded = round2(
         order.payments.reduce(
           (sum, payment) =>
@@ -145,17 +216,21 @@ export class PaymentReconciliationService {
           0,
         ),
       );
-      const settled = order.partnerOrders.some((po) => po.settlementLines.length > 0);
+      const settlements = [
+        ...new Map(
+          order.partnerOrders
+            .flatMap((partnerOrder) => partnerOrder.settlementLines)
+            .map((line) => [line.settlement.id, line.settlement] as const),
+        ).values(),
+      ];
+      const settled = settlements.length > 0;
       const paymentStatuses = order.payments.map((payment) => payment.status);
+      const collection = collectionState(collected, obligation);
       const issues: ReconciliationIssue[] = [];
 
-      if (collected > 0 && collected + MONEY_EPSILON < obligation) {
-        issues.push('UNDER_COLLECTED');
-      }
-      if (collected > obligation + MONEY_EPSILON) {
-        issues.push('OVER_COLLECTED');
-      }
-      if (settled && collected + MONEY_EPSILON < obligation) {
+      if (collection === 'PARTIAL') issues.push('UNDER_COLLECTED');
+      if (collection === 'OVER') issues.push('OVER_COLLECTED');
+      if (settled && !hasFullCollection(collected, obligation)) {
         issues.push('SETTLED_WITHOUT_FULL_COLLECTION');
       }
       if (refunded > 0 && collected <= 0) {
@@ -173,6 +248,20 @@ export class PaymentReconciliationService {
           issues.push('REFUND_STATUS_MISMATCH');
         }
       }
+      /**
+       * A payment that claims money moved (PAID / *_REFUNDED) but carries no
+       * `paid_at` is excluded from `collected` above. Without this issue the
+       * order would look clean while the money it claims is invisible — the
+       * exact row an accountant must fix before the books can balance.
+       */
+      if (
+        order.payments.some(
+          (payment) =>
+            payment.paidAt === null && payment.status !== 'PENDING' && payment.status !== 'FAILED',
+        )
+      ) {
+        issues.push('MISSING_COLLECTION_EVIDENCE');
+      }
 
       totalObligation = round2(totalObligation + obligation);
       totalCollected = round2(totalCollected + collected);
@@ -181,9 +270,9 @@ export class PaymentReconciliationService {
       const refundState: RefundState =
         refunded <= MONEY_EPSILON ? 'NONE' : refunded + MONEY_EPSILON >= collected ? 'FULL' : 'PARTIAL';
 
-      if (issues.length === 0) continue;
+      byCollection[collection] += 1;
       for (const issue of issues) byIssue[issue] += 1;
-      findings.push({
+      rows.push({
         orderId: order.id,
         code: order.code,
         status: order.status,
@@ -192,12 +281,32 @@ export class PaymentReconciliationService {
         collected,
         refunded,
         outstanding: round2(obligation - collected),
+        collection,
         paymentStatuses,
         refundState,
         settled,
+        settlements,
         issues,
       });
     }
+
+    const findings = rows.filter((row) => row.issues.length > 0);
+
+    /**
+     * `includeMatched` only widens what the caller may LIST. Every number in
+     * `summary` stays a statement about the scanned period, not about the
+     * current filter, so "đơn có chênh lệch" never shrinks because a tab is
+     * open.
+     */
+    const search = query.search?.trim().toLowerCase();
+    const listed = (query.includeMatched ? rows : findings).filter((row) => {
+      if (query.status && row.status !== query.status) return false;
+      if (query.issue && !row.issues.includes(query.issue)) return false;
+      if (query.collection && row.collection !== query.collection) return false;
+      if (query.refundState && row.refundState !== query.refundState) return false;
+      if (search && !row.code.toLowerCase().includes(search)) return false;
+      return true;
+    });
 
     const start = (page - 1) * limit;
     return {
@@ -212,6 +321,7 @@ export class PaymentReconciliationService {
       summary: {
         ordersWithFindings: findings.length,
         byIssue,
+        byCollection,
         totals: {
           obligation: totalObligation,
           collected: totalCollected,
@@ -219,12 +329,12 @@ export class PaymentReconciliationService {
           outstanding: round2(totalObligation - totalCollected),
         },
       },
-      findings: findings.slice(start, start + limit),
+      findings: listed.slice(start, start + limit),
       meta: {
         page,
         limit,
-        total: findings.length,
-        totalPages: limit > 0 ? Math.ceil(findings.length / limit) : 0,
+        total: listed.length,
+        totalPages: limit > 0 ? Math.ceil(listed.length / limit) : 0,
       },
       note:
         'Read-only. Nothing here rewrites payments, refunds or settlements; a ' +

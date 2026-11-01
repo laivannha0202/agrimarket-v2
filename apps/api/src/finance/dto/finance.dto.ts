@@ -1,7 +1,18 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
-import { IsDateString, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
+import {
+  OrderStatus,
   PayoutStatus,
   RecordStatus,
   SettlementAdjustmentResolution,
@@ -10,6 +21,14 @@ import {
   SettlementStatus,
 } from '../../../generated/prisma/enums.js';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
+import {
+  RECONCILIATION_COLLECTION_STATES,
+  RECONCILIATION_ISSUES,
+  RECONCILIATION_REFUND_STATES,
+  type CollectionState,
+  type ReconciliationIssue,
+  type RefundState,
+} from '../payment-reconciliation.service.js';
 
 export class CreateCommissionRuleDto {
   @ApiPropertyOptional({ example: 1, description: 'Null = applies to all partners' })
@@ -206,6 +225,11 @@ export class SettlementExportQueryDto {
  *
  * The window is optional (whole history by default) and filters on the order
  * creation date, which is what an accountant reconciles against a period.
+ *
+ * The remaining filters narrow the LIST only: `summary` always describes the
+ * scanned period, so switching a tab cannot make the period look healthier
+ * than it is. Every filter is applied after the (read-only) comparison, never
+ * by re-adding money on the client.
  */
 export class ReconciliationQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({ example: '2026-10-01T00:00:00.000Z' })
@@ -217,4 +241,41 @@ export class ReconciliationQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  @ApiPropertyOptional({ enum: OrderStatus, description: 'Order status (e.g. DELIVERED)' })
+  @IsOptional()
+  @IsEnum(OrderStatus)
+  declare status?: OrderStatus;
+
+  @ApiPropertyOptional({ enum: RECONCILIATION_ISSUES })
+  @IsOptional()
+  @IsIn(RECONCILIATION_ISSUES)
+  issue?: ReconciliationIssue;
+
+  @ApiPropertyOptional({ enum: RECONCILIATION_COLLECTION_STATES })
+  @IsOptional()
+  @IsIn(RECONCILIATION_COLLECTION_STATES)
+  collection?: CollectionState;
+
+  @ApiPropertyOptional({ enum: RECONCILIATION_REFUND_STATES })
+  @IsOptional()
+  @IsIn(RECONCILIATION_REFUND_STATES)
+  refundState?: RefundState;
+
+  @ApiPropertyOptional({
+    description: 'Order-code substring, case-insensitive (inherited from PaginationQueryDto)',
+    example: 'ORD-2026',
+  })
+  @IsOptional()
+  @IsString()
+  declare search?: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Also list orders with no finding (needed for the "fully collected" view)',
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  includeMatched?: boolean;
 }

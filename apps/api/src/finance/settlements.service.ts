@@ -15,6 +15,10 @@ import { buildCode, buildDatedCode, datedCodePrefix, isUniqueViolationOn, nextDa
 import { buildPagination, paginate } from '../common/dto/pagination-query.dto.js';
 import { allocateByGross } from '../common/utils/refund-allocation.js';
 import {
+  collectedAmount,
+  hasFullCollection,
+} from '../common/utils/payment-collection.js';
+import {
   CreatePayoutDto,
   CreateSettlementDto,
   DecideSettlementRecoveryDto,
@@ -195,16 +199,9 @@ export class SettlementsService {
            * reconciliation view lists them with an explicit reason.
            */
           const fullyCollected = partnerOrders.filter((po) => {
-            const collected = round2(
-              po.order.payments
-                .filter(
-                  (payment) =>
-                    payment.paidAt !== null && payment.status !== PaymentStatus.FAILED,
-                )
-                .reduce((sum, payment) => sum + Number(payment.amount), 0),
-            );
+            const collected = collectedAmount(po.order.payments);
             const obligation = Number(po.order.grandTotal);
-            return collected + 0.01 >= obligation;
+            return hasFullCollection(collected, obligation);
           });
           if (fullyCollected.length !== partnerOrders.length) {
             const excluded = [

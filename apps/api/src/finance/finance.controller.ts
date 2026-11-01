@@ -204,8 +204,11 @@ export class FinanceController {
     description:
       'Read-only report of orders whose payments, refunds and settlement lines disagree: ' +
       'under/over-collected, settled without full collection, settled after a full refund, ' +
-      'refunded without a collected payment, and refund statuses that do not match the ' +
-      'completed refund total. Nothing is rewritten.',
+      'refunded without a collected payment, refund statuses that do not match the completed ' +
+      'refund total, and payments that claim money moved without a `paid_at` timestamp. ' +
+      'Filters (`status`, `issue`, `collection`, `refundState`, `search`) narrow the list only; ' +
+      '`summary` always describes the scanned window. `includeMatched=true` also lists orders ' +
+      'with no finding. Nothing is rewritten.',
   })
   reconcile(@Query() query: ReconciliationQueryDto) {
     return this.reconciliationService.report(query);

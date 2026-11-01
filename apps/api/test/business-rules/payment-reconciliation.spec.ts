@@ -35,7 +35,15 @@ function orderRow(overrides: OrderRow) {
       paidAt: payment.paidAt,
       refunds: payment.refunds ?? [],
     })),
-    partnerOrders: overrides.settled ? [{ settlementLines: [{ id: 1 }] }] : [],
+    partnerOrders: overrides.settled
+      ? [
+          {
+            settlementLines: [
+              { settlement: { id: 9, code: 'STL-2026-09', status: 'CONFIRMED' } },
+            ],
+          },
+        ]
+      : [],
   };
 }
 
@@ -306,5 +314,154 @@ describe('PaymentReconciliationService', () => {
 
     expect(report.truncated).toBe(true);
     expect(report.scanned).toBe(MAX_RECONCILIATION_SCAN);
+  });
+
+  it('classifies every scanned order by how much of the obligation was collected', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({ id: 1, grandTotal: 100000 }),
+      orderRow({
+        id: 2,
+        grandTotal: 100000,
+        payments: [{ amount: 40000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+      orderRow({
+        id: 3,
+        grandTotal: 100000,
+        payments: [{ amount: 100000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+      orderRow({
+        id: 4,
+        grandTotal: 100000,
+        payments: [{ amount: 130000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    // The summary is a statement about the period, including clean orders.
+    expect(report.summary.byCollection).toEqual({ NONE: 1, PARTIAL: 1, FULL: 1, OVER: 1 });
+    // Only the discrepancies are listed by default.
+    expect(report.findings.map((row) => row.orderId).sort()).toEqual([2, 4]);
+    expect(report.findings.find((row) => row.orderId === 2)?.collection).toBe('PARTIAL');
+    expect(report.findings.find((row) => row.orderId === 4)?.collection).toBe('OVER');
+  });
+
+  it('flags a payment that claims money moved but carries no paid_at evidence', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 11,
+        grandTotal: 100000,
+        payments: [{ amount: 100000, status: 'PAID', paidAt: null }],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    expect(report.findings[0].issues).toEqual(['MISSING_COLLECTION_EVIDENCE']);
+    // The money is NOT counted: a status without a timestamp is a claim.
+    expect(report.findings[0].collected).toBe(0);
+    expect(report.summary.byIssue.MISSING_COLLECTION_EVIDENCE).toBe(1);
+  });
+
+  it('does not treat a pending or failed payment as missing evidence', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 12,
+        grandTotal: 100000,
+        payments: [
+          { amount: 100000, status: 'PENDING', paidAt: null },
+          { amount: 100000, status: 'FAILED', paidAt: null },
+        ],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    expect(report.findings).toEqual([]);
+    expect(report.summary.byIssue.MISSING_COLLECTION_EVIDENCE).toBe(0);
+  });
+
+  it('lists matched orders only when includeMatched is requested', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 21,
+        grandTotal: 100000,
+        payments: [{ amount: 100000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+      orderRow({
+        id: 22,
+        grandTotal: 100000,
+        payments: [{ amount: 50000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    ]);
+
+    const clean = await service.report();
+    expect(clean.findings.map((row) => row.orderId)).toEqual([22]);
+    expect(clean.meta.total).toBe(1);
+
+    const widened = await service.report({ includeMatched: true });
+    expect(widened.findings.map((row) => row.orderId)).toEqual([21, 22]);
+    expect(widened.meta.total).toBe(2);
+    // Widening the list does not change what the period looks like.
+    expect(widened.summary.ordersWithFindings).toBe(1);
+  });
+
+  it('filters the list by issue, collection, status and order code', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 31,
+        code: 'ORD-AAA',
+        status: 'DELIVERED',
+        grandTotal: 100000,
+        payments: [{ amount: 50000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+      orderRow({
+        id: 32,
+        code: 'ORD-BBB',
+        status: 'SHIPPING',
+        grandTotal: 100000,
+        payments: [{ amount: 120000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+      orderRow({
+        id: 33,
+        code: 'ORD-CCC',
+        status: 'DELIVERED',
+        grandTotal: 100000,
+        payments: [{ amount: 50000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    ]);
+
+    const byIssue = await service.report({ issue: 'OVER_COLLECTED' });
+    expect(byIssue.findings.map((row) => row.orderId)).toEqual([32]);
+    // The period totals still count every finding, not just the filtered page.
+    expect(byIssue.summary.ordersWithFindings).toBe(3);
+    expect(byIssue.meta.total).toBe(1);
+
+    const byStatus = await service.report({ status: 'DELIVERED' });
+    expect(byStatus.findings.map((row) => row.orderId)).toEqual([31, 33]);
+
+    const bySearch = await service.report({ search: 'ord-bb' });
+    expect(bySearch.findings.map((row) => row.orderId)).toEqual([32]);
+
+    const byCollection = await service.report({ collection: 'PARTIAL' });
+    expect(byCollection.findings.map((row) => row.orderId)).toEqual([31, 33]);
+  });
+
+  it('reports the settlements that already claimed the order', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 41,
+        grandTotal: 100000,
+        settled: true,
+        payments: [{ amount: 40000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    expect(report.findings[0].settled).toBe(true);
+    expect(report.findings[0].settlements).toEqual([
+      { id: 9, code: 'STL-2026-09', status: 'CONFIRMED' },
+    ]);
   });
 });
