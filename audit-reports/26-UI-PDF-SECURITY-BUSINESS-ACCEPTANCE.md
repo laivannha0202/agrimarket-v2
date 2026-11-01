@@ -68,7 +68,7 @@ chụp ở trạng thái đầu phiên, `*-after.png` chụp sau khi sửa.
 | B-9 | `ListPage.tsx` | Bảng rộng làm cả tài liệu cuộn ngang | Mặc định `scroll={{ x: "max-content" }}` |
 | B-10 | `reports/page.tsx`, `DashboardCharts.tsx` | KPI `xs={24}`; hai bảng cùng hàng cao thấp khác nhau; chart trạng thái là cột dọc | KPI `xs={12}`, hai cột `align="stretch"` + `height: 100%`, chart `Bar` (nhãn nằm ngang) |
 | B-11 | `audit/page.tsx` + `lib/audit-labels.ts` (mới) | Nhật ký kiểm toán hiện **enum thô**: `PAYMENT_PAID`, `ORDER_STATUS_CHANGED`, `REFUND_APPROVED`, `PRODUCT_VARIANT`… | Bảng nhãn tiếng Việt cho 24 loại đối tượng + hành động, có map tiền tố cho hành động động; dữ liệu lạ rơi về key gốc chứ không bịa |
-| B-12 | `OrderDetail.tsx` (Customer) | Danh sách hoàn tiền chỉ có số tiền ⇒ một yêu cầu **đang chờ** trông giống hệt khoản **đã chi** | Thêm `StatusBadge` theo trạng thái hoàn tiền; map `REFUND_STATUS` chuyển vào `packages/shared-domain` để Web/Mobile không lệch nhau |
+| B-12 | `OrderDetail.tsx` (Customer) | Danh sách hoàn tiền chỉ có số tiền ⇒ một yêu cầu **đang chờ** trông giống hệt khoản **đã chi** | Thêm `StatusBadge` theo trạng thái hoàn tiền; map `REFUND_STATUS` (trước là bản sao cục bộ trong `ReturnDetail.tsx`) chuyển vào `packages/shared-domain`, nên hai màn Customer dùng chung một nhãn. Mobile hiện chưa hiển thị hoàn tiền nên không có bản sao thứ hai để lệch |
 
 ### B.3 Ảnh trước/sau
 
@@ -306,7 +306,8 @@ trước khi chạy Playwright nên ba test này skip — không tính vào 178 
 - `git diff --check` sạch.
 - Cổng kiểm thử được chạy lại ngay trước khi commit: typecheck, lint, 918 unit pass,
   484 API E2E, 3 build (api/admin/customer) — tất cả xanh trên đúng cây làm việc đã
-  commit.
+  commit. Playwright chạy lại sau commit trên cùng cây (không đổi mã nguồn):
+  **14 / 14** trong 1,1 phút, gồm cả project `admin-small` ở 390px.
 
 ## H. Kết luận và phân loại
 
