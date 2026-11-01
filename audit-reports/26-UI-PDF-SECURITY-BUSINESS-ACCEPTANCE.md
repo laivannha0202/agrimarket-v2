@@ -259,6 +259,33 @@ tạo. Không có dữ liệu production nào bị đọc/ghi/xoá.
 | PDF matrix 10 ca (từ bundle production) | 10/10 render, logo nhúng thật |
 | Kiểm tra tràn ngang 390px (20 route Admin) | 20/20 không tràn |
 | Audit hình ảnh 93 ảnh × 3 viewport | 0 lỗi console/network |
+| Cổng hợp nhất `verify:local` trên schema dùng-một-lần | **PASS — 20/20 bước** (chi tiết F.1.1) |
+
+### F.1.1 Cổng hợp nhất `verify:local`
+
+Sau khi commit, chạy lại `node scripts/local-verify.mjs --keep-going` trên HEAD
+`c3ac073` để kiểm tra toàn bộ chuỗi trên **một schema dùng một lần**
+(`agrimarket_v2_c19_20261101t090509z2o2d_test`, tạo mới rồi drop ở bước cuối; không
+đụng `DATABASE_URL`):
+
+| Bước | Kết quả |
+|---|---|
+| preflight / generate / typecheck / lint / unit / build | PASS — 16 preflight check, MySQL 8.0.46, 14 migration |
+| db-create → db-migrate → db-seed → db-locations | PASS — 14 migration, seed 6 user/14 sản phẩm/18 lô/6 đơn, 104 phường |
+| migrations (ledger + checksum + drift) | PASS — 14 migration, drift exit 0 |
+| invariants (sau seed) | PASS — 50 check, trace coverage 18 lô bán được |
+| backup + restore drill | PASS — 56 bảng / 464 dòng, sha256 khớp, bản restore trùng khớp |
+| api-e2e | PASS — 484 test, 135,9 s |
+| stress (đồng thời) | PASS — `CONCURRENCY_ROUNDS=10` |
+| business-smoke | PASS — **72** check HTTP/nghiệp vụ, 0 warning |
+| invariants-final (sau E2E + smoke) | PASS — 50 check |
+| security | PASS — 9 check, `npm audit` PASS, **0** secret finding |
+| ui-smoke | PASS — 64 route/asset check |
+| cleanup | PASS — schema đã drop |
+
+Bằng chứng: `.tmp-verify/c19/local-20261101t090509z2o2d/summary.json` (`result: PASS`,
+20 passed / 0 failed / 0 skipped) cùng log từng bước; thư mục này nằm ngoài git như
+mọi evidence khác của `verify:local`.
 
 ### F.2 Ba test SKIP của Mobile
 
@@ -315,8 +342,10 @@ trước khi chạy Playwright nên ba test này skip — không tính vào 178 
 
 Lý do:
 
-- Toàn bộ cổng kiểm thử local đều xanh (921 unit, 484 API E2E, 14 Playwright, 3 build,
-  typecheck, lint), UI đã được **nhìn thật** ở 3 viewport với 93 ảnh và 0 lỗi
+- Toàn bộ cổng kiểm thử local đều xanh (918 unit pass, 484 API E2E, 14 Playwright, 3
+  build, typecheck, lint) và cổng hợp nhất `verify:local` đạt **20/20 bước** trên schema
+  dùng-một-lần (backup/restore drill, 50 invariant check ×2, 72 business check, security
+  PASS), UI đã được **nhìn thật** ở 3 viewport với 93 ảnh và 0 lỗi
   console/network, PDF đã render đủ 10 ca và tải/xem/in được từ chính backend.
 - **Chưa** đạt STAGING-READY vì chưa có môi trường staging, chưa có credential cổng
   thanh toán/vận chuyển, chưa chạy migration trên DB giống production, chưa test thiết
