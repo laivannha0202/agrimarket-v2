@@ -42,7 +42,9 @@
     "@nestjs/platform-express": {
       "multer": "2.5.0"
     },
-    "multer": "2.5.0"
+    "multer": "2.5.0",
+    "undici": "8.12.3",
+    "fast-uri": "3.1.9"
   },
   "allowScripts": {
     "prisma@7.10.1": true,

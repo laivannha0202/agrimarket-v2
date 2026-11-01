@@ -106,9 +106,20 @@ export function InfoDescriptions({
 }) {
   const activeColumn = useActiveColumn(column);
   const props: DescriptionsProps = {
-    column,
+    // Pass the RESOLVED number, not the responsive map. antd would otherwise
+    // resolve the map a second time with its own breakpoint hook, and on the
+    // first client render (before matchMedia answers) the two can disagree for
+    // one paint — which is exactly when "Sum of column span … not match" is
+    // logged. One source of truth, and the spans below always match it.
+    column: activeColumn,
     size: "middle",
     bordered: true,
+    // `layout` is deliberately NOT switched at runtime. antd computes its row
+    // grouping once; flipping horizontal↔vertical when `useBreakpoint` resolves
+    // left mixed rows behind and logged "Sum of column span … not match".
+    // The phone problem (a 100px label column squeezing the value) is solved in
+    // `globals.css` with `.agri-desc` widths instead.
+    className: "agri-desc",
     items: normalizeSpans(items, activeColumn).map((i) => ({
       key: i.key,
       label: i.label,

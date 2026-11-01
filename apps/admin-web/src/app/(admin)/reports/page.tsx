@@ -117,28 +117,28 @@ export default function ReportsPage() {
       />
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Tổng giá trị đơn hàng"
             value={formatMoney(data.orders.totalOrderValue)}
             hint={`${data.orders.activeCount}/${data.orders.count} đơn không hủy`}
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Doanh thu thực nhận"
             value={formatMoney(data.revenue.netCollected)}
             hint="Tiền đã thu trừ tiền đã hoàn trong kỳ"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Giá trị hoàn tiền"
             value={formatMoney(data.revenue.refundTotal)}
             hint="Hoàn tất trong kỳ"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard label="Hoa hồng đã ghi nhận" value={formatMoney(data.commissionRecorded)} />
         </Col>
       </Row>
@@ -146,10 +146,10 @@ export default function ReportsPage() {
       <div style={{ height: 16 }} />
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard label="Giá trị đơn trung bình" value={formatMoney(data.orders.averageOrderValue)} />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Đơn chờ xử lý"
             value={formatNumber(data.orders.pendingConfirmation)}
@@ -157,10 +157,10 @@ export default function ReportsPage() {
             href="/orders"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard label="Đơn đang giao" value={formatNumber(data.orders.shipping)} href="/orders" />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label={`Dòng tồn kho sắp hết (≤ ${data.inventory.lowStockThreshold})`}
             value={formatNumber(data.inventory.lowStockLines)}
@@ -172,9 +172,9 @@ export default function ReportsPage() {
 
       <div style={{ height: 16 }} />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} align="stretch">
         <Col xs={24} xl={12}>
-          <div className="agri-card" style={{ padding: 16 }}>
+          <div className="agri-card" style={{ padding: 16, height: "100%" }}>
             <Typography.Title level={5} style={{ marginTop: 0 }}>
               Đơn hàng theo trạng thái
             </Typography.Title>
@@ -196,7 +196,7 @@ export default function ReportsPage() {
         </Col>
 
         <Col xs={24} xl={12}>
-          <div className="agri-card" style={{ padding: 16 }}>
+          <div className="agri-card" style={{ padding: 16, height: "100%" }}>
             <Typography.Title level={5} style={{ marginTop: 0 }}>
               Sản phẩm bán chạy
             </Typography.Title>
@@ -241,9 +241,9 @@ export default function ReportsPage() {
 
       <div style={{ height: 16 }} />
 
-      <Row gutter={[16, 16]}>
+      <Row gutter={[16, 16]} align="stretch">
         <Col xs={24} xl={12}>
-          <div className="agri-card" style={{ padding: 16 }}>
+          <div className="agri-card" style={{ padding: 16, height: "100%" }}>
             <Typography.Title level={5} style={{ marginTop: 0 }}>
               Trả hàng theo trạng thái
             </Typography.Title>
@@ -264,7 +264,7 @@ export default function ReportsPage() {
           </div>
         </Col>
         <Col xs={24} xl={12}>
-          <div className="agri-card" style={{ padding: 16 }}>
+          <div className="agri-card" style={{ padding: 16, height: "100%" }}>
             <Typography.Title level={5} style={{ marginTop: 0 }}>
               Khiếu nại theo trạng thái
             </Typography.Title>

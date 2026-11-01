@@ -118,6 +118,15 @@ a {
   }
 }
 
+/*
+ * Detail key/value blocks run at 13px. At the default 14px a value cell is
+ * ~152px wide in the two-column order card, and "hoa.vu@agrimarket.vn" is a few
+ * pixels wider than that: the last letter dropped onto its own line.
+ */
+.agri-desc .ant-descriptions-item-content.ant-descriptions-item-content {
+  font-size: 13px;
+}
+
 .agri-content {
   padding: 24px;
   /* Same reason as `.agri-main`: tables and tab strips must scroll inside
@@ -153,6 +162,56 @@ a {
   margin: 4px 0 0;
   font-size: 13px;
   color: var(--agri-text-secondary);
+}
+
+/* Status tag + creation time on the detail-page subtitle line. */
+.agri-detail-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/*
+ * Money in the four summary cards. "201.000 đ" is one token: letting it wrap
+ * produced "201.00 / 0 đ" in the 2×2 phone grid, which reads as a different
+ * amount. The phone size keeps it on one line inside a ~125px card.
+ */
+.agri-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@media (max-width: 575px) {
+  .agri-stat-value {
+    font-size: 15px;
+  }
+
+  /*
+   * Key/value blocks on a phone: the auto table layout gave the label column
+   * ~100px of a 262px card, so "mai.pham@agrimarket.vn" and "201.000 đ" broke
+   * mid-token. A 34% label column leaves enough width for the value to stay
+   * whole; a long label wraps to two lines instead. Cell padding drops to 8px
+   * for the same reason: at 12px "Khách hàng" alone did not fit its column.
+   */
+  .agri-desc .ant-descriptions-item-label {
+    width: 34%;
+  }
+
+  /* `!important` is deliberate: antd's bordered-cell rule is
+     `:where(.css-…).ant-descriptions.ant-descriptions-bordered.ant-descriptions-medium
+     .ant-descriptions-item-label` (specificity 0,4,0) and sets
+     `padding: 12px 24px`, which leaves a phone cell with 48px of dead space. */
+  .agri-desc.agri-desc .ant-descriptions-item-label,
+  .agri-desc.agri-desc .ant-descriptions-item-content {
+    padding: 8px !important;
+  }
+
+  .agri-desc .ant-descriptions-item-content {
+    word-break: normal;
+    overflow-wrap: break-word;
+  }
 }
 
 .agri-toolbar {
@@ -233,11 +292,26 @@ a {
   font-size: 24px;
   font-weight: 600;
   line-height: 32px;
+  /* "1.003.000 đ" is one token: wrapping it produced "1.003.00 / 0 đ". */
+  white-space: nowrap;
 }
 
 .agri-kpi-label {
   font-size: 13px;
   color: var(--agri-text-secondary);
+}
+
+/* Two KPI cards per row on a phone: at 24px a seven-digit amount does not fit
+   half of a 390px screen, so the value drops to 16px and the padding to 12px. */
+@media (max-width: 575px) {
+  .agri-kpi-value {
+    font-size: 16px;
+    line-height: 24px;
+  }
+
+  .agri-kpi-card .ant-card-body {
+    padding: 12px;
+  }
 }
 
 .agri-link {

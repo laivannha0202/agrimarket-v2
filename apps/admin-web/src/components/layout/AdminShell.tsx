@@ -4,7 +4,18 @@ import { useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Layout, Menu, Breadcrumb, Button, Dropdown, Avatar, Tag, type MenuProps } from "antd";
+import {
+  Layout,
+  Menu,
+  Breadcrumb,
+  Button,
+  Dropdown,
+  Avatar,
+  Tag,
+  Drawer,
+  Grid,
+  type MenuProps,
+} from "antd";
 import {
   DashboardOutlined,
   ShoppingCartOutlined,
@@ -131,19 +142,31 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  // A phone has no room for an 80px icon rail next to a 390px viewport: the
+  // content column was left with ~200px and every key/value card wrapped its
+  // labels mid-word. Below `md` the menu moves into an off-canvas drawer.
+  const screens = Grid.useBreakpoint();
+  const isPhone = screens.md === false;
+  const [navOpen, setNavOpen] = useState(false);
 
   const menuItems: MenuProps["items"] = useMemo(
     () =>
       NAV_GROUPS.map((group) => ({
         type: "group" as const,
-        label: collapsed ? undefined : group.label,
+        label: collapsed && !isPhone ? undefined : group.label,
         children: group.items.map((item) => ({
           key: item.key,
           icon: item.icon,
-          label: <Link href={item.key}>{item.label}</Link>,
+          // Closing the phone drawer on the link itself avoids a state update
+          // inside an effect keyed on `pathname` (react-hooks/set-state-in-effect).
+          label: (
+            <Link href={item.key} onClick={() => setNavOpen(false)}>
+              {item.label}
+            </Link>
+          ),
         })),
       })),
-    [collapsed],
+    [collapsed, isPhone],
   );
 
   const breadcrumbItems = useMemo(() => {
@@ -168,36 +191,55 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     },
   ];
 
+  const nav = (
+    <>
+      <div className="agri-brand">
+        <Image
+          src="/design/brand/leaf_mark_512.png"
+          alt=""
+          width={28}
+          height={28}
+          className="agri-brand-logo"
+          priority
+        />
+        {(!collapsed || isPhone) && <span>AgriMarket Admin</span>}
+      </div>
+      <Menu
+        mode="inline"
+        selectedKeys={[selectedKey(pathname)]}
+        items={menuItems}
+        style={{ borderInlineEnd: "none", paddingTop: 8, paddingBottom: 24 }}
+      />
+    </>
+  );
+
   return (
     <Layout className="agri-shell">
-      <Sider
-        className="agri-sider"
-        theme="light"
-        width={232}
-        collapsible
-        collapsed={collapsed}
-        trigger={null}
-        breakpoint="lg"
-        onBreakpoint={(broken) => setCollapsed(broken)}
-      >
-        <div className="agri-brand">
-          <Image
-            src="/design/brand/leaf_mark_512.png"
-            alt=""
-            width={28}
-            height={28}
-            className="agri-brand-logo"
-            priority
-          />
-          {!collapsed && <span>AgriMarket Admin</span>}
-        </div>
-        <Menu
-          mode="inline"
-          selectedKeys={[selectedKey(pathname)]}
-          items={menuItems}
-          style={{ borderInlineEnd: "none", paddingTop: 8, paddingBottom: 24 }}
-        />
-      </Sider>
+      {isPhone ? (
+        <Drawer
+          open={navOpen}
+          onClose={() => setNavOpen(false)}
+          placement="left"
+          size={248}
+          closable={false}
+          styles={{ body: { padding: 0 } }}
+        >
+          {nav}
+        </Drawer>
+      ) : (
+        <Sider
+          className="agri-sider"
+          theme="light"
+          width={232}
+          collapsible
+          collapsed={collapsed}
+          trigger={null}
+          breakpoint="lg"
+          onBreakpoint={(broken) => setCollapsed(broken)}
+        >
+          {nav}
+        </Sider>
+      )}
       {/*
         A flex item defaults to `min-width: auto`, so a wide child (the five
         order-detail tabs) used to push this column past the viewport and the
@@ -208,9 +250,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <Header className="agri-header">
           <Button
             type="text"
-            aria-label={collapsed ? "Mở rộng menu" : "Thu gọn menu"}
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed((c) => !c)}
+            aria-label={
+              isPhone ? "Mở menu" : collapsed ? "Mở rộng menu" : "Thu gọn menu"
+            }
+            icon={collapsed || isPhone ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            onClick={() => (isPhone ? setNavOpen(true) : setCollapsed((c) => !c))}
           />
           {/*
             The role tag + full name need ~317px; together with the collapse

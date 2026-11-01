@@ -123,7 +123,12 @@ export function OrderOverviewTab({ order }: { order: Order }) {
       <Col xs={24} lg={14}>
         <DetailCard title="Khách hàng & giao nhận">
           <InfoDescriptions
-            column={{ xs: 1, sm: 2, md: 2 }}
+            // One field per row at every width. A two-column grid gives each
+            // value ~150px inside this card, which is narrower than
+            // "lan.nguyen@agrimarket.vn" — the address broke mid-token at 1440
+            // and the email broke at every size. One column costs vertical
+            // space and never truncates a value.
+            column={1}
             items={[
               {
                 key: "customer",
@@ -198,7 +203,7 @@ export function OrderOverviewTab({ order }: { order: Order }) {
               {order.voucherRedemptions.map((v) => (
                 <Col key={v.id} xs={24} sm={12}>
                   <div className="agri-muted" style={{ fontSize: 12 }}>
-                    Voucher #{v.voucherId}
+                    Voucher {v.voucher?.code ?? `#${v.voucherId}`}
                   </div>
                   <div style={{ fontWeight: 600 }}>−{formatMoney(v.discountAmount)}</div>
                 </Col>

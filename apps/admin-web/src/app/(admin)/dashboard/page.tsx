@@ -64,28 +64,28 @@ export default function DashboardPage() {
       />
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Tổng giá trị đơn hàng"
             value={formatMoney(kpi.totalOrderValue)}
             hint={`${kpi.activeOrderCount}/${kpi.orderCount} đơn không hủy`}
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Doanh thu thực nhận"
             value={formatMoney(kpi.netCollected)}
             hint={`Đã thu ${formatMoney(kpi.grossCollected)}`}
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Hoa hồng đã ghi nhận"
             value={formatMoney(kpi.commission)}
             hint="Theo đơn không hủy"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Giá trị hoàn tiền"
             value={formatMoney(kpi.refundTotal)}
@@ -97,7 +97,7 @@ export default function DashboardPage() {
       <div style={{ height: 16 }} />
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Đơn chờ xử lý"
             value={formatNumber(kpi.pendingOrderCount)}
@@ -105,14 +105,14 @@ export default function DashboardPage() {
             href="/orders"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Đơn đang giao"
             value={formatNumber(kpi.shippingOrderCount)}
             href="/orders"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label="Khiếu nại đang xử lý"
             value={formatNumber(actionQueue.openComplaintCount)}
@@ -120,7 +120,7 @@ export default function DashboardPage() {
             href="/returns-complaints"
           />
         </Col>
-        <Col xs={24} sm={12} xl={6}>
+        <Col xs={12} sm={12} xl={6}>
           <KpiCard
             label={`Dòng tồn kho sắp hết (≤ ${actionQueue.lowStockThreshold})`}
             value={formatNumber(actionQueue.lowStockLineCount)}
@@ -233,6 +233,11 @@ export default function DashboardPage() {
               rowKey="id"
               dataSource={recentOrders}
               pagination={false}
+              // Five columns do not fit a 390px phone. The secondary ones drop
+              // out by breakpoint instead of forcing a sideways scroll on the
+              // most-used table of the dashboard; `max-content` stays as the
+              // safety net for the remaining three.
+              scroll={{ x: "max-content" }}
               locale={{ emptyText: "Chưa có đơn hàng" }}
               columns={[
                 {
@@ -246,6 +251,7 @@ export default function DashboardPage() {
                 },
                 {
                   title: "Khách hàng",
+                  responsive: ["sm"],
                   render: (_, row) => row.customer?.fullName ?? "—",
                 },
                 {
@@ -257,11 +263,13 @@ export default function DashboardPage() {
                 {
                   title: "Trạng thái",
                   dataIndex: "status",
+                  responsive: ["sm"],
                   render: (s: string) => <StatusTag status={orderStatus(s)} />,
                 },
                 {
                   title: "Ngày tạo",
                   dataIndex: "createdAt",
+                  responsive: ["md"],
                   render: (v: string) => <span className="agri-nowrap">{formatDateTime(v)}</span>,
                 },
               ]}

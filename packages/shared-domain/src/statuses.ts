@@ -12,6 +12,7 @@ import type {
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
+  RefundStatus,
   ReturnRequestStatus,
   ShipmentStatus,
   Tone,
@@ -48,6 +49,21 @@ export const PAYMENT_STATUS: Record<PaymentStatus, StatusMeta> = {
 
 export function paymentStatusMeta(status: string): StatusMeta {
   return PAYMENT_STATUS[status as PaymentStatus] ?? UNKNOWN;
+}
+
+/**
+ * Refund lifecycle. Only `COMPLETED` means the money moved, so the labels say
+ * it plainly: an approved request is not a payout.
+ */
+export const REFUND_STATUS: Record<RefundStatus, StatusMeta> = {
+  PENDING: { label: "Chờ hoàn tiền", tone: "yellow" },
+  APPROVED: { label: "Đã duyệt — chờ chuyển tiền", tone: "blue" },
+  COMPLETED: { label: "Đã hoàn tiền", tone: "green" },
+  FAILED: { label: "Hoàn tiền thất bại", tone: "red" },
+};
+
+export function refundStatusMeta(status: string): StatusMeta {
+  return REFUND_STATUS[status as RefundStatus] ?? UNKNOWN;
 }
 
 export const SHIPMENT_STATUS: Record<ShipmentStatus, StatusMeta> = {

@@ -665,7 +665,7 @@ export interface Order {
   customer?: { id: number; fullName: string; email: string; phone: string | null };
   partnerOrders?: PartnerOrder[];
   payments?: Payment[];
-  voucherRedemptions?: { id: number; voucherId: number; discountAmount: string }[];
+  voucherRedemptions?: { id: number; voucherId: number; discountAmount: string; voucher?: { code: string } | null }[];
 }
 
 // Returns & complaints ------------------------------------------------------

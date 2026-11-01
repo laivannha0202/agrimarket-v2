@@ -249,16 +249,16 @@ function RefundsPageContent() {
 
   return (
     <>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="Hoàn tiền là quy trình 2 bước"
-        description="Tạo yêu cầu ở trạng thái Chờ duyệt → Duyệt → Hoàn tất kèm mã chứng từ chuyển tiền. Chỉ bước Hoàn tất mới cập nhật thanh toán và đối soát. Hoàn tiền sau khi đã đối soát sẽ tạo dòng điều chỉnh OPEN và chặn chi trả cho đến khi xử lý."
-      />
-
       <ListPage<Refund>
         title="Hoàn tiền"
+        notice={
+          <Alert
+            type="info"
+            showIcon
+            title="Hoàn tiền là quy trình 2 bước"
+            description="Tạo yêu cầu ở trạng thái Chờ duyệt → Duyệt → Hoàn tất kèm mã chứng từ chuyển tiền. Chỉ bước Hoàn tất mới cập nhật thanh toán và đối soát. Hoàn tiền sau khi đã đối soát sẽ tạo dòng điều chỉnh OPEN và chặn chi trả cho đến khi xử lý."
+          />
+        }
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -377,7 +377,7 @@ function RefundsPageContent() {
               type="warning"
               showIcon
               style={{ marginBottom: 12 }}
-              message="Chỉ nhập mã khi tiền đã thực sự rời quỹ."
+              title="Chỉ nhập mã khi tiền đã thực sự rời quỹ."
             />
             <Form.Item
               label="Mã chứng từ chuyển tiền"

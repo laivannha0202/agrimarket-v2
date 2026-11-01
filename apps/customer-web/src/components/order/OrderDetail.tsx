@@ -60,6 +60,7 @@ import {
   orderStatusMeta,
   paymentMethodLabel,
   paymentStatusMeta,
+  refundStatusMeta,
   RETURNABLE_ORDER_STATUSES,
   shipmentStatusMeta,
 } from "@/lib/status";
@@ -456,7 +457,7 @@ function PaymentCard({ payment, order }: { payment: Payment | undefined; order: 
       {order.voucherRedemptions.map((redemption) => (
         <Group key={redemption.id} justify="space-between" gap={12} wrap="nowrap" py={3}>
           <Text fz={13} c="var(--agri-muted)">
-            Mã voucher #{redemption.voucherId}
+            Mã voucher {redemption.voucher?.code ?? `#${redemption.voucherId}`}
           </Text>
           <Text fz={13.5} fw={600} c="var(--agri-primary)">
             đã tính trong Giảm giá
@@ -496,16 +497,31 @@ function PaymentCard({ payment, order }: { payment: Payment | undefined; order: 
           <Text fz={13} fw={700} c="var(--agri-text-strong)" mb={4}>
             Hoàn tiền
           </Text>
-          {(payment?.refunds ?? []).map((refund) => (
-            <Group key={refund.id} justify="space-between" gap={12} wrap="nowrap" py={3}>
-              <Text fz={13} c="var(--agri-muted)">
-                {refund.reason ?? "Hoàn tiền cho đơn hàng"}
-              </Text>
-              <Text fz={13.5} fw={600} c="var(--agri-text)">
-                {formatMoney(refund.amount)}
-              </Text>
-            </Group>
-          ))}
+          {(payment?.refunds ?? []).map((refund) => {
+            // An amount alone reads as "money returned". The status is what
+            // tells the customer whether it has actually been paid out.
+            const meta = refundStatusMeta(refund.status);
+            return (
+              <Group
+                key={refund.id}
+                justify="space-between"
+                align="flex-start"
+                gap={12}
+                wrap="nowrap"
+                py={4}
+              >
+                <Stack gap={3} style={{ minWidth: 0 }}>
+                  <Text fz={13} c="var(--agri-muted)">
+                    {refund.reason ?? "Hoàn tiền cho đơn hàng"}
+                  </Text>
+                  <StatusBadge label={meta.label} tone={meta.tone} />
+                </Stack>
+                <Text fz={13.5} fw={600} c="var(--agri-text)" style={{ flexShrink: 0 }}>
+                  {formatMoney(refund.amount)}
+                </Text>
+              </Group>
+            );
+          })}
         </>
       ) : null}
 

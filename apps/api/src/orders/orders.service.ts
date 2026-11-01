@@ -260,7 +260,7 @@ const customerOrderInclude = {
     orderBy: { id: 'asc' as const },
   },
   payments: { include: { refunds: true } },
-  voucherRedemptions: true,
+  voucherRedemptions: { include: { voucher: { select: { code: true } } } },
 } satisfies Prisma.OrderInclude;
 
 /**
@@ -321,7 +321,7 @@ const adminOrderInclude = {
     orderBy: { id: 'asc' as const },
   },
   payments: { include: { refunds: true } },
-  voucherRedemptions: true,
+  voucherRedemptions: { include: { voucher: { select: { code: true } } } },
 } satisfies Prisma.OrderInclude;
 
 @Injectable()
@@ -1119,7 +1119,7 @@ export class OrdersService {
           },
         },
         payments: { include: { refunds: true } },
-        voucherRedemptions: true,
+        voucherRedemptions: { include: { voucher: { select: { code: true } } } },
       },
     });
     if (!order) throw new NotFoundException('Order not found');

@@ -1,6 +1,6 @@
 "use client";
 
-import { Column } from "@ant-design/plots";
+import { Bar, Column } from "@ant-design/plots";
 import type { ReportsDailyPoint } from "@/types/api";
 import { formatMoney, formatNumber } from "@/lib/format";
 
@@ -73,17 +73,47 @@ export function RevenueByDayChart({ points }: { points: ReportsDailyPoint[] }) {
 }
 
 /**
- * Order count by status. Vertical bars, single neutral colour so the chart
- * reads at a glance and stays consistent with the rest of the console.
+ * Order count by status.
+ *
+ * Horizontal bars, because every label is a Vietnamese phrase ("Đang chuẩn
+ * bị", "Chờ xác nhận"). Vertical bars had to rotate those labels 90° — the
+ * text became unreadable and the y-axis title ran through the ticks. Rows of
+ * text on the left read naturally at any width, including 390px.
+ *
+ * An all-zero breakdown renders the same explicit empty state as the revenue
+ * chart: an axis scaled 0–1 with no bars looks like a rendering failure, not
+ * like "no orders in this period".
  */
 export function OrdersByStatusChart({
   data,
 }: {
   data: { status: string; count: number }[];
 }) {
+  if (data.length === 0 || data.every((d) => d.count === 0)) {
+    return (
+      <div
+        style={{
+          height: 280,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--agri-muted, #888)",
+          border: "1px dashed var(--agri-border, #ddd)",
+          borderRadius: 8,
+        }}
+      >
+        Chưa có đơn hàng trong kỳ
+      </div>
+    );
+  }
+
   return (
-    <Column
+    <Bar
       data={data}
+      // `Bar` is a transposed column chart: the CATEGORY stays on xField and
+      // the measure on yField, and the component swaps the axes on screen.
+      // Swapping the fields here put the statuses on the value axis, rotated
+      // 90° along the bottom.
       xField="status"
       yField="count"
       height={280}
@@ -91,14 +121,14 @@ export function OrdersByStatusChart({
       containerStyle={{ width: "100%", height: 280 }}
       label={false}
       axis={{
-        x: { title: false, labelAutoRotate: true, labelAutoHide: false, labelAutoWrap: true },
-        y: { title: "Số đơn", tickCount: 5, labelFormatter: (v: number) => formatNumber(v) },
+        x: { title: false, labelAutoRotate: false, labelAutoHide: false },
+        y: { title: false, tickCount: 4, labelFormatter: (v: number) => formatNumber(v) },
       }}
       tooltip={{
         title: (d: { status: string }) => d.status,
-        items: [{ channel: "y", valueFormatter: (v: number) => formatNumber(v) }],
+        items: [{ channel: "y", valueFormatter: (v: number) => `${formatNumber(v)} đơn` }],
       }}
-      style={{ fill: "#1677ff", radiusTopLeft: 3, radiusTopRight: 3 }}
+      style={{ fill: "#2f8f4e", radiusTopLeft: 3, radiusTopRight: 3 }}
     />
   );
 }

@@ -10,6 +10,7 @@ import {
   orderStatusMeta,
   paymentMethodLabel,
   paymentStatusMeta,
+  refundStatusMeta,
   returnFlowIndex,
   returnStatusMeta,
 } from "../statuses";
@@ -27,6 +28,14 @@ describe("status labels", () => {
     expect(orderStatusMeta("SOMETHING_NEW").label).toBe("Không xác định");
     expect(paymentStatusMeta("SOMETHING_NEW").label).toBe("Không xác định");
     expect(returnStatusMeta("SOMETHING_NEW").label).toBe("Không xác định");
+    expect(refundStatusMeta("SOMETHING_NEW").label).toBe("Không xác định");
+  });
+
+  it("distinguishes a completed refund from one that is still pending", () => {
+    expect(refundStatusMeta("COMPLETED").label).toBe("Đã hoàn tiền");
+    expect(refundStatusMeta("PENDING").label).toBe("Chờ hoàn tiền");
+    expect(refundStatusMeta("APPROVED").label).toContain("chờ chuyển tiền");
+    expect(refundStatusMeta("FAILED").label).toBe("Hoàn tiền thất bại");
   });
 
   it("labels payments and methods consistently", () => {

@@ -52,7 +52,7 @@ export default function ProductsPage() {
   const columns: ColumnsType<Product> = [
     {
       title: "Ảnh",
-      width: 72,
+      width: 64,
       render: (_, row) => {
         const primary =
           row.images?.find((i) => i.isPrimary)?.url ?? row.images?.[0]?.url;
@@ -103,13 +103,15 @@ export default function ProductsPage() {
       render: (_, row) => row.category?.name ?? "—",
     },
     {
-      title: "Đơn vị bán hàng",
+      // The value is the supplying partner (`row.partner.name`), not a unit.
+      // The old label made the column read like a measurement.
+      title: "Đối tác",
       render: (_, row) => row.partner?.name ?? "—",
     },
     {
       title: "Quy cách",
       align: "right",
-      width: 90,
+      width: 80,
       render: (_, row) => row.variants?.length ?? 0,
     },
     {
@@ -133,8 +135,10 @@ export default function ProductsPage() {
     },
     {
       title: "Thao tác",
-      width: 210,
-      fixed: "right",
+      // Not `fixed`: on a 390px screen a pinned 210px action column covered
+      // every data column except the thumbnail, so the list showed images and
+      // "Sửa / Ngừng bán" with no product name. Scrolling reaches the actions.
+      width: 190,
       render: (_, row) => (
         <Space size={4}>
           <Link href={`/products/${row.id}`}>
@@ -197,7 +201,8 @@ export default function ProductsPage() {
         },
         {
           key: "partnerId",
-          placeholder: "Đơn vị bán hàng",
+          // Same word as the column, which renders `partner.name`.
+          placeholder: "Đối tác",
           value: list.filters.partnerId,
           options: (partners.data ?? []).map((o) => ({ label: o.label, value: String(o.value) })),
           width: 220,
@@ -229,7 +234,7 @@ export default function ProductsPage() {
       limit={list.limit}
       onPageChange={list.setPage}
       onLimitChange={list.setLimit}
-      scrollX={1240}
+      scrollX={1120}
       itemLabel="sản phẩm"
     />
   );

@@ -59,6 +59,9 @@ export default function PartnersPage() {
   const columns: ColumnsType<Partner> = [
     {
       title: "Đối tác",
+      // Without a width the auto layout squeezed the name to two lines while
+      // the email column took the free space.
+      width: 280,
       render: (_, row) => (
         <div>
           <Link href={`/partners/${row.id}`} className="agri-link">
@@ -72,7 +75,7 @@ export default function PartnersPage() {
     },
     { title: "Người đại diện", dataIndex: "representativeName" },
     { title: "Điện thoại", dataIndex: "phone" },
-    { title: "Email", dataIndex: "email" },
+    { title: "Email", dataIndex: "email", width: 260 },
     {
       title: "Trạng thái",
       dataIndex: "status",

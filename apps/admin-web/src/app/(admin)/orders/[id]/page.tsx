@@ -201,7 +201,16 @@ export default function OrderDetailPage() {
   return (
     <DetailPage
       title={order ? `Đơn hàng ${order.code}` : "Chi tiết đơn hàng"}
-      subtitle={order ? `Tạo lúc ${formatDateTime(order.createdAt)}` : undefined}
+      subtitle={
+        order ? (
+          // The status belongs to the order's identity, not to the action row:
+          // sitting between "Xem trước" and "Tải PDF" it read like a button.
+          <span className="agri-detail-subtitle">
+            <StatusTag status={orderStatus(order.status)} />
+            <span>Tạo lúc {formatDateTime(order.createdAt)}</span>
+          </span>
+        ) : undefined
+      }
       backHref="/orders"
       backLabel="Danh sách đơn hàng"
       loading={isLoading}
@@ -210,7 +219,6 @@ export default function OrderDetailPage() {
       extra={
         order ? (
           <Space size={8} wrap>
-            <StatusTag status={orderStatus(order.status)} />
             <Button
               onClick={() => void openPreview("order")}
               loading={previewing === "order"}
@@ -266,7 +274,7 @@ export default function OrderDetailPage() {
                   <div className="agri-muted" style={{ fontSize: 12 }}>
                     {item.label}
                   </div>
-                  <div style={{ fontSize: 18, fontWeight: 700 }}>{item.value}</div>
+                  <div className="agri-stat-value">{item.value}</div>
                 </div>
               </Col>
             ))}
@@ -320,6 +328,11 @@ export default function OrderDetailPage() {
             onCancel={closePreview}
             width={880}
             style={{ top: 24 }}
+            // A closed antd Modal keeps its children mounted. The PDF iframe
+            // stayed in the layer and intercepted pointer events during the
+            // close animation, so "Tải phiếu PDF" was unclickable right after
+            // closing the preview. Unmounting also releases the blob URL.
+            destroyOnHidden
             footer={
               <Space>
                 <Button onClick={closePreview}>Đóng</Button>

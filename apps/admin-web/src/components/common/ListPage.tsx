@@ -18,6 +18,12 @@ interface ListPageProps<T> {
   onFilterChange?: (key: string, value: string | undefined) => void;
   onReset?: () => void;
   toolbarExtra?: ReactNode;
+  /**
+   * Process note rendered between the page header and the toolbar. It belongs
+   * below the title: a warning above `<h1>` reads as a browser-level banner
+   * and pushes the page identity out of the first screen.
+   */
+  notice?: ReactNode;
   hideSearch?: boolean;
   columns: ColumnsType<T>;
   data: T[];
@@ -50,6 +56,7 @@ export function ListPage<T extends object>({
   onFilterChange,
   onReset,
   toolbarExtra,
+  notice,
   hideSearch,
   columns,
   data,
@@ -69,6 +76,7 @@ export function ListPage<T extends object>({
   return (
     <>
       <PageHeader title={title} subtitle={subtitle} extra={headerExtra} />
+      {notice ? <div style={{ marginBottom: 16 }}>{notice}</div> : null}
       <SearchToolbar
         searchValue={searchValue}
         onSearchChange={onSearchChange}
@@ -89,7 +97,11 @@ export function ListPage<T extends object>({
               dataSource={data}
               loading={loading}
               rowKey="id"
-              scroll={scrollX ? { x: scrollX } : undefined}
+              // Without `x`, antd sizes the table to its content and the card
+              // cannot clip it: a four-column table on a 390px phone widened
+              // the whole document (the page scrolled sideways). `max-content`
+              // keeps the overflow inside the card's own scroll container.
+              scroll={{ x: scrollX ?? "max-content" }}
               pagination={false}
               locale={{ emptyText }}
               expandable={expandable}

@@ -636,6 +636,8 @@ export interface Payment {
 export interface VoucherRedemption {
   id: number;
   voucherId: number;
+  /** Code printed on the receipt; the numeric id is an internal key. */
+  voucher?: { code: string } | null;
   customerId: number;
   orderId: number;
   discountAmount: string;

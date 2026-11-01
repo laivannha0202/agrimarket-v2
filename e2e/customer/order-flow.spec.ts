@@ -111,7 +111,9 @@ test.describe('Customer order flow', () => {
     });
 
     await page.goto(`/don-hang/${order.id}`);
-    await expect(page.getByText(/^Mã voucher #\d+/)).toBeVisible();
+    // The receipt names the voucher by its code, not by the internal row id:
+    // "Mã voucher #3" is meaningless to the customer.
+    await expect(page.getByText(/^Mã voucher HUNGYEN50K$/)).toBeVisible();
     await expect(page.getByText('đã tính trong Giảm giá')).toBeVisible();
     await expect(page.getByText(vnd(order.grandTotal)).first()).toBeVisible();
   });

@@ -130,13 +130,30 @@ export class OrderDocumentService {
     doc: InstanceType<typeof PDFDocument>,
     pageRange: { start: number; count: number },
     generatedAt: Date,
+    watermark?: string,
+    docLabel = 'Phiếu xác nhận đơn hàng',
   ): void {
     for (let i = pageRange.start; i < pageRange.start + pageRange.count; i += 1) {
       doc.switchToPage(i);
+      if (watermark) {
+        // Drawn first so the footer text stays on top. `opacity` is reset
+        // before the restore: PDFKit keeps the graphics state otherwise, and
+        // the next page's body would inherit the 7% alpha.
+        doc.save();
+        doc.rotate(-32, { origin: [297.64, 420] });
+        doc
+          .font(FONT_BOLD)
+          .fontSize(88)
+          .fillColor('#b3261e')
+          .opacity(0.08)
+          .text(watermark, 0, 380, { width: 595.28, align: 'center', lineBreak: false });
+        doc.opacity(1);
+        doc.restore();
+      }
       this.inBottomMargin(doc, () => {
         const y = 841.89 - 30;
         doc.font(FONT_REGULAR).fontSize(8).fillColor('#777777');
-        doc.text('Phiếu xác nhận đơn hàng — không phải hóa đơn VAT hợp pháp.', 40, y, { width: 360, lineBreak: false });
+        doc.text(`${docLabel} — không phải hóa đơn VAT hợp pháp.`, 40, y, { width: 360, lineBreak: false });
         doc.text(`Trang ${i - pageRange.start + 1}/${pageRange.count}`, 40, y, { width: 515, align: 'right', lineBreak: false });
         doc.text(`Xuất lúc ${vnDateTime(generatedAt)}`, 40, y + 10, { width: 515, align: 'right', lineBreak: false });
       });
@@ -163,6 +180,11 @@ export class OrderDocumentService {
   async renderOrderPdf(orderId: number, customerId?: number): Promise<Buffer> {
     const order = await this.orders.findOne(orderId, customerId);
     const { doc, done } = this.makeDoc();
+    // Without metadata the browser's PDF viewer shows the blob URL as the
+    // document title; the operator sees "blob:http://…" instead of the order.
+    doc.info.Title = `Phiếu xác nhận đơn hàng ${order.code}`;
+    doc.info.Author = 'AgriMarket';
+    doc.info.Subject = 'Phiếu xác nhận đơn hàng (không phải hóa đơn GTGT)';
     const PAGE_W = 595.28;
     const M = 40;
     const CW = PAGE_W - M * 2;
@@ -173,7 +195,18 @@ export class OrderDocumentService {
     doc.font(FONT_BOLD).fontSize(15).fillColor('#087A3B').text('AgriMarket', M + 56, y + 4);
     doc.font(FONT_REGULAR).fontSize(9).fillColor('#555555').text('Nông sản sạch, rõ nguồn gốc', M + 56, y + 22);
 
-    doc.font(FONT_BOLD).fontSize(15).fillColor('#111111').text('PHIẾU XÁC NHẬN ĐƠN HÀNG', M, y, { width: CW, align: 'right' });
+    // A cancelled order is not a confirmation of anything: the title says so,
+    // a red band repeats it, and the watermark (drawn with the footer) makes a
+    // printed copy impossible to mistake for a live delivery note.
+    const cancelled = order.status === 'CANCELLED';
+    doc
+      .font(FONT_BOLD)
+      .fontSize(15)
+      .fillColor(cancelled ? '#b3261e' : '#111111')
+      .text(cancelled ? 'PHIẾU ĐƠN HÀNG (ĐÃ HỦY)' : 'PHIẾU XÁC NHẬN ĐƠN HÀNG', M, y, {
+        width: CW,
+        align: 'right',
+      });
     doc.font(FONT_REGULAR).fontSize(9).fillColor('#555555').text(`Mã đơn: ${order.code}`, M, y + 20, { width: CW, align: 'right' });
     doc.text(`Ngày đặt: ${vnDateTime(order.createdAt)}`, M, y + 34, { width: CW, align: 'right' });
     doc.text(`Ngày xuất: ${vnDateTime(new Date())}`, M, y + 48, { width: CW, align: 'right' });
@@ -182,6 +215,20 @@ export class OrderDocumentService {
     y += 82;
     doc.moveTo(M, y).lineTo(PAGE_W - M, y).strokeColor('#cccccc').stroke();
     y += 14;
+
+    if (cancelled) {
+      const bandText =
+        'ĐƠN HÀNG ĐÃ HỦY — phiếu này không có giá trị giao nhận và không dùng để thu tiền.';
+      doc.font(FONT_BOLD).fontSize(9);
+      const bandH = Math.max(24, doc.heightOfString(bandText, { width: CW - 16 }) + 14);
+      doc.rect(M, y, CW, bandH).fill('#fdecea');
+      doc
+        .font(FONT_BOLD)
+        .fontSize(9)
+        .fillColor('#b3261e')
+        .text(bandText, M + 8, y + 7, { width: CW - 16 });
+      y += bandH + 12;
+    }
 
     // Buyer / recipient
     const addr = order.shippingAddressSnapshot as unknown as Record<string, unknown> | null;
@@ -259,6 +306,9 @@ export class OrderDocumentService {
       if ((order.partnerOrders?.length ?? 0) > 1) {
         // group header
         if (y + 16 > 801) { doc.addPage(); y = M; drawHeader(); }
+        // A tinted band: without it the partner name reads as another product
+        // row, and the grouping is invisible on a printed sheet.
+        doc.rect(M, y, CW, 16).fill('#f3f8f4');
         doc.font(FONT_BOLD).fontSize(9).fillColor('#087A3B').text(`Đối tác: ${po.partner?.name ?? po.code}`, M, y + 3, { width: CW });
         y += 16;
       }
@@ -275,7 +325,10 @@ export class OrderDocumentService {
         const sub = formatMoney(Number(it.subtotal));
         doc.font(FONT_REGULAR).fontSize(9);
         const nameH = doc.heightOfString(name, { width: cols[1].w - 6 });
-        const rowH = Math.max(14, nameH) + 6;
+        // The SKU is a second line inside the same cell. Measuring only the
+        // name made the row shorter than its own content, so "SKU: …" was
+        // printed below the row's separator line.
+        const rowH = Math.max(14, nameH + (sku ? 11 : 0)) + 6;
         if (y + rowH > 801) {
           doc.addPage();
           y = M;
@@ -313,7 +366,8 @@ export class OrderDocumentService {
     // `discountTotal` already contains every voucher redemption, so the voucher
     // rows are informational. Printing the amount again would subtract it twice.
     for (const v of order.voucherRedemptions ?? []) {
-      totals.push([`Voucher #${v.voucherId}`, 'đã tính trong Giảm giá', false]);
+      const code = (v as { voucher?: { code?: string } | null }).voucher?.code;
+      totals.push([`Voucher ${code ?? `#${v.voucherId}`}`, 'đã tính trong Giảm giá', false]);
     }
     totals.push(['Phí giao hàng', formatMoney(Number(order.shippingFee)), false]);
     totals.push(['TỔNG THANH TOÁN', formatMoney(Number(order.grandTotal)), true]);
@@ -337,7 +391,9 @@ export class OrderDocumentService {
         collected ? formatMoney(Number(payment.amount)) : 'Chưa thu tiền',
         false,
       ]);
-      if (!collected && payment.method === 'COD') {
+      // A cancelled order owes nothing. Printing "Còn phải thanh toán" told the
+      // courier to collect cash for a parcel that will never ship.
+      if (!collected && payment.method === 'COD' && !cancelled) {
         totals.push(['Còn phải thanh toán', formatMoney(Number(payment.amount)), false]);
       }
       if (refunded > 0) {
@@ -349,8 +405,18 @@ export class OrderDocumentService {
         ]);
       }
     }
+    if (cancelled) {
+      totals.push(['Trạng thái thu tiền', 'Không thu tiền', false]);
+    }
     const labelX = PAGE_W - M - 260;
     const valueX = PAGE_W - M - 120;
+    // A hairline above the totals separates them from the last product row;
+    // without it "Tạm tính" floats in the middle of the page.
+    doc
+      .moveTo(labelX, y - 6)
+      .lineTo(PAGE_W - M, y - 6)
+      .strokeColor('#e5e5e5')
+      .stroke();
     for (const [label, value, bold] of totals) {
       doc.font(bold ? FONT_BOLD : FONT_REGULAR).fontSize(bold ? 11 : 10).fillColor(bold ? '#087A3B' : '#222222');
       doc.text(label, labelX, y, { width: 140, align: 'left' });
@@ -363,14 +429,26 @@ export class OrderDocumentService {
 
     y += 8;
     doc.font(FONT_REGULAR).fontSize(9).fillColor('#555555').text(
-      'Ghi chú: Phiếu xác nhận đơn hàng, dùng để xác nhận thông tin đơn hàng và giao nhận. Không phải hóa đơn GTGT/hóa đơn điện tử hợp pháp.',
+      cancelled
+        ? 'Ghi chú: Đơn hàng đã hủy. Phiếu này chỉ lưu lại thông tin đơn tại thời điểm xuất, không dùng để giao nhận hay thu tiền. Không phải hóa đơn GTGT/hóa đơn điện tử hợp pháp.'
+        : 'Ghi chú: Phiếu xác nhận đơn hàng, dùng để xác nhận thông tin đơn hàng và giao nhận. Không phải hóa đơn GTGT/hóa đơn điện tử hợp pháp.',
       M, y, { width: CW },
     );
     y = doc.y + 6;
     doc.text('Tra cứu đơn hàng theo mã đơn tại hệ thống AgriMarket.', M, y, { width: CW });
 
     const range = doc.bufferedPageRange();
-    this.footer(doc, range, new Date());
+    this.footer(
+      doc,
+      range,
+      new Date(),
+      cancelled ? 'ĐÃ HỦY' : undefined,
+      // Every page carries the order code: a printed page 2 that gets
+      // separated from page 1 must still identify its order.
+      cancelled
+        ? `Phiếu đơn hàng (đã hủy) ${order.code}`
+        : `Phiếu xác nhận đơn hàng ${order.code}`,
+    );
     doc.end();
     return done;
   }
@@ -379,6 +457,9 @@ export class OrderDocumentService {
     // Admin-only route: the controller never passes a customer scope.
     const order = await this.orders.findOne(orderId);
     const { doc, done } = this.makeDoc();
+    doc.info.Title = `Phiếu soạn hàng ${order.code}`;
+    doc.info.Author = 'AgriMarket';
+    doc.info.Subject = 'Phiếu soạn hàng nội bộ';
     const PAGE_W = 595.28;
     const M = 40;
     const CW = PAGE_W - M * 2;
@@ -397,9 +478,18 @@ export class OrderDocumentService {
       ['Số điện thoại', asText(addr?.phone)],
       ['Địa chỉ giao', addressText(addr)],
     ];
-    for (const po of order.partnerOrders ?? []) {
-      meta.push(['Đơn đối tác', `${po.code} — ${po.partner?.name ?? ''}`]);
+    // One row, not one per partner: two rows both labelled "Đơn đối tác" read
+    // like the same field printed twice.
+    const partnerOrders = order.partnerOrders ?? [];
+    if (partnerOrders.length > 0) {
+      meta.push([
+        'Đơn đối tác',
+        partnerOrders.map((po) => `${po.code} — ${po.partner?.name ?? ''}`).join(' · '),
+      ]);
     }
+    // The packer works from this slip, so the delivery note belongs here next
+    // to the address instead of only on the admin screen.
+    if (order.note) meta.push(['Ghi chú giao hàng', order.note]);
     for (const [k, v] of meta) {
       doc.font(FONT_BOLD).fontSize(9).fillColor('#333333').text(`${k}:`, M, y, { width: 110 });
       doc.font(FONT_REGULAR).fontSize(9).fillColor('#222222').text(v, M + 115, y, { width: CW - 115 });
@@ -409,12 +499,17 @@ export class OrderDocumentService {
     y += 8;
     const cols = [
       { h: 'STT', w: 34 },
-      { h: 'Sản phẩm / SKU', w: CW - 34 - 70 - 60 - 90 },
-      { h: 'ĐVT', w: 70 },
+      { h: 'Sản phẩm / SKU', w: CW - 34 - 62 - 60 - 112 - 24 },
+      { h: 'ĐVT', w: 62 },
       { h: 'SL soạn', w: 60 },
-      { h: 'Lô hàng', w: 90 },
+      // 112px keeps "LOT-20261005-0009 (2)" on one line; narrower, the quantity
+      // in brackets wrapped away from its lot code.
+      { h: 'Lô hàng', w: 112 },
+      // The tick box needs its own column: drawn at the page edge it landed on
+      // top of the lot code, hiding the last characters of the batch number.
+      { h: '', w: 24 },
     ];
-    cols[1].w = CW - (cols[0].w + cols[2].w + cols[3].w + cols[4].w);
+    cols[1].w = CW - (cols[0].w + cols[2].w + cols[3].w + cols[4].w + cols[5].w);
 
     const drawHeader = () => {
       const h = 20;
@@ -461,10 +556,14 @@ export class OrderDocumentService {
         doc.font(FONT_BOLD).text(formatQty(it.quantity, null), x + 3, y + 3, { width: cols[3].w - 6, align: 'center', lineBreak: false });
         x += cols[3].w;
         doc.font(FONT_REGULAR).fontSize(8).text(lots, x + 3, y + 3, { width: cols[4].w - 6 });
+        x += cols[4].w;
         y += rowH;
         doc.moveTo(M, y - 2).lineTo(PAGE_W - M, y - 2).strokeColor('#eeeeee').stroke();
-        // checkbox
-        doc.rect(PAGE_W - M - 16, y - rowH + 4, 12, 12).strokeColor('#999999').stroke();
+        // Tick box, centred in its own column.
+        doc
+          .rect(x + 6, y - rowH + (rowH - 12) / 2, 12, 12)
+          .strokeColor('#999999')
+          .stroke();
       }
       y += 6;
     }
@@ -474,7 +573,11 @@ export class OrderDocumentService {
     doc.font(FONT_REGULAR).fontSize(9).fillColor('#222222');
     doc.text('Ghi chú đóng gói: ________________________________________________________________', M, y, { width: CW });
     y += 24;
-    const sigY = y;
+    // A warehouse slip is signed at the foot of the sheet. On a short order the
+    // block used to sit in the middle of the page with 400pt of blank paper
+    // underneath; 801 is the content limit (footer lives below it).
+    const SIG_H = 56;
+    const sigY = Math.max(y, 801 - SIG_H);
     for (let i = 0; i < 3; i++) {
       const x = M + i * (CW / 3);
       doc.font(FONT_BOLD).fontSize(9).text(['Người soạn', 'Người kiểm', 'Bàn giao'][i], x, sigY, { width: CW / 3 - 8, align: 'center' });

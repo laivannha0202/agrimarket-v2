@@ -22,20 +22,12 @@ import { useQuery } from "@tanstack/react-query";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
-import { returnFlowIndex, returnStatusMeta, RETURN_FLOW, type Tone } from "@/lib/status";
+import { refundStatusMeta, returnFlowIndex, returnStatusMeta, RETURN_FLOW } from "@/lib/status";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { EvidenceGallery } from "@/components/common/EvidenceGallery";
 import { ErrorState, NotFoundState } from "@/components/common/States";
 import { AppCard, FlowSteps, GhostButton, LoadingView, PageTitle } from "@/components/ui/kit";
 import { ApiError } from "@/lib/api/client";
-
-/** Refund status labels/tone, exactly the Mobile mapping. */
-const REFUND_STATUS: Record<string, { label: string; tone: Tone }> = {
-  COMPLETED: { label: "Đã hoàn tiền", tone: "green" },
-  APPROVED: { label: "Đã duyệt — chờ chuyển tiền", tone: "blue" },
-  PENDING: { label: "Chờ hoàn tiền", tone: "yellow" },
-  FAILED: { label: "Hoàn tiền thất bại", tone: "red" },
-};
 
 function InfoRow({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -105,7 +97,7 @@ export function ReturnDetail({ returnId }: { returnId: number | null }) {
   const meta = returnStatusMeta(record.status);
   const currentIdx = returnFlowIndex(record.status);
   const orderLabel = record.order?.code ?? `#${record.orderId}`;
-  const refundMeta = record.refund ? REFUND_STATUS[record.refund.status] : undefined;
+  const refundMeta = record.refund ? refundStatusMeta(record.refund.status) : undefined;
 
   return (
     <Container size="md" px={{ base: 12, sm: "lg" }} py={{ base: 12, sm: 24 }}>
@@ -181,7 +173,7 @@ export function ReturnDetail({ returnId }: { returnId: number | null }) {
                   Trạng thái
                 </Text>
                 <StatusBadge
-                  label={refundMeta?.label ?? record.refund.status}
+                  label={refundMeta?.label ?? "Không xác định"}
                   tone={refundMeta?.tone ?? "gray"}
                 />
               </Group>

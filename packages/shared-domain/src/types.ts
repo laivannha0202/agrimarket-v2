@@ -24,6 +24,8 @@ export type PaymentMethod = "COD" | "VNPAY" | "MOCK_ONLINE";
 
 export type PaymentStatus = "PENDING" | "PAID" | "PARTIALLY_REFUNDED" | "REFUNDED" | "FAILED";
 
+export type RefundStatus = "PENDING" | "APPROVED" | "COMPLETED" | "FAILED";
+
 export type ShipmentStatus =
   | "PENDING"
   | "READY"

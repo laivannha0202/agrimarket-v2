@@ -8,25 +8,8 @@ import { useListQuery } from "@/hooks/useListQuery";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDateTime } from "@/lib/format";
+import { auditActionLabel, entityTypeLabel, ENTITY_TYPE_OPTIONS } from "@/lib/audit-labels";
 import type { AuditLog } from "@/types/api";
-
-/** Entity names used by the backend audit writer. */
-const ENTITY_TYPES = [
-  "Order",
-  "Payment",
-  "Refund",
-  "ReturnRequest",
-  "QuarantineCase",
-  "Shipment",
-  "InventoryBalance",
-  "ProductLot",
-  "Settlement",
-  "Payout",
-  "CommissionRule",
-  "Certificate",
-  "Voucher",
-  "FlashSale",
-].map((value) => ({ value, label: value }));
 
 function JsonBlock({ value }: { value: unknown }) {
   if (value === null || value === undefined) {
@@ -86,13 +69,16 @@ export default function AuditLogsPage() {
     {
       title: "Hành động",
       dataIndex: "action",
-      render: (v: string) => <Tag className="agri-mono">{v}</Tag>,
+      render: (v: string) => (
+        <Tag color={auditActionLabel(v) === v ? "default" : "green"}>{auditActionLabel(v)}</Tag>
+      ),
     },
     {
       title: "Đối tượng",
       render: (_, row) => (
         <span className="agri-nowrap">
-          {row.entityType} <span className="agri-mono">#{row.entityId}</span>
+          {entityTypeLabel(row.entityType)}{" "}
+          <span className="agri-mono">#{row.entityId}</span>
         </span>
       ),
     },
@@ -116,7 +102,7 @@ export default function AuditLogsPage() {
           key: "entityType",
           placeholder: "Loại đối tượng",
           value: list.filters.entityType,
-          options: ENTITY_TYPES,
+          options: ENTITY_TYPE_OPTIONS,
         },
       ]}
       onFilterChange={list.setFilter}

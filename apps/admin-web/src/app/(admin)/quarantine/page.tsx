@@ -215,16 +215,16 @@ export default function QuarantinePage() {
 
   return (
     <>
-      <Alert
-        type="warning"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="Hàng cách ly không được bán cho đến khi có kết quả kiểm định và quyết định xử lý."
-        description="Kiểm định chỉ ghi kết quả Đạt/Không đạt. Sau đó phải chọn Giải phóng (hàng Đạt quay lại bán được) hoặc Tiêu hủy (hàng Không đạt bị trừ tồn và số lượng lô). Không có bước nào tự động giải phóng hàng."
-      />
-
       <ListPage<QuarantineCase>
         title="Hàng cách ly"
+        notice={
+          <Alert
+            type="warning"
+            showIcon
+            title="Hàng cách ly không được bán cho đến khi có kết quả kiểm định và quyết định xử lý."
+            description="Kiểm định chỉ ghi kết quả Đạt/Không đạt. Sau đó phải chọn Giải phóng (hàng Đạt quay lại bán được) hoặc Tiêu hủy (hàng Không đạt bị trừ tồn và số lượng lô). Không có bước nào tự động giải phóng hàng."
+          />
+        }
         searchValue={list.search}
         onSearchChange={list.setSearch}
         hideSearch
@@ -332,7 +332,7 @@ export default function QuarantinePage() {
             type={isScrap ? "error" : "success"}
             showIcon
             style={{ marginBottom: 12 }}
-            message={
+            title={
               isScrap
                 ? `Tiêu hủy ${formatQuantity(resolveTarget.row.quantity)} — trừ tồn thực tế và số lượng còn lại của lô.`
                 : `Giải phóng ${formatQuantity(resolveTarget.row.quantity)} về trạng thái có thể bán.`
