@@ -54,6 +54,7 @@ import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
 import {
+  cancellationStockNotice,
   CANCELLABLE_ORDER_STATUSES,
   ORDER_FLOW,
   orderFlowIndex,
@@ -123,6 +124,15 @@ function InfoRow({
  */
 function OrderProgress({ order }: { order: Order }) {
   if (order.status === "CANCELLED") {
+    /**
+     * What happened to the stock depends on whether the parcel left the
+     * warehouse: released back to sellable stock, or blocked for quarantine
+     * (in transit / awaiting re-inspection). The notice is derived from the
+     * shipment rows, so it cannot promise a return that did not happen.
+     */
+    const notice = cancellationStockNotice(
+      order.partnerOrders.flatMap((partnerOrder) => partnerOrder.shipments ?? []),
+    );
     return (
       <Group
         gap={6}
@@ -137,7 +147,7 @@ function OrderProgress({ order }: { order: Order }) {
       >
         <IconCircleX size={18} color="var(--agri-danger)" style={{ flexShrink: 0 }} aria-hidden />
         <Text fz={12.5} lh="18px" c="var(--agri-danger)" style={{ flex: 1 }}>
-          Đơn đã hủy. Hàng đã giữ cho đơn này được trả lại kho.
+          {notice.message}
         </Text>
       </Group>
     );
@@ -554,7 +564,9 @@ export function OrderDetail({ orderId }: { orderId: number }) {
       queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
       notifications.show({
         title: "Đã hủy đơn hàng",
-        message: "Đơn hàng đã được hủy và hàng đã được trả về kho.",
+        // The stock outcome depends on whether the parcel had left the
+        // warehouse; the order screen states which one applies.
+        message: "Đơn hàng đã được hủy. Xem chi tiết để biết tình trạng hàng hoàn.",
         color: "agri",
       });
     },
@@ -761,8 +773,8 @@ export function OrderDetail({ orderId }: { orderId: number }) {
       >
         <Stack gap="md">
           <Text fz={13.5} lh="19px" c="var(--agri-text)">
-            Bạn chắc chắn muốn hủy đơn hàng {order.code}? Hàng đã giữ cho đơn này sẽ được
-            trả về kho và không thể hoàn tác.
+            Bạn chắc chắn muốn hủy đơn hàng {order.code}? Hàng còn trong kho được trả lại
+            tồn kho; hàng đã rời kho được giữ cách ly để kiểm định. Thao tác không thể hoàn tác.
           </Text>
 
           {cancelError ? (

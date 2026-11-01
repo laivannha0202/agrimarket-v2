@@ -163,4 +163,19 @@ describe('Payment collection rules (PATCH /payments/:id/status)', () => {
     expect(prisma.payment.updateMany).not.toHaveBeenCalled();
     expect(prisma.payment.update).not.toHaveBeenCalled();
   });
+
+  it('refuses to hand-set a refund state without a refund record', async () => {
+    // REFUNDED / PARTIALLY_REFUNDED are derived from COMPLETED refund rows. A
+    // manual flip would claim money went back with no reference, no refund row
+    // and no settlement adjustment — indistinguishable from a real refund.
+    for (const target of [PaymentStatus.REFUNDED, PaymentStatus.PARTIALLY_REFUNDED]) {
+      stubPayment({ status: PaymentStatus.PAID, paidAt: new Date('2026-01-01T00:00:00Z') });
+      await expect(
+        service.updateStatus(1, { status: target, transactionReference: 'X-1' }, 99),
+      ).rejects.toThrow(/derived from completed refunds/i);
+    }
+    expect(prisma.payment.update).not.toHaveBeenCalled();
+    expect(prisma.payment.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
 });

@@ -89,9 +89,10 @@ describe("formatting", () => {
   it("keeps a variant label from restating its own weight", () => {
     // "Túi 1 kg" already states the weight: appending "1000 g" was the bug.
     expect(variantSpecLabel({ name: "Túi 1 kg", weight: "1000", weightUnit: "g" })).toBe("Túi 1 kg");
-    // A name without a size keeps the weight as real new information.
+    // A name without a size keeps the weight as real new information, with the
+    // same dot-thousands grouping money uses ("1.000 g", not "1000 g").
     expect(variantSpecLabel({ name: "Loại gia đình", weight: "1000", weightUnit: "g" })).toBe(
-      "Loại gia đình · 1000 g",
+      "Loại gia đình · 1.000 g",
     );
   });
 });

@@ -19,10 +19,12 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Badge, Card, EmptyView, ErrorView, LinkPress, LoadingView } from "../../src/components/ui";
 import { OrderPdfCard } from "../../src/components/OrderPdfCard";
+import { OrderRefundList } from "../../src/components/OrderRefundList";
 import { errorMessage, isNetworkError } from "../../src/lib/api-client";
 import { formatDateTime, formatMoney, formatQuantity } from "../../src/lib/format";
 import { resources } from "../../src/lib/resources";
 import {
+  cancellationStockNotice,
   CANCELLABLE_ORDER_STATUSES,
   ORDER_FLOW,
   orderFlowIndex,
@@ -113,6 +115,13 @@ export default function OrderDetailScreen() {
   const meta = orderStatusMeta(o.status);
   const cancellable = CANCELLABLE_ORDER_STATUSES.includes(o.status);
   const flowIdx = orderFlowIndex(o.status);
+  const shipments = o.partnerOrders.flatMap((po) => po.shipments ?? []);
+  const cancellationNotice = cancellationStockNotice(shipments);
+  /**
+   * Refunds live on the payment rows. A refund that is PENDING or APPROVED is
+   * a decision, not money: only COMPLETED rows are drawn as returned money.
+   */
+  const refunds = o.payments.flatMap((p) => p.refunds ?? []);
   /**
    * Returns and reviews are only accepted for delivered goods, so both per-item
    * buttons are gated on this. It mirrors the server rule, which re-checks it.
@@ -220,9 +229,7 @@ export default function OrderDetailScreen() {
           ) : (
             <View style={styles.cancelBox}>
               <Ionicons name="close-circle" size={18} color={colors.danger} />
-              <Text style={styles.cancelText}>
-                Đơn đã hủy. Hàng đã giữ cho đơn này được trả lại kho.
-              </Text>
+              <Text style={styles.cancelText}>{cancellationNotice.message}</Text>
             </View>
           )}
         </Card>
@@ -353,7 +360,10 @@ export default function OrderDetailScreen() {
           ) : null}
           {o.voucherRedemptions.map((v) => (
             <View key={v.id} style={styles.totalRow}>
-              <Text style={styles.muted}>Mã voucher #{v.voucherId}</Text>
+              {/* The code printed on the receipt, not the internal numeric id. */}
+              <Text style={styles.muted}>
+                Mã voucher {v.voucher?.code ?? `#${v.voucherId}`}
+              </Text>
               <Text style={styles.discount}>đã tính trong Giảm giá</Text>
             </View>
           ))}
@@ -374,6 +384,8 @@ export default function OrderDetailScreen() {
               </Text>
             </View>
           ))}
+
+          <OrderRefundList refunds={refunds} />
         </Card>
 
         {/* --------------------------------------------------------- cancel -- */}
@@ -381,7 +393,8 @@ export default function OrderDetailScreen() {
           <Card>
             <Text style={styles.section}>Hủy đơn</Text>
             <Text style={styles.hint}>
-              Chỉ hủy được khi đơn chưa giao. Sau khi hủy, hàng đã giữ sẽ được trả lại kho.
+              Chỉ hủy được khi đơn chưa giao. Hàng còn trong kho được trả lại tồn kho; hàng đã
+              rời kho được giữ cách ly để kiểm định, chưa bán tiếp được.
             </Text>
             {cancelError ? (
               <View style={styles.errorRow}>

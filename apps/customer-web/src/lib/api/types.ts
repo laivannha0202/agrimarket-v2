@@ -523,7 +523,8 @@ export type ShipmentStatus =
   | "DELIVERED"
   | "DELIVERY_FAILED"
   | "RETURNING"
-  | "RETURNED";
+  | "RETURNED"
+  | "CANCELLED";
 
 export interface OrderItem {
   id: number;

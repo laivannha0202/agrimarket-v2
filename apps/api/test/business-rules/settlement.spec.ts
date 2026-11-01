@@ -12,15 +12,34 @@ describe('Settlement formula', () => {
 
   const audit = { record: async () => undefined };
 
-  const partnerOrder = (overrides: Record<string, unknown>) => ({
-    partnerId: 1,
-    subtotal: 0,
-    discountTotal: 0,
-    commissionAmount: 0,
-    payableAmount: 0,
-    status: PartnerOrderStatus.DELIVERED,
-    ...overrides,
-  });
+  /**
+   * A candidate row carries its order's collection evidence (the service reads
+   * `po.order` from the same query). The default is a fully collected order —
+   * grand total paid in one PAID payment — so formula tests stay about the
+   * formula; tests about missing evidence override `order` explicitly.
+   */
+  const partnerOrder = (overrides: Record<string, unknown>) => {
+    const row = {
+      partnerId: 1,
+      subtotal: 0,
+      discountTotal: 0,
+      commissionAmount: 0,
+      payableAmount: 0,
+      status: PartnerOrderStatus.DELIVERED,
+      ...overrides,
+    };
+    const grandTotal = Number(row.subtotal) - Number(row.discountTotal);
+    return {
+      ...row,
+      order:
+        (overrides.order as Record<string, unknown> | undefined) ?? {
+          grandTotal,
+          payments: [
+            { amount: grandTotal, status: 'PAID', paidAt: new Date('2026-04-15T00:00:00.000Z') },
+          ],
+        },
+    };
+  };
 
   beforeEach(() => {
     prisma = createMockPrisma();
@@ -180,6 +199,14 @@ describe('Settlement formula', () => {
           },
         },
       },
+      include: {
+        order: {
+          select: {
+            grandTotal: true,
+            payments: { select: { amount: true, status: true, paidAt: true } },
+          },
+        },
+      },
     });
   });
 
@@ -194,6 +221,75 @@ describe('Settlement formula', () => {
         99,
       ),
     ).rejects.toThrow(/periodEnd must be after periodStart/);
+  });
+
+  it('leaves an under-collected order out of the settlement instead of paying it', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      partnerOrder({ id: 1, orderId: 10, subtotal: 100000, commissionAmount: 5000 }),
+      partnerOrder({
+        id: 2,
+        orderId: 20,
+        subtotal: 200000,
+        commissionAmount: 9000,
+        // PAID, but only half the money was actually collected: a status is
+        // not evidence. Settling this line would pay the partner 191.000 for
+        // 100.000 the shop never received.
+        order: {
+          grandTotal: 200000,
+          payments: [
+            { amount: 100000, status: 'PAID', paidAt: new Date('2026-04-15T00:00:00.000Z') },
+          ],
+        },
+      }),
+    ]);
+    prisma.settlement.findMany.mockResolvedValue([]);
+    prisma.settlement.create.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({ id: 1, ...data }),
+    );
+
+    const settlement = await service.create(
+      {
+        partnerId: 1,
+        periodStart: '2026-04-01T00:00:00.000Z',
+        periodEnd: '2026-04-30T23:59:59.000Z',
+      },
+      99,
+    );
+
+    const lines = (
+      settlement as unknown as { lines: { create: { partnerOrderId: number }[] } }
+    ).lines.create;
+    expect(lines.map((line) => line.partnerOrderId)).toEqual([1]);
+    expect(Number(settlement.payableAmount)).toBe(95000);
+  });
+
+  it('refuses a period where no order has full collection evidence', async () => {
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      partnerOrder({
+        id: 1,
+        orderId: 10,
+        subtotal: 100000,
+        order: {
+          grandTotal: 100000,
+          payments: [
+            { amount: 40000, status: 'PAID', paidAt: new Date('2026-04-15T00:00:00.000Z') },
+          ],
+        },
+      }),
+    ]);
+    prisma.settlement.findMany.mockResolvedValue([]);
+
+    await expect(
+      service.create(
+        {
+          partnerId: 1,
+          periodStart: '2026-04-01T00:00:00.000Z',
+          periodEnd: '2026-04-30T23:59:59.000Z',
+        },
+        99,
+      ),
+    ).rejects.toThrow(/full collection evidence/);
+    expect(prisma.settlement.create).not.toHaveBeenCalled();
   });
 
   it('still retries a code collision (unique index on settlements.code)', async () => {

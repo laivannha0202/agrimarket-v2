@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OrderDocumentService } from '../../src/orders/order-document.service.js';
 import type { OrdersService } from '../../src/orders/orders.service.js';
 import type { PrismaService } from '../../src/database/prisma.service.js';
-import { extractPdfText } from '../helpers/pdf-text.js';
+import { extractPdfRuns, extractPdfText } from '../helpers/pdf-text.js';
 
 /**
  * The PDF is a customer-facing document, so the money on it must reconcile
@@ -118,6 +118,47 @@ describe('OrderDocumentService', () => {
     expect(text).toContain('PHIẾUSOẠNHÀNG');
     expect(text).toContain('LOT-01');
     expect(text).toContain('ORD-E2E-7');
+  });
+
+  it('sizes a packing row for every lot code, so the next product does not overlap it', async () => {
+    // One line allocated from ten lots: the lot cell wraps over many lines. The
+    // row used to be measured from the product name alone, so the wrapped lot
+    // codes were drawn on top of the following product row.
+    const lots = Array.from({ length: 10 }, (_, index) => ({
+      quantity: 1,
+      productLot: { code: `LOT-MULTI-${String(index + 1).padStart(2, '0')}`, traceCode: `T-${index}`, unit: 'KG' },
+    }));
+    const fixture = orderFixture();
+    const partnerOrder = (fixture.partnerOrders as Array<Record<string, unknown>>)[0];
+    const items = partnerOrder.items as Array<Record<string, unknown>>;
+    items[0].allocations = lots;
+    items.push({
+      id: 2,
+      productNameSnapshot: 'Sản phẩm kế tiếp',
+      skuSnapshot: 'SKU-NEXT',
+      quantity: 1,
+      unitPriceSnapshot: 10_000,
+      subtotal: 10_000,
+      productVariant: { saleUnit: 'TÚI', weightUnit: 'KG' },
+      allocations: [{ quantity: 1, productLot: { code: 'LOT-NEXT', traceCode: 'T-NEXT', unit: 'KG' } }],
+    });
+
+    const { service } = buildService(fixture);
+    const pdf = await service.renderPackingSlip(7);
+    const runs = extractPdfRuns(pdf);
+
+    for (const lot of lots) {
+      expect(squash(extractPdfText(pdf))).toContain(squash(lot.productLot.code));
+    }
+
+    const firstRowY = runs.find((run) => run.text.includes('Cải bó xôi'))?.y;
+    const nextRowY = runs.find((run) => run.text.includes('Sản phẩm kế tiếp'))?.y;
+    expect(firstRowY).toBeTypeOf('number');
+    expect(nextRowY).toBeTypeOf('number');
+    // PDF coordinates grow upwards, so the next row sits at a SMALLER y. Ten
+    // wrapped lot codes occupy far more than the 30pt a name-only row
+    // reserved; the following row must start below all of them.
+    expect(Number(firstRowY) - Number(nextRowY)).toBeGreaterThanOrEqual(60);
   });
 });
 

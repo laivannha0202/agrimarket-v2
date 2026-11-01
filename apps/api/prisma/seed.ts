@@ -1588,9 +1588,22 @@ async function main() {
   }
 
   // ---- Settlement + Payout ------------------------------------------------
-  const minhChauPartnerOrders = createdOrders
-    .flatMap((o) => o.partnerOrders)
-    .filter((po) => po.partnerId === minhChau.id);
+  // Only DELIVERED orders are payable, and the seed gives every delivered order
+  // a PAID payment (see the order loop). Settling an order that is still in
+  // transit — or whose COD was never collected — produced demo data the API
+  // itself would refuse to create and that the `settled_order_under_collected`
+  // invariant correctly flags. The filter mirrors `SettlementsService.create`.
+  const settleablePartnerOrders = createdOrders
+    .filter((o) => o.status === OrderStatus.DELIVERED)
+    .flatMap((o) => o.partnerOrders);
+  const minhChauPartnerOrders = settleablePartnerOrders.filter(
+    (po) => po.partnerId === minhChau.id,
+  );
+  if (minhChauPartnerOrders.length === 0) {
+    throw new Error(
+      'Seed: no delivered, paid Minh Châu partner order to settle — the demo settlement would be empty',
+    );
+  }
   const gross = minhChauPartnerOrders.reduce((s, po) => s + po.subtotal, 0);
   const commissionTotal = minhChauPartnerOrders.reduce((s, po) => s + po.commissionAmount, 0);
   const payable = Math.round((gross - commissionTotal) * 100) / 100;

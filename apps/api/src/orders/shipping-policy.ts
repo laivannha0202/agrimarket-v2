@@ -9,6 +9,13 @@
  * ignores any client-supplied fee (the field is not part of the request DTO),
  * `POST /orders/checkout-preview` and the created order both use this function,
  * so the amount shown before submitting is the amount that gets charged.
+ *
+ * BUSINESS LIMITATION — stated so it is not mistaken for a quote: the fee does
+ * not depend on distance, weight, parcel count or the destination province, and
+ * it is not what a carrier charges. It is a single shop-wide delivery charge.
+ * There is no trustworthy rate table behind a "smarter" formula yet, so this
+ * policy deliberately stays flat; changing it means adding real carrier rates
+ * and a versioned fee snapshot, not extrapolating from addresses.
  */
 export const FLAT_SHIPPING_FEE = 20000;
 

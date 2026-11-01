@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { CommissionService } from './commission.service.js';
 import { PayoutsService, SettlementsService } from './settlements.service.js';
 import { SettlementExportService } from './settlement-export.service.js';
+import { PaymentReconciliationService } from './payment-reconciliation.service.js';
 import {
   CommissionRuleQueryDto,
   CreateCommissionRuleDto,
@@ -11,6 +12,7 @@ import {
   CreateSettlementDto,
   DecideSettlementRecoveryDto,
   PayoutQueryDto,
+  ReconciliationQueryDto,
   RecordSettlementRecoveryDto,
   ReviewSettlementAdjustmentDto,
   SettlementAdjustmentQueryDto,
@@ -32,6 +34,7 @@ export class FinanceController {
     private readonly settlementsService: SettlementsService,
     private readonly payoutsService: PayoutsService,
     private readonly settlementExportService: SettlementExportService,
+    private readonly reconciliationService: PaymentReconciliationService,
   ) {}
 
   // Commission rules
@@ -193,6 +196,21 @@ export class FinanceController {
   }
 
   // Payouts
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('finance/reconciliation')
+  @ApiOperation({
+    summary: 'Reconcile collected payments against order obligations (ADMIN)',
+    description:
+      'Read-only report of orders whose payments, refunds and settlement lines disagree: ' +
+      'under/over-collected, settled without full collection, settled after a full refund, ' +
+      'refunded without a collected payment, and refund statuses that do not match the ' +
+      'completed refund total. Nothing is rewritten.',
+  })
+  reconcile(@Query() query: ReconciliationQueryDto) {
+    return this.reconciliationService.report(query);
+  }
+
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get('payouts')

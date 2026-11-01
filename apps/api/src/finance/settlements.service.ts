@@ -3,6 +3,7 @@ import {
   ConflictException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
@@ -70,6 +71,8 @@ function round2(n: number): number {
  */
 @Injectable()
 export class SettlementsService {
+  private readonly logger = new Logger(SettlementsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -123,6 +126,15 @@ export class SettlementsService {
               order: {
                 payments: {
                   some: {
+                    /**
+                     * `REFUNDED` stays in the list on purpose. A fully refunded
+                     * order still has a settlement line, with the completed
+                     * refund deducted from that partner order, so the partner
+                     * nets to zero instead of silently disappearing from the
+                     * statement (an order missing from a period is far harder to
+                     * reconcile than one shown at zero). The collection guard
+                     * below is what stops an uncollected order from being paid.
+                     */
                     status: {
                       in: [
                         PaymentStatus.PAID,
@@ -135,9 +147,22 @@ export class SettlementsService {
                 },
               },
             },
+            /**
+             * The order's own totals and payments come back with the candidate
+             * rows so the collection check below needs no second round trip
+             * (and cannot read a different snapshot than the filter did).
+             */
+            include: {
+              order: {
+                select: {
+                  grandTotal: true,
+                  payments: { select: { amount: true, status: true, paidAt: true } },
+                },
+              },
+            },
           });
 
-          const orderIds = [...new Set(partnerOrders.map((po) => po.orderId))];
+          const candidateOrderIds = [...new Set(partnerOrders.map((po) => po.orderId))];
           // A settlement is a statement about money that is actually owed for
           // delivered, collected orders. If nothing is eligible, creating an
           // empty DRAFT only pollutes the period (and a concurrent create that
@@ -150,10 +175,55 @@ export class SettlementsService {
           }
           await tx.$queryRaw`
             SELECT id FROM payments
-             WHERE order_id IN (${Prisma.join(orderIds)})
+             WHERE order_id IN (${Prisma.join(candidateOrderIds)})
              ORDER BY id
                FOR UPDATE
           `;
+
+          /**
+           * EVIDENCE OF COLLECTION, NOT JUST A STATUS
+           *
+           * `payments.status` says a row was confirmed; the amount it carries is
+           * what the customer actually owed. Historical/partially backfilled
+           * data can hold a PAID payment whose amount is lower than the order's
+           * grand total (an under-collected order). Settling it would pay the
+           * partner for money the shop never received.
+           *
+           * Read after the payment locks, so a concurrent collection cannot slip
+           * between the check and the line insert. Orders that fail the check
+           * are excluded (not silently rewritten) and logged; the finance
+           * reconciliation view lists them with an explicit reason.
+           */
+          const fullyCollected = partnerOrders.filter((po) => {
+            const collected = round2(
+              po.order.payments
+                .filter(
+                  (payment) =>
+                    payment.paidAt !== null && payment.status !== PaymentStatus.FAILED,
+                )
+                .reduce((sum, payment) => sum + Number(payment.amount), 0),
+            );
+            const obligation = Number(po.order.grandTotal);
+            return collected + 0.01 >= obligation;
+          });
+          if (fullyCollected.length !== partnerOrders.length) {
+            const excluded = [
+              ...new Set(
+                partnerOrders
+                  .filter((po) => !fullyCollected.includes(po))
+                  .map((po) => po.orderId),
+              ),
+            ];
+            this.logger.warn(
+              `Settlement for partner ${dto.partnerId} excluded ${excluded.length} order(s) without full collection evidence: ${excluded.join(', ')}`,
+            );
+          }
+          if (fullyCollected.length === 0) {
+            throw new BadRequestException(
+              'No delivered partner orders have full collection evidence for this settlement period',
+            );
+          }
+          const orderIds = [...new Set(fullyCollected.map((po) => po.orderId))];
 
           /**
            * Completed refunds are deducted from the line of the partner order
@@ -174,7 +244,7 @@ export class SettlementsService {
           let gross = 0;
           let refundTotal = 0;
           let commissionTotal = 0;
-          const lines = partnerOrders.map((po) => {
+          const lines = fullyCollected.map((po) => {
             const grossAmount = round2(Number(po.subtotal) - Number(po.discountTotal));
             const refundAmount = round2(refundsByPartnerOrder.get(po.id) ?? 0);
             const commissionAmount = round2(Number(po.commissionAmount));

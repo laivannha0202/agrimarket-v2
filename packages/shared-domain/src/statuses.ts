@@ -75,10 +75,58 @@ export const SHIPMENT_STATUS: Record<ShipmentStatus, StatusMeta> = {
   DELIVERY_FAILED: { label: "Giao thất bại", tone: "red" },
   RETURNING: { label: "Đang hoàn hàng", tone: "orange" },
   RETURNED: { label: "Đã hoàn hàng", tone: "gray" },
+  CANCELLED: { label: "Đã hủy (chưa giao)", tone: "gray" },
 };
 
 export function shipmentStatusMeta(status: string): StatusMeta {
   return SHIPMENT_STATUS[status as ShipmentStatus] ?? UNKNOWN;
+}
+
+/**
+ * Shipment states that mean the parcel physically left the warehouse.
+ *
+ * Mirrors `SHIPMENT_LEFT_WAREHOUSE_STATUSES` in the API: cancelling an order in
+ * one of these states does NOT return stock to sellable inventory — the units
+ * are blocked and a quarantine case is opened, because they are in transit or
+ * awaiting re-inspection. Everything else (`PENDING`, `READY`, and shipments
+ * cancelled before hand-over) is still in the warehouse and is released.
+ */
+export const SHIPMENT_LEFT_WAREHOUSE_STATUSES: ShipmentStatus[] = [
+  "IN_TRANSIT",
+  "OUT_FOR_DELIVERY",
+  "DELIVERY_FAILED",
+  "RETURNING",
+  "RETURNED",
+  "DELIVERED",
+];
+
+export interface CancellationStockNotice {
+  /** True when at least one parcel had already left the warehouse. */
+  goodsLeftWarehouse: boolean;
+  /** Sentence to render under a cancelled order. */
+  message: string;
+}
+
+/**
+ * What actually happened to the stock when an order was cancelled.
+ *
+ * The UI used to promise "hàng đã trở về kho" for every cancellation. That is
+ * only true for goods that never left: a parcel in transit is blocked and sent
+ * through quarantine, and telling the customer (or the operator) that it is
+ * back on the shelf is a stock statement the warehouse cannot honour.
+ */
+export function cancellationStockNotice(
+  shipments: ReadonlyArray<{ status: string }> | null | undefined,
+): CancellationStockNotice {
+  const goodsLeftWarehouse = (shipments ?? []).some((shipment) =>
+    SHIPMENT_LEFT_WAREHOUSE_STATUSES.includes(shipment.status as ShipmentStatus),
+  );
+  return {
+    goodsLeftWarehouse,
+    message: goodsLeftWarehouse
+      ? "Đơn đã hủy. Hàng đã rời kho nên được giữ cách ly để kiểm định lại trước khi bán tiếp — chưa trở về tồn kho bán được."
+      : "Đơn đã hủy. Phần hàng còn trong kho đã được trả lại tồn kho bán được.",
+  };
 }
 
 export const RETURN_STATUS: Record<ReturnRequestStatus, StatusMeta> = {

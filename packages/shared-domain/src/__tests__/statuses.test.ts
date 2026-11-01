@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  cancellationStockNotice,
   CANCELLABLE_ORDER_STATUSES,
   ORDER_FLOW,
   ORDER_STATUS,
   PAYMENT_METHOD,
   RETURN_FLOW,
+  SHIPMENT_STATUS,
   complaintTypeLabel,
   orderFlowIndex,
   orderStatusMeta,
@@ -13,6 +15,7 @@ import {
   refundStatusMeta,
   returnFlowIndex,
   returnStatusMeta,
+  shipmentStatusMeta,
 } from "../statuses";
 
 describe("status labels", () => {
@@ -67,5 +70,46 @@ describe("flows", () => {
       "SHIPPING",
     ]);
     expect(CANCELLABLE_ORDER_STATUSES).not.toContain("DELIVERED");
+  });
+});
+
+describe("shipment status coverage", () => {
+  it("labels every shipment status the backend can send, including CANCELLED", () => {
+    expect(Object.keys(SHIPMENT_STATUS)).toEqual([
+      "PENDING",
+      "READY",
+      "IN_TRANSIT",
+      "OUT_FOR_DELIVERY",
+      "DELIVERED",
+      "DELIVERY_FAILED",
+      "RETURNING",
+      "RETURNED",
+      "CANCELLED",
+    ]);
+    expect(shipmentStatusMeta("CANCELLED").label).not.toBe("Không xác định");
+  });
+});
+
+describe("cancellationStockNotice", () => {
+  it("says the stock is released when nothing left the warehouse", () => {
+    for (const shipments of [[], [{ status: "PENDING" }], [{ status: "CANCELLED" }]]) {
+      const notice = cancellationStockNotice(shipments);
+      expect(notice.goodsLeftWarehouse).toBe(false);
+      expect(notice.message).toMatch(/trả lại tồn kho/);
+    }
+  });
+
+  it("does not promise a return when the parcel was already in transit", () => {
+    const notice = cancellationStockNotice([{ status: "IN_TRANSIT" }]);
+    expect(notice.goodsLeftWarehouse).toBe(true);
+    expect(notice.message).toMatch(/cách ly/);
+    expect(notice.message).not.toMatch(/trả lại tồn kho bán được/);
+  });
+
+  it("treats a returned or failed delivery as goods that left the warehouse", () => {
+    expect(cancellationStockNotice([{ status: "DELIVERY_FAILED" }]).goodsLeftWarehouse).toBe(true);
+    expect(cancellationStockNotice([{ status: "RETURNING" }]).goodsLeftWarehouse).toBe(true);
+    expect(cancellationStockNotice([{ status: "RETURNED" }]).goodsLeftWarehouse).toBe(true);
+    expect(cancellationStockNotice(undefined).goodsLeftWarehouse).toBe(false);
   });
 });

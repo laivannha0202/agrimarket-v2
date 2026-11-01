@@ -254,6 +254,34 @@ const CHECKS = [
     description: 'a PAID payment records paid_at',
     sql: `SELECT COUNT(*) AS c FROM payments WHERE status = 'PAID' AND paid_at IS NULL`,
   },
+  {
+    name: 'payment_status_refund_mismatch',
+    domain: 'payments',
+    description:
+      'the payment status matches its completed refunds (PAID = none, PARTIALLY_REFUNDED = some but not all, REFUNDED = all)',
+    sql: `SELECT COUNT(*) AS c FROM (
+            SELECT p.id, p.amount, p.status,
+                   COALESCE(SUM(CASE WHEN r.status = 'COMPLETED' THEN r.amount ELSE 0 END), 0) AS refunded
+              FROM payments p
+              LEFT JOIN refunds r ON r.payment_id = p.id
+             WHERE p.status IN ('PAID','PARTIALLY_REFUNDED','REFUNDED')
+             GROUP BY p.id, p.amount, p.status
+            HAVING (p.status = 'REFUNDED' AND ABS(refunded - p.amount) > 0.01)
+                OR (p.status = 'PARTIALLY_REFUNDED'
+                    AND (refunded <= 0.01 OR refunded + 0.01 >= p.amount))
+                OR (p.status = 'PAID' AND refunded > 0.01)
+          ) x`,
+  },
+  {
+    name: 'refund_without_collected_payment',
+    domain: 'payments',
+    description: 'a COMPLETED refund belongs to a payment that was actually collected',
+    sql: `SELECT COUNT(*) AS c
+            FROM refunds r
+            JOIN payments p ON p.id = r.payment_id
+           WHERE r.status = 'COMPLETED'
+             AND (p.paid_at IS NULL OR p.status = 'FAILED')`,
+  },
 
   // -- Returns / refunds ---------------------------------------------------
   {
@@ -520,6 +548,31 @@ const CHECKS = [
            WHERE p.status = 'PENDING'
              AND r.status IN ('PENDING_APPROVAL','APPROVED')
              AND p.created_at > r.created_at`,
+  },
+  {
+    name: 'settled_order_under_collected',
+    domain: 'c08',
+    description:
+      'a settled order was fully collected: payments with paid_at cover the order grand total',
+    sql: `SELECT COUNT(*) AS c FROM (
+            SELECT o.id, o.grand_total,
+                   COALESCE(SUM(CASE WHEN p.paid_at IS NOT NULL AND p.status <> 'FAILED'
+                                     THEN p.amount ELSE 0 END), 0) AS collected
+              FROM orders o
+              JOIN partner_orders po ON po.order_id = o.id
+              JOIN settlement_lines sl ON sl.partner_order_id = po.id
+              LEFT JOIN payments p ON p.order_id = o.id
+             GROUP BY o.id, o.grand_total
+            HAVING collected + 0.01 < o.grand_total
+          ) x`,
+  },
+  {
+    name: 'settlement_line_refund_over_gross',
+    domain: 'c08',
+    description:
+      'a settlement line never deducts more refund than the goods it covers are worth',
+    sql: `SELECT COUNT(*) AS c FROM settlement_lines
+           WHERE refund_amount > gross_amount + 0.01`,
   },
 ];
 

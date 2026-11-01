@@ -200,3 +200,21 @@ export class SettlementExportQueryDto {
   @IsIn(['xlsx', 'pdf'])
   format!: 'xlsx' | 'pdf';
 }
+
+/**
+ * Query for `GET /finance/reconciliation`.
+ *
+ * The window is optional (whole history by default) and filters on the order
+ * creation date, which is what an accountant reconciles against a period.
+ */
+export class ReconciliationQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ example: '2026-10-01T00:00:00.000Z' })
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @ApiPropertyOptional({ example: '2026-10-31T23:59:59.000Z' })
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+}

@@ -3,8 +3,10 @@ import { ServiceUnavailableException } from '@nestjs/common';
 import {
   assertPaymentMethodAvailable,
   availablePaymentMethods,
+  isGatewayIntegrated,
   isOnlinePaymentEnabled,
   isPaymentMethodAvailable,
+  PAYMENT_GATEWAYS,
 } from '../../src/payments/payment-methods.js';
 import {
   DEFAULT_COD_RESERVATION_TTL_MINUTES,
@@ -35,25 +37,79 @@ describe('Payment method availability', () => {
     expect(isOnlinePaymentEnabled(' TRUE ')).toBe(true);
   });
 
+  it('ships no integrated gateway, so the flag alone never enables VNPAY', () => {
+    // The regression this guards: a deployment with PAYMENTS_ONLINE_ENABLED=true
+    // and no VNPay integration used to accept VNPAY at checkout, producing an
+    // order nobody could pay.
+    expect(PAYMENT_GATEWAYS).toEqual({});
+    expect(isGatewayIntegrated(PaymentMethod.VNPAY)).toBe(false);
+    for (const nodeEnv of ['development', 'test', 'production']) {
+      expect(
+        isPaymentMethodAvailable(PaymentMethod.VNPAY, { onlineEnabled: 'true', nodeEnv }),
+      ).toBe(false);
+    }
+  });
+
+  it('enables an online method only when the flag AND an adapter are present', () => {
+    const gateways = {
+      [PaymentMethod.VNPAY]: { provider: 'vnpay', sandboxOnly: false },
+    };
+    expect(
+      isPaymentMethodAvailable(PaymentMethod.VNPAY, {
+        onlineEnabled: 'true',
+        nodeEnv: 'production',
+        gateways,
+      }),
+    ).toBe(true);
+    // Adapter without the operator switch is still refused.
+    expect(
+      isPaymentMethodAvailable(PaymentMethod.VNPAY, {
+        onlineEnabled: 'false',
+        nodeEnv: 'production',
+        gateways,
+      }),
+    ).toBe(false);
+  });
+
   it('refuses MOCK_ONLINE in production even when the flag is on', () => {
+    const gateways = {
+      [PaymentMethod.MOCK_ONLINE]: { provider: 'mock', sandboxOnly: true },
+    };
     expect(
       isPaymentMethodAvailable(PaymentMethod.MOCK_ONLINE, {
         onlineEnabled: 'true',
         nodeEnv: 'production',
+        gateways,
       }),
     ).toBe(false);
     expect(
       isPaymentMethodAvailable(PaymentMethod.MOCK_ONLINE, {
         onlineEnabled: 'true',
         nodeEnv: 'development',
+        gateways,
       }),
     ).toBe(true);
+    // The mock stub is not a gateway: without an adapter it is refused too.
+    expect(
+      isPaymentMethodAvailable(PaymentMethod.MOCK_ONLINE, {
+        onlineEnabled: 'true',
+        nodeEnv: 'development',
+      }),
+    ).toBe(false);
   });
 
   it('lists only methods the deployment can actually settle', () => {
     expect(availablePaymentMethods({ onlineEnabled: 'false' })).toEqual([PaymentMethod.COD]);
+    // Flag on, but nothing integrated: COD remains the only choice.
     expect(
       availablePaymentMethods({ onlineEnabled: 'true', nodeEnv: 'production' }),
+    ).toEqual([PaymentMethod.COD]);
+    expect(
+      availablePaymentMethods({
+        onlineEnabled: 'true',
+        nodeEnv: 'production',
+        gateways: { [PaymentMethod.VNPAY]: { provider: 'vnpay', sandboxOnly: false } },
+      }),
     ).toEqual([PaymentMethod.COD, PaymentMethod.VNPAY]);
   });
 

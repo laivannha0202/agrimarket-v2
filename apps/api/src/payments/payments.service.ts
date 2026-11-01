@@ -139,6 +139,23 @@ export class PaymentsService {
       }
       return payment;
     }
+    /**
+     * `PARTIALLY_REFUNDED` / `REFUNDED` are DERIVED states: they are written by
+     * `completeRefund` from the sum of COMPLETED refund rows. Letting an
+     * operator set them by hand produced a payment that claims money was
+     * returned with no refund record, no reference and no settlement
+     * adjustment — the reconciliation report cannot tell that apart from a real
+     * refund, and the money is unrecoverable from the audit trail. Refunds go
+     * through `POST /payments/:id/refunds` (create -> approve -> complete).
+     */
+    if (
+      dto.status === PaymentStatus.PARTIALLY_REFUNDED ||
+      dto.status === PaymentStatus.REFUNDED
+    ) {
+      throw new BadRequestException(
+        'Refund states are derived from completed refunds; record a refund instead of changing the payment status',
+      );
+    }
     assertPaymentTransition(payment.status, dto.status);
     if (dto.status === PaymentStatus.PAID) {
       if (!dto.transactionReference?.trim()) {

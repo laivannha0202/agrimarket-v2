@@ -133,3 +133,89 @@ export function extractPdfText(pdf: Buffer): string {
   }
   return out.join(' ');
 }
+
+/** One drawn text run with its page-space origin (PDF points, y grows down). */
+export interface PdfTextRun {
+  page: number;
+  text: string;
+  x: number;
+  y: number;
+}
+
+/**
+ * Text runs with their coordinates.
+ *
+ * `extractPdfText` answers "what does the page say"; this answers "where was it
+ * drawn", which is the only way a test can prove that two cells do not overlap.
+ * PDFKit positions text with `1 0 0 1 x y Tm` (absolute) and `Td` (relative
+ * line move), so both operators are tracked.
+ */
+export function extractPdfRuns(pdf: Buffer): PdfTextRun[] {
+  const raw = pdf.toString('latin1');
+  const streams = new Map<number, string>();
+  const objects = new Map<number, string>();
+  const objRe = /(\d+) 0 obj([\s\S]*?)endobj/g;
+  let m: RegExpExecArray | null;
+  while ((m = objRe.exec(raw))) {
+    const body = m[2];
+    objects.set(Number(m[1]), body);
+    const sm = /stream\r?\n([\s\S]*?)endstream/.exec(body);
+    if (sm) streams.set(Number(m[1]), inflateIfNeeded(Buffer.from(sm[1], 'latin1')).toString('latin1'));
+  }
+
+  const fontMaps = new Map<string, Map<number, string>>();
+  const objNames = new Map<number, string[]>();
+  for (const [, body] of objects) {
+    const res = /\/Font\s*<<([\s\S]*?)>>/.exec(body);
+    if (!res) continue;
+    for (const n of res[1].matchAll(/\/([A-Za-z0-9]+)\s+(\d+) 0 R/g)) {
+      const list = objNames.get(Number(n[2])) ?? [];
+      list.push(n[1]);
+      objNames.set(Number(n[2]), list);
+    }
+  }
+  for (const [num, body] of objects) {
+    if (!/\/Subtype\s*\/Type0/.test(body)) continue;
+    const tu = /\/ToUnicode\s+(\d+) 0 R/.exec(body);
+    if (!tu) continue;
+    const cmap = parseCMap(streams.get(Number(tu[1])) ?? '');
+    for (const name of objNames.get(num) ?? []) fontMaps.set(name, cmap);
+  }
+
+  const runs: PdfTextRun[] = [];
+  const pageRe = /\/Type\s*\/Page[^s][\s\S]*?\/Contents\s+(?:\[\s*)?(\d+) 0 R/g;
+  let page = 0;
+  while ((m = pageRe.exec(raw))) {
+    page += 1;
+    const content = streams.get(Number(m[1])) ?? '';
+    let active = fontMaps.values().next().value as Map<number, string> | undefined;
+    let x = 0;
+    let y = 0;
+    for (const line of content.split('\n')) {
+      const tf = line.match(/\/([A-Za-z0-9]+)\s+[\d.]+\s+Tf/);
+      if (tf && fontMaps.has(tf[1])) active = fontMaps.get(tf[1]);
+
+      const tm = /1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/.exec(line);
+      if (tm) {
+        x = Number(tm[1]);
+        y = Number(tm[2]);
+      }
+      const td = /([\d.-]+) ([\d.-]+) Td/.exec(line);
+      if (td && !tm) {
+        x += Number(td[1]);
+        y += Number(td[2]);
+      }
+
+      if (!/\b(Tj|TJ)\b/.test(line)) continue;
+      let text = '';
+      for (const hx of line.matchAll(/<([0-9a-fA-F]{4,})>/g)) {
+        const hex = hx[1];
+        for (let i = 0; i + 4 <= hex.length; i += 4) {
+          text += active?.get(parseInt(hex.slice(i, i + 4), 16)) ?? '';
+        }
+      }
+      if (text) runs.push({ page, text, x, y });
+    }
+  }
+  return runs;
+}

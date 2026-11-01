@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { formatMoney } from '../common/export/format.js';
+import { formatDateTimeVn, formatMoney, trimNumberVn } from '../common/export/format.js';
 import {
   ORDER_STATUS_LABEL,
   PAYMENT_STATUS_LABEL,
@@ -22,27 +22,6 @@ function fontPath(file: string): string {
 
 const FONT_REGULAR = 'DejaVuSans';
 const FONT_BOLD = 'DejaVuSans-Bold';
-
-/**
- * All timestamps are shown in Vietnam time regardless of the server clock, in
- * the `dd/MM/yyyy HH:mm` shape a Vietnamese paper document uses. `vi-VN`'s
- * default `toLocaleString` yields "10:00:00 1/10/2026", which reads like a
- * timestamp glued onto an unformatted date.
- */
-function vnDateTime(value: Date | string): string {
-  const parts = new Intl.DateTimeFormat('vi-VN', {
-    timeZone: 'Asia/Ho_Chi_Minh',
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date(value));
-  const part = (type: Intl.DateTimeFormatPartTypes): string =>
-    parts.find((p) => p.type === type)?.value ?? '';
-  return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part('minute')}`;
-}
 
 function logoPath(): string | null {
   // `src/orders` when run from sources, `dist/src/orders` after `nest build`;
@@ -88,10 +67,15 @@ function quantityUnit(item: { productVariant?: { saleUnit?: unknown; weightUnit?
   return typeof u === 'string' && u.trim() ? u : 'đv';
 }
 
+/**
+ * Quantities are Decimal strings ("5.000"): the trimming/grouping rule lives in
+ * `common/export/format.ts` so a PDF and an Excel export of the same order can
+ * never disagree. Only the unit suffix and the non-numeric fallback are local.
+ */
 function formatQty(value: unknown, unit?: string | null): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return asText(value);
-  const trimmed = n.toFixed(3).replace(/\.?0+$/, '').replace('.', ',');
+  const trimmed = trimNumberVn(n);
   return unit ? `${trimmed} ${unit}` : trimmed;
 }
 
@@ -155,7 +139,7 @@ export class OrderDocumentService {
         doc.font(FONT_REGULAR).fontSize(8).fillColor('#777777');
         doc.text(`${docLabel} — không phải hóa đơn VAT hợp pháp.`, 40, y, { width: 360, lineBreak: false });
         doc.text(`Trang ${i - pageRange.start + 1}/${pageRange.count}`, 40, y, { width: 515, align: 'right', lineBreak: false });
-        doc.text(`Xuất lúc ${vnDateTime(generatedAt)}`, 40, y + 10, { width: 515, align: 'right', lineBreak: false });
+        doc.text(`Xuất lúc ${formatDateTimeVn(generatedAt)}`, 40, y + 10, { width: 515, align: 'right', lineBreak: false });
       });
     }
   }
@@ -208,8 +192,8 @@ export class OrderDocumentService {
         align: 'right',
       });
     doc.font(FONT_REGULAR).fontSize(9).fillColor('#555555').text(`Mã đơn: ${order.code}`, M, y + 20, { width: CW, align: 'right' });
-    doc.text(`Ngày đặt: ${vnDateTime(order.createdAt)}`, M, y + 34, { width: CW, align: 'right' });
-    doc.text(`Ngày xuất: ${vnDateTime(new Date())}`, M, y + 48, { width: CW, align: 'right' });
+    doc.text(`Ngày đặt: ${formatDateTimeVn(order.createdAt)}`, M, y + 34, { width: CW, align: 'right' });
+    doc.text(`Ngày xuất: ${formatDateTimeVn(new Date())}`, M, y + 48, { width: CW, align: 'right' });
     doc.text(`Trạng thái: ${labelOf(ORDER_STATUS_LABEL, order.status)}`, M, y + 62, { width: CW, align: 'right' });
 
     y += 82;
@@ -473,7 +457,7 @@ export class OrderDocumentService {
     const addr = order.shippingAddressSnapshot as unknown as Record<string, unknown> | null;
     const meta: Array<[string, string]> = [
       ['Mã đơn', order.code],
-      ['Ngày tạo', vnDateTime(order.createdAt)],
+      ['Ngày tạo', formatDateTimeVn(order.createdAt)],
       ['Người nhận', asText(addr?.recipientName)],
       ['Số điện thoại', asText(addr?.phone)],
       ['Địa chỉ giao', addressText(addr)],
@@ -542,9 +526,23 @@ export class OrderDocumentService {
           .filter(Boolean)
           .join(', ') || '—';
         const name = `${asText(it.productNameSnapshot, '—')}\nSKU: ${asText(it.skuSnapshot, '—')}`;
+        /**
+         * A line can carry several lot codes ("LOT-… (2), LOT-… (3), …") and
+         * they wrap inside a 112pt column. Measuring only the product name
+         * sized the row for one line of text, so a multi-lot line printed its
+         * remaining lot codes on top of the next row's separator — and, on a
+         * page break, straight over the following product. The row is now as
+         * tall as its tallest cell.
+         *
+         * `heightOfString` measures with the CURRENT font/size, so each cell is
+         * measured with the exact font it will be drawn with.
+         */
         doc.font(FONT_REGULAR).fontSize(9);
         const nameH = doc.heightOfString(name, { width: cols[1].w - 6 });
-        const rowH = Math.max(16, nameH) + 8;
+        doc.font(FONT_REGULAR).fontSize(8);
+        const lotsH = doc.heightOfString(lots, { width: cols[4].w - 6 });
+        doc.font(FONT_REGULAR).fontSize(9);
+        const rowH = Math.max(16, nameH, lotsH) + 8;
         if (y + rowH > 801) { doc.addPage(); y = M; drawHeader(); }
         let x = M;
         doc.font(FONT_REGULAR).fontSize(9).fillColor('#222222').text(String(stt), x + 3, y + 3, { width: cols[0].w - 6, align: 'center', lineBreak: false });

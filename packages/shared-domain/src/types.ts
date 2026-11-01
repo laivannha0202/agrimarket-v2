@@ -34,7 +34,13 @@ export type ShipmentStatus =
   | "DELIVERED"
   | "DELIVERY_FAILED"
   | "RETURNING"
-  | "RETURNED";
+  | "RETURNED"
+  /**
+   * Cancelled before the parcel was handed to the carrier. The backend also
+   * turns in-transit cancellations into `RETURNING` instead, because those
+   * goods must come back through quarantine.
+   */
+  | "CANCELLED";
 
 export type ReturnRequestStatus =
   | "REQUESTED"

@@ -10,6 +10,19 @@
 
 const VND = "₫";
 
+/**
+ * Dot thousands separators, computed rather than delegated to `Intl`.
+ *
+ * `toLocaleString("vi-VN")` depends on the runtime shipping full ICU data:
+ * Node does, some Hermes builds do not, and a fallback silently prints
+ * "136,000 ₫" instead of "136.000 ₫". Grouping by hand gives the same string
+ * on every runtime.
+ */
+function groupThousands(value: number): string {
+  const sign = value < 0 ? "-" : "";
+  return `${sign}${String(Math.abs(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+}
+
 function toNumber(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
   const n = typeof value === "number" ? value : Number(value);
@@ -20,14 +33,14 @@ function toNumber(value: string | number | null | undefined): number | null {
 export function formatMoney(value: string | number | null | undefined): string {
   const n = toNumber(value);
   if (n === null) return "—";
-  return `${Math.round(n).toLocaleString("vi-VN")} ${VND}`;
+  return `${groupThousands(Math.round(n))} ${VND}`;
 }
 
 /** Compact money for tight badges: `136000` -> `"136.000₫"` */
 export function formatMoneyCompact(value: string | number | null | undefined): string {
   const n = toNumber(value);
   if (n === null) return "—";
-  return `${Math.round(n).toLocaleString("vi-VN")}${VND}`;
+  return `${groupThousands(Math.round(n))}${VND}`;
 }
 
 function pad(n: number): string {
@@ -50,8 +63,18 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   return `${formatDate(d)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function formatNumber(n: number): string {
-  return Number.isInteger(n) ? String(n) : String(n).replace(".", ",");
+/**
+ * Vietnamese number: dot thousands, comma decimals, trailing zeros trimmed.
+ * `2500` -> `"2.500"`, `2.5` -> `"2,5"`.
+ */
+export function formatNumber(value: string | number | null | undefined): string {
+  const n = toNumber(value);
+  if (n === null) return "—";
+  const [intPart, decPart] = String(n).split(".");
+  const grouped = `${n < 0 ? "-" : ""}${Math.abs(Number(intPart))
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+  return decPart ? `${grouped},${decPart}` : grouped;
 }
 
 /** `"500"` + `"g"` -> `"500 g"`, `"2.5"` + `"kg"` -> `"2,5 kg"` */

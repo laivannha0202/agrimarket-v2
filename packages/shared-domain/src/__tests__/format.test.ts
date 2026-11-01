@@ -46,6 +46,12 @@ describe("formatWeight / formatQuantity", () => {
     expect(formatQuantity("5.000", "bó")).toBe("5 bó");
     expect(formatQuantity("0.500")).toBe("0,5");
   });
+
+  it("groups thousands in quantities and weights", () => {
+    expect(formatQuantity("2500", "kg")).toBe("2.500 kg");
+    expect(formatQuantity("12500.5", "g")).toBe("12.500,5 g");
+    expect(formatWeight("1000", "g")).toBe("1.000 g");
+  });
 });
 
 describe("discountPercent / isRealDiscount", () => {
