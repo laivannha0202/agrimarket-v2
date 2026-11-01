@@ -20,8 +20,8 @@
  * never placed in a URL.
  */
 
-import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   App,
   Button,
@@ -86,14 +86,43 @@ interface PreviewState {
   filename: string;
 }
 
+/** Tab keys the page can open; anything else falls back to the overview. */
+const TAB_KEYS = ["overview", "items", "payment", "shipping", "finance"] as const;
+
 export default function OrderDetailPage() {
+  // `useSearchParams` opts this page into a Suspense boundary at build time;
+  // the wrapper below is that boundary.
+  return (
+    <Suspense fallback={null}>
+      <OrderDetailView />
+    </Suspense>
+  );
+}
+
+function OrderDetailView() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { message } = App.useApp();
   const { user } = useAuth();
   const canAct = user?.role === "ADMIN";
   const [pending, setPending] = useState(false);
-  const [tab, setTab] = useState("overview");
+
+  /**
+   * The tab lives in the URL, so another screen can deep-link straight to the
+   * payment trail (`/orders/123?tab=payment`) and a copied link reopens the
+   * same view. An unknown key falls back to the overview instead of opening an
+   * empty tab.
+   */
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab =
+    requestedTab && (TAB_KEYS as readonly string[]).includes(requestedTab)
+      ? requestedTab
+      : "overview";
+  const setTab = (key: string) => {
+    router.replace(`/orders/${id}?tab=${key}`, { scroll: false });
+  };
 
   const { data: order, isLoading, isError, refetch } = useDetailQuery<Order>(
     queryKeys.order(id),

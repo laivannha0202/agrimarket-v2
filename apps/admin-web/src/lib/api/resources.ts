@@ -39,6 +39,7 @@ import type {
   AuthUser,
   ReportsSummary,
   ReportsDaily,
+  ReconciliationReport,
   Refund,
   EligibleRefundsResponse,
   QuarantineCase,
@@ -220,6 +221,13 @@ export const resources = {
   createPayout: (body: unknown, idempotencyKey: string) =>
     api.post<Payout>("/payouts", body, { "Idempotency-Key": idempotencyKey }),
   payPayout: (id: number | string) => api.post<Payout>(`/payouts/${id}/pay`),
+
+  /**
+   * Read-only money reconciliation. Filters only narrow the list; the summary
+   * always describes the scanned window (see the API contract).
+   */
+  reconciliation: (p?: ListParams) =>
+    api.get<ReconciliationReport>("/finance/reconciliation", toQuery(p)),
 
   // Payments, refunds & shipments
   payments: (p?: ListParams) => api.get<Paginated<Payment>>("/payments", toQuery(p)),

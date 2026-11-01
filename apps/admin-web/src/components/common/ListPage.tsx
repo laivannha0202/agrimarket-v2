@@ -24,6 +24,12 @@ interface ListPageProps<T> {
    * and pushes the page identity out of the first screen.
    */
   notice?: ReactNode;
+  /**
+   * Period summary (KPIs, counts) rendered directly under the header. Slots
+   * above the toolbar so a report page keeps the same order as every list:
+   * title → period context → filters → table.
+   */
+  summary?: ReactNode;
   hideSearch?: boolean;
   columns: ColumnsType<T>;
   data: T[];
@@ -39,6 +45,8 @@ interface ListPageProps<T> {
   scrollX?: number;
   itemLabel?: string;
   expandable?: TableProps<T>["expandable"];
+  /** Defaults to `id`; set it when the row's key is named differently. */
+  rowKey?: string;
 }
 
 /**
@@ -57,6 +65,7 @@ export function ListPage<T extends object>({
   onReset,
   toolbarExtra,
   notice,
+  summary,
   hideSearch,
   columns,
   data,
@@ -72,10 +81,12 @@ export function ListPage<T extends object>({
   scrollX,
   itemLabel = "bản ghi",
   expandable,
+  rowKey = "id",
 }: ListPageProps<T>) {
   return (
     <>
       <PageHeader title={title} subtitle={subtitle} extra={headerExtra} />
+      {summary ? <div style={{ marginBottom: 16 }}>{summary}</div> : null}
       {notice ? <div style={{ marginBottom: 16 }}>{notice}</div> : null}
       <SearchToolbar
         searchValue={searchValue}
@@ -96,7 +107,7 @@ export function ListPage<T extends object>({
               columns={columns}
               dataSource={data}
               loading={loading}
-              rowKey="id"
+              rowKey={rowKey}
               // Without `x`, antd sizes the table to its content and the card
               // cannot clip it: a four-column table on a 390px phone widened
               // the whole document (the page scrolled sideways). `max-content`

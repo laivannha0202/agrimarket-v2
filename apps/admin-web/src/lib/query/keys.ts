@@ -58,6 +58,7 @@ export const queryKeys = {
   settlementRecoveries: (params?: ListParams) =>
     ["settlement-recoveries", params ?? {}] as const,
   payouts: (params?: ListParams) => ["payouts", params ?? {}] as const,
+  reconciliation: (params?: ListParams) => ["reconciliation", params ?? {}] as const,
   refunds: (params?: ListParams) => ["refunds", params ?? {}] as const,
   refund: (id: number | string) => ["refund", String(id)] as const,
   shipments: (params?: ListParams) => ["shipments", params ?? {}] as const,

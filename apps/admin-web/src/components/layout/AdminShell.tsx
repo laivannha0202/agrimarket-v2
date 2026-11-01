@@ -37,6 +37,7 @@ import {
   PercentageOutlined,
   FileTextOutlined,
   GiftOutlined,
+  AuditOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/auth-provider";
 
@@ -117,6 +118,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: "/commission", label: "Hoa hồng", icon: <DollarOutlined /> },
       { key: "/settlements", label: "Đối soát & Chi trả", icon: <DollarOutlined /> },
+      { key: "/reconciliation", label: "Đối chiếu dòng tiền", icon: <AuditOutlined /> },
       { key: "/refunds", label: "Hoàn tiền", icon: <RollbackOutlined /> },
     ],
   },

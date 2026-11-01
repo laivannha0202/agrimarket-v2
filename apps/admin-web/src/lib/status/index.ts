@@ -341,6 +341,44 @@ export const PAYOUT_STATUS: Map = {
 
 export const payoutStatus = (v?: string | null) => resolve(PAYOUT_STATUS, v);
 
+/**
+ * Why an order appears in the reconciliation worklist. The wording names the
+ * discrepancy, not the fix: this screen reports, it never adjusts money.
+ */
+export const RECONCILIATION_ISSUE: Map = {
+  UNDER_COLLECTED: { label: "Thu thiếu", color: "warning" },
+  OVER_COLLECTED: { label: "Thu vượt", color: "error" },
+  SETTLED_WITHOUT_FULL_COLLECTION: {
+    label: "Đã quyết toán khi chưa thu đủ",
+    color: "error",
+  },
+  REFUND_WITHOUT_COLLECTION: { label: "Hoàn tiền chưa từng thu", color: "error" },
+  REFUND_STATUS_MISMATCH: { label: "Trạng thái hoàn tiền lệch", color: "warning" },
+  MISSING_COLLECTION_EVIDENCE: { label: "Thiếu bằng chứng thu tiền", color: "error" },
+};
+
+export const reconciliationIssue = (v?: string | null) => resolve(RECONCILIATION_ISSUE, v);
+
+/** How much of the obligation the recorded payments cover (API-computed). */
+export const COLLECTION_STATE: Map = {
+  NONE: { label: "Chưa ghi nhận thu", color: "default" },
+  PARTIAL: { label: "Thu một phần", color: "warning" },
+  FULL: { label: "Đã thu đủ", color: "success" },
+  OVER: { label: "Thu vượt", color: "error" },
+};
+
+export const collectionState = (v?: string | null) => resolve(COLLECTION_STATE, v);
+
+/** How much of the collected money was returned. */
+export const RECONCILIATION_REFUND_STATE: Map = {
+  NONE: { label: "Không hoàn", color: "default" },
+  PARTIAL: { label: "Hoàn một phần", color: "processing" },
+  FULL: { label: "Hoàn toàn bộ", color: "warning" },
+};
+
+export const reconciliationRefundState = (v?: string | null) =>
+  resolve(RECONCILIATION_REFUND_STATE, v);
+
 // Trace ---------------------------------------------------------------------
 
 export const TRACE_EVENT_TYPE: Map = {

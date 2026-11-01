@@ -39,7 +39,8 @@ export interface ListParams {
   limit?: number;
   search?: string;
   status?: string;
-  [key: string]: string | number | undefined;
+  /** Extra endpoint-specific filters are passed through verbatim. */
+  [key: string]: string | number | boolean | undefined;
 }
 
 // Catalog -------------------------------------------------------------------
@@ -1103,6 +1104,75 @@ export interface Payout {
   updatedAt: string;
   partner?: { id: number; code: string; name: string };
   settlement?: { id: number; code: string };
+}
+
+/**
+ * `GET /finance/reconciliation` — the read-only money report.
+ *
+ * Every number here is computed by the API from stored payments/refunds. The
+ * Admin screen displays these values; it never re-adds money, because a second
+ * implementation of the collection rule is a second answer to "how much did we
+ * actually receive".
+ */
+export type ReconciliationIssue =
+  | "UNDER_COLLECTED"
+  | "OVER_COLLECTED"
+  | "SETTLED_WITHOUT_FULL_COLLECTION"
+  | "REFUND_WITHOUT_COLLECTION"
+  | "REFUND_STATUS_MISMATCH"
+  | "MISSING_COLLECTION_EVIDENCE";
+
+/** How much of the obligation the recorded payments cover. */
+export type CollectionState = "NONE" | "PARTIAL" | "FULL" | "OVER";
+
+/** How much of the collected money came back. */
+export type ReconciliationRefundState = "NONE" | "PARTIAL" | "FULL";
+
+/** A settlement that already claimed a line of the order. */
+export interface ReconciliationSettlementRef {
+  id: number;
+  code: string;
+  status: SettlementStatus;
+}
+
+export interface ReconciliationFinding {
+  orderId: number;
+  code: string;
+  status: OrderStatus;
+  createdAt: string;
+  obligation: number;
+  collected: number;
+  refunded: number;
+  outstanding: number;
+  collection: CollectionState;
+  paymentStatuses: PaymentStatus[];
+  refundState: ReconciliationRefundState;
+  settled: boolean;
+  settlements: ReconciliationSettlementRef[];
+  issues: ReconciliationIssue[];
+}
+
+export interface ReconciliationReport {
+  generatedAt: string;
+  range: { from: string | null; to: string | null };
+  /** Orders read for this report (capped by `scanLimit`). */
+  scanned: number;
+  truncated: boolean;
+  scanLimit: number;
+  summary: {
+    ordersWithFindings: number;
+    byIssue: Record<ReconciliationIssue, number>;
+    byCollection: Record<CollectionState, number>;
+    totals: {
+      obligation: number;
+      collected: number;
+      refunded: number;
+      outstanding: number;
+    };
+  };
+  findings: ReconciliationFinding[];
+  meta: PaginationMeta;
+  note: string;
 }
 
 // Audit trail ----------------------------------------------------------------
