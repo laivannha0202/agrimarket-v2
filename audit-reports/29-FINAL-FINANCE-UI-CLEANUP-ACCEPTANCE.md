@@ -329,15 +329,24 @@ Không có blocker nào trong K1–K7 được ghi thành PASS.
 | Mục | Trước | Sau |
 |---|---|---|
 | Branch | `main` | `main` (không tạo nhánh mới) |
-| HEAD | `04b0af4` | `<xem mục commit bên dưới>` |
-| Commit local | 4 (giữ nguyên) | 4 + 1 commit của vòng này |
+| HEAD | `04b0af4` | `04b0af4` + 5 commit (xem bảng dưới) |
+| Commit local | 4 (giữ nguyên) | 4 cũ + 5 commit của vòng này |
 | Working tree | sạch | sạch sau commit |
 | `git diff --check` | PASS | PASS |
 | Push/merge/deploy | không | không |
 
-Nội dung commit vòng 29: API đối chiếu (filter + phân loại + issue mới + helper dùng chung), trang Admin
-`/reconciliation`, deep link tab, test (unit/component/E2E/Playwright/visual), tài liệu API/nghiệp vụ/UAT,
-17 ảnh nghiệm thu, báo cáo này.
+Commit vòng 29 (local, chưa push):
+
+| SHA | Nội dung |
+|---|---|
+| `39723ec` | `feat(api)`: `payment-collection.ts` dùng chung, `MISSING_COLLECTION_EVIDENCE`, filter `status`/`issue`/`collection`/`refundState`/`search`/`includeMatched`, `byCollection`, tham chiếu settlement |
+| `808bc04` | `feat(admin)`: trang `/reconciliation`, deep link tab đơn hàng qua URL, nhãn tiếng Việt trong `lib/status` |
+| `663a02a` | `test(e2e)`: E2E HTTP đối chiếu (read-only), Playwright trên API thật, 17 ảnh nghiệm thu + kiểm tra byte PDF |
+| `d929d25` | `docs(29)`: báo cáo này, `STAGING-UAT-PLAN.md`, cập nhật `API.md`/`BUSINESS-RULES.md`, ảnh nghiệm thu |
+| commit cuối | `docs(29)`: chỉ điền SHA vào mục L này, không đổi mã nguồn — SHA xem `git log --oneline -1` |
+
+`git status --porcelain` sau commit: rỗng. Bốn commit cũ (`b983dd5`, `d934568`, `d12da0c`, `04b0af4`)
+giữ nguyên, không rebase, không sửa lịch sử đã có.
 
 ---
 
