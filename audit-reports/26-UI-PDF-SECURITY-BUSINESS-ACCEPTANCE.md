@@ -11,9 +11,9 @@
 |---|---|
 | Repository | `d:\dev\Xay-dung-nen-tang-ban-nong-san-tich-hop-truy-xuat-nguon-goc` |
 | Branch | `main` |
-| HEAD | `3597459` — *feat(load): add read-path load harness and record the local baseline* |
-| Commit chưa push | **6** (`git rev-list --count origin/main..HEAD`) — không push, không merge, không reset |
-| Working tree | 27 file sửa (+495/−168) + 1 file mới `apps/admin-web/src/lib/audit-labels.ts` + `audit-reports/26-*.md` + `audit-reports/assets/26/*.png` |
+| HEAD | `6066942` — *fix(ui,pdf,security): round 26 acceptance — admin drawer nav, layout, refund status, PDF* (base của phiên: `3597459`) |
+| Commit chưa push | **7** (`git rev-list --count origin/main..HEAD`) — không push, không merge, không reset |
+| Thay đổi của phiên | 43 file, +992/−169 — 27 file sửa + 1 file mới `apps/admin-web/src/lib/audit-labels.ts` + `audit-reports/26-*.md` + `audit-reports/assets/26/*.png` (14 ảnh) |
 | Migration mới | **không** (`git status apps/api/prisma/migrations` rỗng) |
 | Môi trường | Windows 11, Node `v26.12.0`, npm `11.20.0`, MariaDB local |
 | Frontend | Next.js `16.4.1` (App Router), antd `6.6.5` (Admin), Mantine (Customer), Expo `~58.0.22` (Mobile) |
@@ -248,9 +248,9 @@ tạo. Không có dữ liệu production nào bị đọc/ghi/xoá.
 | Unit — Admin | **48 / 48** |
 | Unit — API | **592 / 592** |
 | Unit — Customer | **37 / 37** |
-| Unit — Mobile | **178 / 178** (+3 skip, xem F.2) |
+| Unit — Mobile | **175 / 178** (+3 skip, xem F.2) |
 | Unit — shared-domain | **66 / 66** |
-| **Tổng unit** | **921 / 921** |
+| **Tổng unit** | **918 pass + 3 skip = 921** |
 | API E2E (Nest + DB test) | **484 / 484** (22 file) |
 | Playwright (Admin + Customer, Chromium thật) | **14 / 14** (1,4 phút) |
 | Build API (`nest build`) | PASS — asset logo copy đúng `dist/assets/brand/` |
@@ -296,15 +296,17 @@ trước khi chạy Playwright nên ba test này skip — không tính vào 178 
 
 ## G. Git
 
-- HEAD `3597459`, **6 commit chưa push**; phiên này **không** push, không merge `main`,
+- HEAD `6066942`, **7 commit chưa push**; phiên này **không** push, không merge `main`,
   không reset, không force-push, không đụng CI/deploy.
-- Thay đổi của phiên: 27 file sửa + 1 file mới (nhãn audit) + báo cáo này + 14 ảnh
-  minh chứng.
+- Thay đổi của phiên đã được commit thành `6066942`
+  (*fix(ui,pdf,security): round 26 acceptance — admin drawer nav, layout, refund
+  status, PDF*): 43 file, +992/−169 — 27 file sửa + 1 file mới (nhãn audit) + báo cáo
+  này + 14 ảnh minh chứng.
 - Không commit build artifact; `.next/`, `dist/`, `.tmp-verify/` vẫn nằm ngoài git.
 - `git diff --check` sạch.
-- Đề xuất commit (chưa thực hiện ở bước viết báo cáo): một commit duy nhất
-  `fix(ui,pdf): visual acceptance round 26 — admin drawer nav, table/description
-  layout, refund status, packing-slip signature`.
+- Cổng kiểm thử được chạy lại ngay trước khi commit: typecheck, lint, 918 unit pass,
+  484 API E2E, 3 build (api/admin/customer) — tất cả xanh trên đúng cây làm việc đã
+  commit.
 
 ## H. Kết luận và phân loại
 
