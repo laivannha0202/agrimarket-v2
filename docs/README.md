@@ -22,6 +22,7 @@ Một điểm vào duy nhất cho tài liệu của repo. Hai loại tài liệu
 
 | Tài liệu | Nội dung |
 |---|---|
+| [`STAGING-UAT-PLAN.md`](STAGING-UAT-PLAN.md) | Kế hoạch và biên bản nghiệm thu staging/UAT (chưa chạy) |
 | [`DEPLOYMENT-ROLLBACK-RUNBOOK.md`](DEPLOYMENT-ROLLBACK-RUNBOOK.md) | Triển khai và rollback |
 | [`BACKUP-RESTORE-RUNBOOK.md`](BACKUP-RESTORE-RUNBOOK.md) | Sao lưu, phục hồi, diễn tập |
 
@@ -31,7 +32,7 @@ Invariant dữ liệu: `npm run verify:invariants` → `scripts/db-invariant-aud
 ## 3. Báo cáo nghiệm thu (lịch sử)
 
 Các báo cáo theo vòng nằm ở [`../audit-reports/`](../audit-reports/), đánh số
-`01`…`28`. Đọc báo cáo mới nhất trước; báo cáo cũ chỉ dùng để tra cứu bằng chứng.
+`01`…`30`. Đọc báo cáo mới nhất trước; báo cáo cũ chỉ dùng để tra cứu bằng chứng.
 
 Biên bản theo từng hạng mục nằm trong thư mục này, tiền tố `AGRIMARKET-V2-`:
 

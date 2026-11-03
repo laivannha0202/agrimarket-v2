@@ -256,8 +256,11 @@ payableAmount = grossAmount − refundAmount − commissionAmount + adjustmentAm
   under-collected at the same time.
 - A payment that claims money moved (`PAID`, `PARTIALLY_REFUNDED`, `REFUNDED`)
   but carries no `paid_at` is **not** counted as collected and is reported as
-  `MISSING_COLLECTION_EVIDENCE`. The money it claims is invisible until the
-  timestamp is recorded through the normal collection flow.
+  `MISSING_COLLECTION_EVIDENCE`. The order fails the full-collection guard and
+  is **excluded from settlement**. Re-sending `PAID` does not repair it (a
+  same-status update is a no-op), so the row needs an approved correction
+  procedure with an audit trail — never a hand edit of the payments table.
+  Until then the money it claims stays invisible to settlement.
 - A fully refunded order still gets a line (refund deducted, net 0). It is shown
   at zero rather than omitted, so a period can be reconciled against the order
   list; `refundState = FULL` distinguishes it from an order that was never fully
