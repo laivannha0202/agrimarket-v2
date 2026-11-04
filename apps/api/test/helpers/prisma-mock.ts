@@ -159,6 +159,12 @@ export function createMockPrisma(): MockPrisma {
 function applyModelDefaults(mock: Record<string, unknown>): void {
   const delegate = (name: string) => mock[name] as Record<string, MockFn>;
   delegate('shipment').findMany.mockResolvedValue([]);
+  // Delivery evidence reads partner orders and their shipments on every
+  // DELIVERED transition. An empty list means "no evidence", so a test that
+  // wants the transition to succeed must stub the real rows instead of
+  // crashing on an unstubbed mock.
+  delegate('partnerOrder').findMany.mockResolvedValue([]);
+  delegate('shipment').count.mockResolvedValue(0);
   delegate('refund').findMany.mockResolvedValue([]);
   delegate('inventoryAllocation').findMany.mockResolvedValue([]);
   delegate('quarantineCase').findMany.mockResolvedValue([]);

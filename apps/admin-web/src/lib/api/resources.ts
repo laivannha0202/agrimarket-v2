@@ -31,6 +31,7 @@ import type {
   SettlementAdjustmentResolution,
   SettlementRecovery,
   Shipment,
+  EligiblePartnerOrder,
   Voucher,
   Warehouse,
   WarehouseDocument,
@@ -244,6 +245,8 @@ export const resources = {
     api.post<Refund>(`/refunds/${id}/fail`, { failureReason }),
   shipments: (p?: ListParams) => api.get<Paginated<Shipment>>("/shipments", toQuery(p)),
   shipment: (id: number | string) => api.get<Shipment>(`/shipments/${id}`),
+  eligiblePartnerOrders: () =>
+    api.get<EligiblePartnerOrder[]>("/shipments/eligible-partner-orders"),
   createShipment: (body: unknown) => api.post<Shipment>("/shipments", body),
   updateShipmentStatus: (id: number | string, body: unknown) =>
     api.patch<Shipment>(`/shipments/${id}/status`, body),

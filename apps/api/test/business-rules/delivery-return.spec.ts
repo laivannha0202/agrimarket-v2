@@ -191,6 +191,22 @@ describe('Delivery failure & return rules', () => {
     prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
     prisma.partnerOrder.count.mockResolvedValue(0);
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
+    // The delivered parcel is the evidence that lets the order roll up.
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      {
+        id: 10,
+        code: 'PO-1',
+        status: PartnerOrderStatus.DELIVERED,
+        shipments: [
+          {
+            id: 1,
+            code: 'SHP-1',
+            status: ShipmentStatus.DELIVERED,
+            deliveredAt: new Date('2026-11-01T10:00:00.000Z'),
+          },
+        ],
+      },
+    ]);
     prisma.inventoryAllocation.findMany.mockResolvedValue([
       {
         id: 1,
@@ -304,11 +320,69 @@ describe('Delivery failure & return rules', () => {
     prisma.partnerOrder.updateMany.mockResolvedValue({ count: 0 });
     prisma.partnerOrder.count.mockResolvedValue(0);
     prisma.order.updateMany.mockResolvedValue({ count: 0 });
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      {
+        id: 10,
+        code: 'PO-1',
+        status: PartnerOrderStatus.DELIVERED,
+        shipments: [
+          {
+            id: 1,
+            code: 'SHP-1',
+            status: ShipmentStatus.DELIVERED,
+            deliveredAt: new Date('2026-11-01T10:00:00.000Z'),
+          },
+        ],
+      },
+    ]);
 
     const updated = await service.updateStatus(1, { status: ShipmentStatus.DELIVERED }, 99);
 
     expect(updated.status).toBe(ShipmentStatus.DELIVERED);
     expect(prisma.shipmentEvent.create).toHaveBeenCalledTimes(1);
+    expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+  });
+
+  it('does not roll the order up while a sibling shipment is still active', async () => {
+    const base = shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY);
+    prisma.shipment.findUnique.mockResolvedValue(base);
+    prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
+    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
+      ...base,
+      status: ShipmentStatus.DELIVERED,
+    });
+    prisma.shipmentEvent.create.mockResolvedValue({});
+    // A second parcel of the same partner order is still moving.
+    prisma.shipment.count.mockResolvedValue(1);
+    prisma.partnerOrder.updateMany.mockResolvedValue({ count: 0 });
+    prisma.partnerOrder.findMany.mockResolvedValue([
+      {
+        id: 10,
+        code: 'PO-1',
+        status: PartnerOrderStatus.SHIPPING,
+        shipments: [
+          {
+            id: 1,
+            code: 'SHP-1',
+            status: ShipmentStatus.DELIVERED,
+            deliveredAt: new Date('2026-11-01T10:00:00.000Z'),
+          },
+          {
+            id: 2,
+            code: 'SHP-2',
+            status: ShipmentStatus.IN_TRANSIT,
+            deliveredAt: null,
+          },
+        ],
+      },
+    ]);
+
+    await service.updateStatus(1, { status: ShipmentStatus.DELIVERED }, 99);
+
+    // The delivered parcel is recorded, but the order is not complete: the
+    // partner order and the parent order must stay SHIPPING.
+    expect(prisma.partnerOrder.updateMany).not.toHaveBeenCalled();
+    expect(prisma.order.updateMany).not.toHaveBeenCalled();
     expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
   });
 

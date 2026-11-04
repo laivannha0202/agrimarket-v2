@@ -171,6 +171,91 @@ export async function setOrderStatus(
   expect(res.status(), await res.text()).toBe(200);
 }
 
+export interface CreatedShipment {
+  id: number;
+  code: string;
+  status: string;
+}
+
+/**
+ * Walk a freshly created order to READY_TO_SHIP through the real admin state
+ * machine. DELIVERED is deliberately not in this list: it is only reachable
+ * through shipment delivery evidence.
+ */
+export async function advanceOrderToReadyToShip(
+  request: APIRequestContext,
+  token: string,
+  orderId: number,
+): Promise<void> {
+  for (const status of ['CONFIRMED', 'PREPARING', 'READY_TO_SHIP']) {
+    await setOrderStatus(request, token, orderId, status);
+  }
+}
+
+/**
+ * Deliver an order the only way the backend accepts: create a shipment for
+ * every eligible partner order, move them all IN_TRANSIT (the last one rolls
+ * the parent order to SHIPPING), then OUT_FOR_DELIVERY → DELIVERED. The final
+ * parcel rolls the order up to DELIVERED and consumes its reservations.
+ *
+ * Creating all parcels before moving any is required for a multi-partner
+ * order: delivering one parcel while a sibling is still READY_TO_SHIP is
+ * correctly rejected by the shipment state machine.
+ */
+export async function deliverOrderViaShipment(
+  request: APIRequestContext,
+  token: string,
+  orderId: number,
+): Promise<CreatedShipment[]> {
+  const eligibleRes = await request.get(`${API_BASE}/shipments/eligible-partner-orders`, {
+    headers: bearer(token),
+  });
+  expect(eligibleRes.status(), await eligibleRes.text()).toBe(200);
+  const eligible = (await eligibleRes.json()) as {
+    id: number;
+    code: string;
+    order: { id: number; code: string };
+  }[];
+  const partnerOrders = eligible.filter((po) => po.order.id === orderId);
+  expect(
+    partnerOrders.length,
+    `order ${orderId} must have a READY_TO_SHIP partner order without an active shipment`,
+  ).toBeGreaterThan(0);
+
+  const shipments: CreatedShipment[] = [];
+  for (const partnerOrder of partnerOrders) {
+    const created = await request.post(`${API_BASE}/shipments`, {
+      headers: bearer(token),
+      data: {
+        partnerOrderId: partnerOrder.id,
+        carrier: 'GHN',
+        trackingCode: `E2E-${orderId}-${partnerOrder.id}`,
+      },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    shipments.push((await created.json()) as CreatedShipment);
+  }
+
+  for (const status of ['IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED']) {
+    for (const shipment of shipments) {
+      const updated = await request.patch(`${API_BASE}/shipments/${shipment.id}/status`, {
+        headers: bearer(token),
+        data: { status },
+      });
+      expect(updated.status(), await updated.text()).toBe(200);
+      shipment.status = status;
+    }
+  }
+
+  const detail = await request.get(`${API_BASE}/orders/${orderId}`, {
+    headers: bearer(token),
+  });
+  expect(detail.status(), await detail.text()).toBe(200);
+  const order = (await detail.json()) as { status: string };
+  expect(order.status, 'shipment delivery must roll the order up to DELIVERED').toBe('DELIVERED');
+  return shipments;
+}
+
 export async function markPaymentPaid(
   request: APIRequestContext,
   token: string,

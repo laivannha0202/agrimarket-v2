@@ -50,7 +50,7 @@ describe('Warehouse DRAFT edit/cancel (GĐ3)', () => {
 
   it('replaces DRAFT lines after validating lot/variant', async () => {
     prisma.warehouseDocument.findUnique.mockResolvedValue(draftDoc());
-    prisma.productLot.findUnique.mockResolvedValue({ id: 1, unit: 'kg' });
+    prisma.productLot.findUnique.mockResolvedValue({ id: 1, unit: 'kg', productId: 3 });
     prisma.productVariant.findUnique.mockResolvedValue({ id: 2, productId: 3 });
     prisma.warehouseDocumentLine.deleteMany.mockResolvedValue({ count: 1 });
     prisma.warehouseDocumentLine.createMany.mockResolvedValue({ count: 1 });
@@ -69,6 +69,22 @@ describe('Warehouse DRAFT edit/cancel (GĐ3)', () => {
       where: { documentId: 1 },
     });
     expect(prisma.warehouseDocumentLine.createMany).toHaveBeenCalled();
+  });
+
+  it('rejects a lot paired with a variant of another product', async () => {
+    prisma.warehouseDocument.findUnique.mockResolvedValue(draftDoc());
+    prisma.productLot.findUnique.mockResolvedValue({ id: 1, unit: 'kg', productId: 3 });
+    prisma.productVariant.findUnique.mockResolvedValue({ id: 2, productId: 4 });
+
+    const service = makeService(prisma);
+    await expect(
+      service.updateDraft(
+        1,
+        { lines: [{ productLotId: 1, productVariantId: 2, quantity: 4, unit: 'kg' }] },
+        7,
+      ),
+    ).rejects.toThrow(/không thuộc sản phẩm/);
+    expect(prisma.warehouseDocumentLine.createMany).not.toHaveBeenCalled();
   });
 
   it('rejects duplicate lot+variant lines', async () => {

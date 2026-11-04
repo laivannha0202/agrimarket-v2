@@ -1266,10 +1266,33 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       await patch(`/api/v1/orders/${orderId}/status`, adminToken, { status: 'NOPE' }).expect(400);
     });
 
-    it('advances the order to DELIVERED without pretending COD was collected', async () => {
-      for (const status of ['CONFIRMED', 'PREPARING', 'READY_TO_SHIP', 'SHIPPING', 'DELIVERED']) {
+    it('advances the order to DELIVERED through the shipment path without pretending COD was collected', async () => {
+      for (const status of ['CONFIRMED', 'PREPARING', 'READY_TO_SHIP']) {
         await patch(`/api/v1/orders/${orderId}/status`, adminToken, { status }).expect(200);
       }
+      const partnerOrder = await prisma.partnerOrder.findFirstOrThrow({ where: { orderId } });
+      const shipment = await post('/api/v1/shipments', adminToken, {
+        partnerOrderId: partnerOrder.id,
+        carrier: 'E2E Carrier',
+        trackingCode: `${RUN_ID}-TRACK`,
+      }).expect(201);
+      await patch(`/api/v1/shipments/${shipment.body.id}/status`, adminToken, {
+        status: 'IN_TRANSIT',
+      }).expect(200);
+
+      // The order row now says SHIPPING, but no parcel has arrived yet. The
+      // manual shortcut must be refused instead of inventing a delivery.
+      const refused = await patch(`/api/v1/orders/${orderId}/status`, adminToken, {
+        status: 'DELIVERED',
+      }).expect(409);
+      expect(refused.body.message).toMatch(/bằng chứng|chưa có vận đơn giao thành công/i);
+
+      await patch(`/api/v1/shipments/${shipment.body.id}/status`, adminToken, {
+        status: 'OUT_FOR_DELIVERY',
+      }).expect(200);
+      await patch(`/api/v1/shipments/${shipment.body.id}/status`, adminToken, {
+        status: 'DELIVERED',
+      }).expect(200);
 
       const order = await prisma.order.findUniqueOrThrow({
         where: { id: orderId },
@@ -1455,8 +1478,13 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
       expect(item.allocations.length).toBeGreaterThan(0);
       expect(item.allocations[0].productLot.traceCode).toBe(`${RUN_ID}-TRC-ORD`);
 
-      // Shipment events come back in chronological order.
-      const shipmentBody = res.body.partnerOrders[0].shipments[0];
+      // Shipment events come back in chronological order. The order now also
+      // has the parcel that delivered it through the shipment path, so select
+      // the fixture shipment by code instead of relying on array position.
+      const shipmentBody = res.body.partnerOrders[0].shipments.find(
+        (row: { code: string }) => row.code === `${RUN_ID}-SHP-ORD`,
+      );
+      expect(shipmentBody).toBeDefined();
       expect(shipmentBody.events).toHaveLength(2);
       expect(shipmentBody.events[0].status).toBe('READY');
       expect(shipmentBody.events[1].status).toBe('DELIVERED');

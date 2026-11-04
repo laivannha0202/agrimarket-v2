@@ -25,6 +25,14 @@ export class ShipmentsController {
 
   @Roles('ADMIN')
   @ApiBearerAuth()
+  @Get('eligible-partner-orders')
+  @ApiOperation({ summary: 'Partner orders that may receive a shipment now (ADMIN)' })
+  findEligiblePartnerOrders() {
+    return this.shipmentsService.findEligiblePartnerOrders();
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
   @Get(':id')
   @ApiOperation({ summary: 'Get a shipment (ADMIN)' })
   findOne(@Param('id', ParseIntPipe) id: number) {

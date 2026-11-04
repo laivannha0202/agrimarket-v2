@@ -106,9 +106,10 @@ function ReconciliationDetail({ row }: { row: ReconciliationFinding }) {
 
       <Typography.Text strong>Số liệu do hệ thống ghi nhận</Typography.Text>
       <div style={{ margin: "8px 0 16px", color: "var(--agri-text-secondary)" }}>
-        <StatusTag status={orderStatus(row.status)} /> Tổng phải thu{" "}
-        {formatMoney(row.obligation)} · Đã thu {formatMoney(row.collected)} · Đã hoàn{" "}
-        {formatMoney(row.refunded)} · Còn thiếu {formatMoney(row.outstanding)}
+        <StatusTag status={orderStatus(row.status)} /> Giá trị đơn{" "}
+        {formatMoney(row.originalValue)} · Công nợ hiệu lực {formatMoney(row.obligation)} · Đã thu{" "}
+        {formatMoney(row.collected)} · Đã hoàn {formatMoney(row.refunded)} · Còn thiếu{" "}
+        {formatMoney(row.outstanding)} · Cần hoàn trả {formatMoney(row.refundDue)}
       </div>
 
       <Typography.Text strong>Payment</Typography.Text>
@@ -204,7 +205,13 @@ export default function ReconciliationPage() {
       render: (value: string) => <span className="agri-nowrap">{formatDateTime(value)}</span>,
     },
     {
-      title: "Phải thu",
+      title: "Giá trị đơn",
+      dataIndex: "originalValue",
+      align: "right",
+      render: (value: number) => <span className="agri-nowrap">{formatMoney(value)}</span>,
+    },
+    {
+      title: "Công nợ hiệu lực",
       dataIndex: "obligation",
       align: "right",
       render: (value: number) => <span className="agri-nowrap">{formatMoney(value)}</span>,
@@ -224,6 +231,16 @@ export default function ReconciliationPage() {
     {
       title: "Còn thiếu",
       dataIndex: "outstanding",
+      align: "right",
+      render: (value: number) => (
+        <span className="agri-nowrap" style={{ color: value > 0 ? "#cf1322" : undefined }}>
+          {formatMoney(value)}
+        </span>
+      ),
+    },
+    {
+      title: "Cần hoàn trả",
+      dataIndex: "refundDue",
       align: "right",
       render: (value: number) => (
         <span className="agri-nowrap" style={{ color: value > 0 ? "#cf1322" : undefined }}>
@@ -278,25 +295,21 @@ export default function ReconciliationPage() {
       summary={
         <>
           <Row gutter={[16, 16]}>
-            <Col xs={12} sm={12} xl={6}>
+            <Col xs={12} sm={8} xl={4}>
               <KpiCard
                 label="Đơn đã quét"
                 value={data ? formatNumber(scanned) : "—"}
-                hint={
-                  data?.truncated
-                    ? `Đã chạm giới hạn ${formatNumber(data.scanLimit)} đơn`
-                    : "Trong khoảng thời gian đang lọc"
-                }
+                hint="Toàn bộ đơn trong khoảng thời gian đang lọc"
               />
             </Col>
-            <Col xs={12} sm={12} xl={6}>
+            <Col xs={12} sm={8} xl={4}>
               <KpiCard
                 label="Đơn có chênh lệch"
                 value={summary ? formatNumber(summary.ordersWithFindings) : "—"}
                 tone={(summary?.ordersWithFindings ?? 0) > 0 ? "warning" : "success"}
               />
             </Col>
-            <Col xs={12} sm={12} xl={6}>
+            <Col xs={12} sm={8} xl={4}>
               <KpiCard
                 label="Không phát hiện chênh lệch"
                 value={data ? formatNumber(withoutFindings) : "—"}
@@ -310,6 +323,14 @@ export default function ReconciliationPage() {
                 value={summary ? formatMoney(summary.totals.outstanding) : "—"}
                 tone={(summary?.totals.outstanding ?? 0) > 0 ? "error" : "success"}
                 hint={summary ? `Đã thu ${formatMoney(summary.totals.collected)}` : undefined}
+              />
+            </Col>
+            <Col xs={12} sm={12} xl={6}>
+              <KpiCard
+                label="Cần hoàn trả"
+                value={summary ? formatMoney(summary.totals.refundDue) : "—"}
+                tone={(summary?.totals.refundDue ?? 0) > 0 ? "warning" : "success"}
+                hint="Tiền đã thu vượt công nợ hiệu lực"
               />
             </Col>
           </Row>
@@ -363,9 +384,6 @@ export default function ReconciliationPage() {
               Số liệu do API tính từ payment và refund đã lưu; màn hình này không sửa, không
               tạo và không xoá khoản tiền nào. Chênh lệch được xử lý qua luồng thu tiền/hoàn
               tiền thông thường để nhật ký kiểm toán giải thích được số dư mới.
-              {data?.truncated
-                ? ` Báo cáo chỉ đọc ${formatNumber(data.scanLimit)} đơn gần nhất — thu hẹp khoảng ngày để xem phần còn lại.`
-                : ""}
             </span>
           }
         />
@@ -423,7 +441,7 @@ export default function ReconciliationPage() {
       limit={list.limit}
       onPageChange={list.setPage}
       onLimitChange={list.setLimit}
-      scrollX={1360}
+      scrollX={1560}
       itemLabel="đơn"
       expandable={{
         expandedRowRender: (row) => <ReconciliationDetail row={row} />,

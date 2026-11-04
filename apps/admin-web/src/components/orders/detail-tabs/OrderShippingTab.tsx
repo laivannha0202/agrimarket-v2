@@ -7,6 +7,7 @@
  * from the order status.
  */
 
+import Link from "next/link";
 import { Alert, Col, Row, Table, Timeline, Typography } from "antd";
 import { DetailCard } from "@/components/common/DetailPage";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -45,7 +46,10 @@ function ShipmentBlock({ shipment }: { shipment: Shipment }) {
         </Col>
         <Col xs={12} md={4}>
           <div className="agri-muted" style={{ fontSize: 12 }}>Giao lúc</div>
-          <div>{formatDateTime(shipment.deliveredAt ?? shipment.shippedAt)}</div>
+          {/* Only the recorded delivery timestamp is evidence. `shippedAt` is
+              when the parcel left, not when it arrived, so it must never be
+              displayed as a delivery time. */}
+          <div>{shipment.deliveredAt ? formatDateTime(shipment.deliveredAt) : "Chưa giao"}</div>
         </Col>
       </Row>
 
@@ -54,7 +58,7 @@ function ShipmentBlock({ shipment }: { shipment: Shipment }) {
           style={{ marginTop: 12 }}
           type="error"
           showIcon
-          message="Giao hàng thất bại"
+          title="Giao hàng thất bại"
           description={shipment.failureReason}
         />
       ) : null}
@@ -103,6 +107,22 @@ export function OrderShippingTab({ order }: { order: Order }) {
   }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Alert
+        type="info"
+        showIcon
+        title="Giao hàng được ghi nhận từ vận đơn"
+        description={
+          <span>
+            Trạng thái “Đã giao” của đơn là kết quả tổng hợp từ vận đơn, không phải
+            thao tác trực tiếp trên đơn. Tạo và cập nhật vận đơn tại{" "}
+            <Link href="/shipments" className="agri-link">
+              trang Vận đơn
+            </Link>
+            ; hệ thống chỉ chuyển đơn sang Đã giao khi mọi đơn đối tác có vận đơn giao
+            thành công và không còn vận đơn đang xử lý.
+          </span>
+        }
+      />
       {partnerOrders.map((po) => (
         <DetailCard
           key={po.id}

@@ -526,6 +526,18 @@ export interface Shipment {
   };
 }
 
+/**
+ * `GET /shipments/eligible-partner-orders` — a partner order the create form
+ * may turn into a shipment right now: both it and its order are READY_TO_SHIP
+ * and no active parcel exists yet.
+ */
+export interface EligiblePartnerOrder {
+  id: number;
+  code: string;
+  partner: { id: number; name: string };
+  order: { id: number; code: string };
+}
+
 export type FulfillmentStatus = "PENDING" | "PACKING" | "PACKED" | "CANCELLED";
 
 export interface Fulfillment {
@@ -1140,10 +1152,15 @@ export interface ReconciliationFinding {
   code: string;
   status: OrderStatus;
   createdAt: string;
+  /** Order value as agreed at checkout; preserved when the order is cancelled. */
+  originalValue: number;
+  /** Effective debt: 0 for a cancelled order, otherwise `originalValue`. */
   obligation: number;
   collected: number;
   refunded: number;
   outstanding: number;
+  /** Money retained beyond the effective obligation; must be refunded. */
+  refundDue: number;
   collection: CollectionState;
   paymentStatuses: PaymentStatus[];
   refundState: ReconciliationRefundState;
@@ -1155,19 +1172,19 @@ export interface ReconciliationFinding {
 export interface ReconciliationReport {
   generatedAt: string;
   range: { from: string | null; to: string | null };
-  /** Orders read for this report (capped by `scanLimit`). */
+  /** Orders in the date range that carry money or a settlement line. */
   scanned: number;
-  truncated: boolean;
-  scanLimit: number;
   summary: {
     ordersWithFindings: number;
     byIssue: Record<ReconciliationIssue, number>;
     byCollection: Record<CollectionState, number>;
     totals: {
+      originalValue: number;
       obligation: number;
       collected: number;
       refunded: number;
       outstanding: number;
+      refundDue: number;
     };
   };
   findings: ReconciliationFinding[];

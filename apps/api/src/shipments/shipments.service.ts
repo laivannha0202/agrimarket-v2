@@ -20,27 +20,16 @@ import {
   ShipmentStatus,
   TraceEventType,
 } from '../../generated/prisma/enums.js';
+import {
+  ACTIVE_SHIPMENT_STATUSES,
+  SHIPMENT_LEFT_WAREHOUSE_STATUSES,
+} from './shipment-statuses.js';
+import {
+  deliveryEvidenceProblems,
+  loadDeliveryEvidence,
+} from '../orders/delivery-evidence.js';
 
-/**
- * A shipment that is still in play for its partner order. Re-creating one is
- * either an idempotent replay (same carrier/tracking) or a conflict.
- */
-const ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
-  ShipmentStatus.PENDING,
-  ShipmentStatus.READY,
-  ShipmentStatus.IN_TRANSIT,
-  ShipmentStatus.OUT_FOR_DELIVERY,
-  ShipmentStatus.DELIVERY_FAILED,
-  ShipmentStatus.RETURNING,
-];
-
-/** Statuses that mean the parcel has physically left the warehouse. */
-export const SHIPMENT_LEFT_WAREHOUSE_STATUSES: ShipmentStatus[] = [
-  ShipmentStatus.IN_TRANSIT,
-  ShipmentStatus.OUT_FOR_DELIVERY,
-  ShipmentStatus.DELIVERY_FAILED,
-  ShipmentStatus.RETURNING,
-];
+export { SHIPMENT_LEFT_WAREHOUSE_STATUSES };
 
 const SHIPMENT_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
   PENDING: [ShipmentStatus.READY, ShipmentStatus.IN_TRANSIT, ShipmentStatus.CANCELLED],
@@ -182,6 +171,33 @@ export class ShipmentsService {
       );
 
       return shipment;
+    });
+  }
+
+  /**
+   * Partner orders an operator may create a shipment for right now.
+   *
+   * The create form used to ask for a raw partner-order id, which made the
+   * operator guess and turned every wrong id into a 400 after submission. The
+   * eligibility rule is the same one `create` enforces: both the order and the
+   * partner order are READY_TO_SHIP and there is no active parcel yet. It lives
+   * in one query so the picker and the write cannot drift apart.
+   */
+  async findEligiblePartnerOrders() {
+    return this.prisma.partnerOrder.findMany({
+      where: {
+        status: PartnerOrderStatus.READY_TO_SHIP,
+        order: { status: OrderStatus.READY_TO_SHIP },
+        shipments: { none: { status: { in: ACTIVE_SHIPMENT_STATUSES } } },
+      },
+      select: {
+        id: true,
+        code: true,
+        partner: { select: { id: true, name: true } },
+        order: { select: { id: true, code: true } },
+      },
+      orderBy: { id: 'desc' },
+      take: 200,
     });
   }
 
@@ -365,19 +381,37 @@ export class ShipmentsService {
       }
 
       if (dto.status === ShipmentStatus.DELIVERED) {
-        await tx.partnerOrder.updateMany({
-          where: { id: partnerOrder.id, status: { not: PartnerOrderStatus.DELIVERED } },
-          data: { status: PartnerOrderStatus.DELIVERED },
-        });
-        const remaining = await tx.partnerOrder.count({
+        // One delivered parcel is not enough to declare the partner order
+        // delivered while a sibling parcel is still moving (a split shipment
+        // can have a failed attempt being re-sent). The order-level rollup
+        // below is the final decision: it only runs when every partner order
+        // has a DELIVERED shipment with a real deliveredAt and no active
+        // sibling remains.
+        const otherActive = await tx.shipment.count({
           where: {
-            orderId: partnerOrder.order.id,
-            status: { not: PartnerOrderStatus.DELIVERED },
+            partnerOrderId: partnerOrder.id,
+            id: { not: id },
+            status: { in: ACTIVE_SHIPMENT_STATUSES },
           },
         });
-        if (remaining === 0) {
+        if (otherActive === 0) {
+          await tx.partnerOrder.updateMany({
+            where: {
+              id: partnerOrder.id,
+              status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+            },
+            data: { status: PartnerOrderStatus.DELIVERED },
+          });
+        }
+
+        const evidence = await loadDeliveryEvidence(tx, partnerOrder.order.id);
+        const problems = deliveryEvidenceProblems(evidence);
+        if (problems.length === 0) {
           const claimedOrder = await tx.order.updateMany({
-            where: { id: partnerOrder.order.id, status: { not: OrderStatus.DELIVERED } },
+            // Only a SHIPPING order rolls up. A CANCELLED order must never be
+            // resurrected, and an order already DELIVERED already consumed its
+            // stock once (a legacy repair may have run before this shipment).
+            where: { id: partnerOrder.order.id, status: OrderStatus.SHIPPING },
             data: { status: OrderStatus.DELIVERED },
           });
           if (claimedOrder.count > 0) {

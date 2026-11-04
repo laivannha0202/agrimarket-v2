@@ -82,12 +82,15 @@ function PartnerFinanceCard({ partnerOrder }: { partnerOrder: PartnerOrder }) {
           },
           {
             key: "commission",
-            label: "Hoa hồng",
+            // Before a settlement line exists these are the amounts computed
+            // from the order snapshot ("dự kiến"), not money owed. After it,
+            // the settlement line is the recorded/agreed figure.
+            label: line ? "Hoa hồng (đã ghi nhận)" : "Hoa hồng (dự kiến)",
             children: formatMoney(partnerOrder.commissionAmount),
           },
           {
             key: "payable",
-            label: "Phải trả đối tác",
+            label: line ? "Phải trả đối tác (đã quyết toán)" : "Phải trả đối tác (dự kiến)",
             children: <strong>{formatMoney(partnerOrder.payableAmount)}</strong>,
           },
         ]}
@@ -215,9 +218,17 @@ export function OrderFinanceTab({ order }: { order: Order }) {
       <Alert
         type="info"
         showIcon
-        message="Số liệu nội bộ"
+        title="Số liệu nội bộ"
         description="Hoa hồng, quyết toán và chi trả chỉ hiển thị trong trang quản trị. Khách hàng và phiếu PDF dành cho khách không nhận các trường này."
       />
+      {order.status === "CANCELLED" ? (
+        <Alert
+          type="warning"
+          showIcon
+          title="Đơn đã hủy — số liệu đối tác chỉ để tham chiếu"
+          description="Hoa hồng và số phải trả dưới đây vẫn giữ giá trị tính trên đơn gốc, không phải công nợ hiệu lực. Chỉ chi trả khi có kỳ quyết toán đã xác nhận và đã trừ mọi khoản hoàn/điều chỉnh."
+        />
+      ) : null}
       {partnerOrders.map((po) => (
         <PartnerFinanceCard key={po.id} partnerOrder={po} />
       ))}

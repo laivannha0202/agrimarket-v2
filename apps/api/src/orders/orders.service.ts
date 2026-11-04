@@ -11,7 +11,9 @@ import { InventoryService } from '../inventory/inventory.service.js';
 import { PromotionsService } from '../promotions/promotions.service.js';
 import { CommissionService } from '../finance/commission.service.js';
 import { QuarantineService, QUARANTINE_SOURCES } from '../quarantine/quarantine.service.js';
-import { ShipmentsService, SHIPMENT_LEFT_WAREHOUSE_STATUSES } from '../shipments/shipments.service.js';
+import { ShipmentsService } from '../shipments/shipments.service.js';
+import { SHIPMENT_LEFT_WAREHOUSE_STATUSES } from '../shipments/shipment-statuses.js';
+import { assertDeliveryEvidence, loadDeliveryEvidence } from './delivery-evidence.js';
 import {
   buildDatedCode,
   datedCodePrefix,
@@ -1199,6 +1201,14 @@ export class OrdersService {
     auditAction: string,
   ): Promise<Order> {
     return this.prisma.$transaction(async (tx) => {
+      // DELIVERED is a statement about the physical parcel, not a status an
+      // operator may assert by hand. The evidence is read inside the same
+      // transaction as the compare-and-set below, so a delivery that is still
+      // in transit cannot slip through on a stale read.
+      if (status === OrderStatus.DELIVERED) {
+        assertDeliveryEvidence(await loadDeliveryEvidence(tx, id));
+      }
+
       let updated: Order;
       if (status === previousStatus) {
         // Re-applying the current status is a documented no-op for non-terminal
@@ -1221,10 +1231,36 @@ export class OrdersService {
         updated = await tx.order.findUniqueOrThrow({ where: { id } });
       }
 
-      await tx.partnerOrder.updateMany({
-        where: { orderId: id },
-        data: { status: status as unknown as PartnerOrderStatus },
-      });
+      // Keep partner orders in step without resurrecting terminal rows:
+      //  - DELIVERED never overwrites a cancelled partner order (the evidence
+      //    check above already refuses that combination);
+      //  - CANCELLED never overwrites a partner order that already delivered;
+      //  - the intermediate statuses only move non-terminal rows.
+      if (status === OrderStatus.DELIVERED) {
+        await tx.partnerOrder.updateMany({
+          where: {
+            orderId: id,
+            status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+          },
+          data: { status: PartnerOrderStatus.DELIVERED },
+        });
+      } else if (status === OrderStatus.CANCELLED) {
+        await tx.partnerOrder.updateMany({
+          where: {
+            orderId: id,
+            status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+          },
+          data: { status: PartnerOrderStatus.CANCELLED },
+        });
+      } else {
+        await tx.partnerOrder.updateMany({
+          where: {
+            orderId: id,
+            status: { notIn: [PartnerOrderStatus.DELIVERED, PartnerOrderStatus.CANCELLED] },
+          },
+          data: { status: status as unknown as PartnerOrderStatus },
+        });
+      }
 
       if (status === OrderStatus.DELIVERED) {
         // The goods physically leave the warehouse at this moment: consume the

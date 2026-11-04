@@ -18,7 +18,12 @@ export interface EligibleReviewItem {
   orderItemId: number;
   orderId: number;
   orderCode: string;
-  deliveredAt: string;
+  /**
+   * The real delivery timestamp of the latest DELIVERED shipment, or `null`
+   * for a legacy order whose delivery was recorded before shipment evidence
+   * existed. It is never fabricated from the order creation time.
+   */
+  deliveredAt: string | null;
   productId: number;
   productName: string;
   variantName: string;
@@ -32,8 +37,9 @@ type EligibleRow = Prisma.OrderItemGetPayload<{
   include: {
     partnerOrder: {
       include: {
-        order: { select: { id: true; code: true; createdAt: true; status: true } };
+        order: { select: { id: true; code: true; status: true } };
         partner: { select: { id: true; name: true } };
+        shipments: { select: { deliveredAt: true } };
       };
     };
     productVariant: {
@@ -58,11 +64,10 @@ export function toEligibleItem(row: EligibleRow): EligibleReviewItem {
     orderItemId: row.id,
     orderId: order.id,
     orderCode: order.code,
-    // The order row has no separate `deliveredAt` column, so the order's own
-    // creation time is what travels. It labels the picker only — no eligibility
-    // rule is derived from it, so it cannot become a wrong claim about when the
-    // parcel arrived.
-    deliveredAt: order.createdAt.toISOString(),
+    // The order row has no `deliveredAt` column. The evidence lives on the
+    // shipment, so the picker gets the latest completed delivery, or `null`
+    // when a legacy order has none — never the order creation time.
+    deliveredAt: row.partnerOrder.shipments[0]?.deliveredAt?.toISOString() ?? null,
     productId: row.productVariant.product.id,
     productName: row.productVariant.product.name,
     variantName: row.productVariant.name,
@@ -221,8 +226,14 @@ export class ReviewsService {
         include: {
           partnerOrder: {
             include: {
-              order: { select: { id: true, code: true, createdAt: true, status: true } },
+              order: { select: { id: true, code: true, status: true } },
               partner: { select: { id: true, name: true } },
+              shipments: {
+                where: { status: 'DELIVERED' },
+                orderBy: { deliveredAt: 'desc' },
+                take: 1,
+                select: { deliveredAt: true },
+              },
             },
           },
           productVariant: {

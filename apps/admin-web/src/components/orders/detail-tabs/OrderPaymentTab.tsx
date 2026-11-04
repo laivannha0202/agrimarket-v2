@@ -18,9 +18,19 @@ import { SectionEmpty } from "./shared";
 
 export interface PaymentSummary {
   methodLabel: string;
+  /** Order value as agreed at checkout (`orders.grand_total`). */
+  originalValue: number;
+  /**
+   * Effective debt. A cancelled order owes nothing, so its obligation is 0 —
+   * the original value is kept for the audit trail, not turned into a fake 0.
+   */
+  obligation: number;
   collected: number;
   refunded: number;
+  /** Still to collect against the effective obligation. */
   outstanding: number;
+  /** Money received that must go back (overpayment or cancelled order). */
+  refundDue: number;
 }
 
 /** Explicit, labelled sums over the stored payment/refund rows. */
@@ -33,13 +43,20 @@ export function summarizePayments(order: Order): PaymentSummary {
     .flatMap((p) => p.refunds ?? [])
     .filter((r) => r.status === "COMPLETED")
     .reduce((sum, r) => sum + Number(r.amount), 0);
-  const total = Number(order.grandTotal);
+  const originalValue = Number(order.grandTotal);
+  const safeOriginal = Number.isFinite(originalValue) ? originalValue : 0;
+  const safeCollected = Number.isFinite(collected) ? collected : 0;
+  const safeRefunded = Number.isFinite(refunded) ? refunded : 0;
+  const obligation = order.status === "CANCELLED" ? 0 : safeOriginal;
   const methods = [...new Set(payments.map((p) => paymentMethod(p.method).label))];
   return {
     methodLabel: methods.length > 0 ? methods.join(", ") : "—",
-    collected: Number.isFinite(collected) ? collected : 0,
-    refunded: Number.isFinite(refunded) ? refunded : 0,
-    outstanding: Number.isFinite(total) ? Math.max(0, total - collected) : 0,
+    originalValue: safeOriginal,
+    obligation,
+    collected: safeCollected,
+    refunded: safeRefunded,
+    outstanding: Math.max(0, obligation - safeCollected),
+    refundDue: Math.max(0, safeCollected - safeRefunded - obligation),
   };
 }
 
@@ -59,14 +76,27 @@ export function OrderPaymentTab({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <DetailCard title="Tổng hợp thanh toán">
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+          <span className="agri-muted" style={{ fontSize: 12 }}>
+            Phương thức: <strong style={{ color: "var(--agri-text)" }}>{summary.methodLabel}</strong>
+          </span>
+          <span className="agri-muted" style={{ fontSize: 12 }}>
+            Trạng thái:{" "}
+            {payments.length > 0 ? (
+              <StatusTag status={paymentStatus(payments[0].status)} />
+            ) : (
+              "—"
+            )}
+          </span>
+        </div>
         <Row gutter={[16, 16]}>
           <Col xs={12} md={8} lg={4}>
-            <div className="agri-muted" style={{ fontSize: 12 }}>Phương thức</div>
-            <div style={{ fontWeight: 600 }}>{summary.methodLabel}</div>
+            <div className="agri-muted" style={{ fontSize: 12 }}>Giá trị đơn</div>
+            <div style={{ fontWeight: 600 }}>{formatMoney(summary.originalValue)}</div>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <div className="agri-muted" style={{ fontSize: 12 }}>Tổng phải thu</div>
-            <div style={{ fontWeight: 600 }}>{formatMoney(order.grandTotal)}</div>
+            <div className="agri-muted" style={{ fontSize: 12 }}>Công nợ hiệu lực</div>
+            <div style={{ fontWeight: 600 }}>{formatMoney(summary.obligation)}</div>
           </Col>
           <Col xs={12} md={8} lg={4}>
             <div className="agri-muted" style={{ fontSize: 12 }}>Đã thu</div>
@@ -81,31 +111,58 @@ export function OrderPaymentTab({
             <div style={{ fontWeight: 600 }}>{formatMoney(summary.refunded)}</div>
           </Col>
           <Col xs={12} md={8} lg={4}>
-            <div className="agri-muted" style={{ fontSize: 12 }}>Trạng thái</div>
-            <div>
-              {payments.length > 0 ? (
-                <StatusTag status={paymentStatus(payments[0].status)} />
-              ) : (
-                "—"
-              )}
+            <div className="agri-muted" style={{ fontSize: 12 }}>Cần hoàn trả</div>
+            <div
+              style={{
+                fontWeight: 600,
+                color: summary.refundDue > 0 ? "#cf1322" : undefined,
+              }}
+            >
+              {formatMoney(summary.refundDue)}
             </div>
           </Col>
         </Row>
+        {order.status === "CANCELLED" ? (
+          <Alert
+            style={{ marginTop: 16 }}
+            type={summary.refundDue > 0 ? "warning" : "info"}
+            showIcon
+            title={
+              summary.refundDue > 0
+                ? `Đơn đã hủy còn ${formatMoney(summary.refundDue)} cần hoàn trả`
+                : "Đơn đã hủy — công nợ hiệu lực bằng 0"
+            }
+            description={
+              summary.refundDue > 0
+                ? "Giá trị đơn gốc vẫn được giữ để đối chiếu. Khoản tiền đã thu vượt công nợ hiệu lực phải được hoàn qua luồng hoàn tiền, không sửa số tiền của đơn."
+                : "Giá trị gốc được giữ để tra cứu; đơn không còn nghĩa vụ thu tiền."
+            }
+          />
+        ) : null}
+        {order.status !== "CANCELLED" && summary.refundDue > 0 ? (
+          <Alert
+            style={{ marginTop: 16 }}
+            type="warning"
+            showIcon
+            title="Đã thu vượt công nợ"
+            description={`Số tiền vượt là ${formatMoney(summary.refundDue)}. Kiểm tra giao dịch thu trùng hoặc ghi nhận sai số tiền trước khi hoàn tiền.`}
+          />
+        ) : null}
         {codUnpaid && order.status === "DELIVERED" ? (
           <Alert
             style={{ marginTop: 16 }}
             type="warning"
             showIcon
-            message="Đơn đã giao nhưng tiền COD chưa được ghi nhận thu"
+            title="Đơn đã giao nhưng tiền COD chưa được ghi nhận thu"
             description="Ảnh giao hàng không thay thế bằng chứng đã thu tiền. Kiểm tra biên lai thu tiền của đơn vị vận chuyển rồi ghi nhận ở bảng bên dưới."
           />
         ) : null}
-        {codUnpaid && order.status !== "DELIVERED" ? (
+        {codUnpaid && order.status !== "DELIVERED" && order.status !== "CANCELLED" ? (
           <Alert
             style={{ marginTop: 16 }}
             type="info"
             showIcon
-            message="COD chỉ được ghi nhận thu sau khi đơn ở trạng thái Đã giao."
+            title="COD chỉ được ghi nhận thu sau khi đơn ở trạng thái Đã giao."
           />
         ) : null}
       </DetailCard>

@@ -179,6 +179,63 @@ describe('Review eligibility', () => {
     );
   });
 
+  const eligibleRow = (deliveredAt: Date | null) => ({
+    id: 1,
+    quantity: '2',
+    unitPriceSnapshot: '50000',
+    partnerOrder: {
+      order: { id: 9, code: 'ORD-9', status: 'DELIVERED' },
+      partner: { id: 3, name: 'Đối tác' },
+      shipments: deliveredAt ? [{ deliveredAt }] : [],
+    },
+    productVariant: {
+      name: '1 kg',
+      sku: 'SKU-1',
+      product: {
+        id: 5,
+        name: 'Xoài',
+        slug: 'xoai',
+        images: [{ url: 'https://cdn.example/xoai.jpg' }],
+      },
+    },
+  });
+
+  it('takes deliveredAt from the delivered shipment, never from the order row', async () => {
+    const deliveredAt = new Date('2026-11-01T10:00:00.000Z');
+    prisma.orderItem.findMany.mockResolvedValue([eligibleRow(deliveredAt)]);
+    prisma.orderItem.count.mockResolvedValue(1);
+
+    const result = await service.listEligibleItems(42, { page: 1, limit: 10 });
+
+    expect(result.data[0].deliveredAt).toBe(deliveredAt.toISOString());
+    expect(prisma.orderItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          partnerOrder: expect.objectContaining({
+            include: expect.objectContaining({
+              shipments: expect.objectContaining({
+                where: { status: 'DELIVERED' },
+                orderBy: { deliveredAt: 'desc' },
+                take: 1,
+              }),
+            }),
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('returns null deliveredAt for a legacy delivered order with no shipment', async () => {
+    prisma.orderItem.findMany.mockResolvedValue([eligibleRow(null)]);
+    prisma.orderItem.count.mockResolvedValue(1);
+
+    const result = await service.listEligibleItems(42, { page: 1, limit: 10 });
+
+    // The order row has no delivery timestamp; using createdAt here would tell
+    // the customer a false delivery date.
+    expect(result.data[0].deliveredAt).toBeNull();
+  });
+
   it('refuses a review for an item the customer does not own', async () => {
     prisma.orderItem.findUnique.mockResolvedValue({
       id: 1,

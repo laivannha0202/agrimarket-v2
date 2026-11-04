@@ -119,7 +119,8 @@ function ReviewableRow({
             {item.variantName} · {formatQuantity(item.quantity)}
           </Text>
           <Text fz={12} lh="17px" c="var(--agri-muted)">
-            Đơn {item.orderCode} · {formatDateTime(item.deliveredAt)}
+            Đơn {item.orderCode} ·{" "}
+            {item.deliveredAt ? formatDateTime(item.deliveredAt) : "Chưa giao"}
           </Text>
         </Box>
       </Group>

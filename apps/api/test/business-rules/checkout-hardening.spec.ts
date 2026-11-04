@@ -554,6 +554,23 @@ describe('Checkout hardening', () => {
       prisma.order.updateMany.mockResolvedValue({ count: 1 });
       prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 500, status: 'DELIVERED' });
       prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
+      // DELIVERED requires physical evidence: one partner order whose parcel
+      // reached the customer with a real deliveredAt.
+      prisma.partnerOrder.findMany.mockResolvedValue([
+        {
+          id: 10,
+          code: 'PO-500',
+          status: 'DELIVERED',
+          shipments: [
+            {
+              id: 1,
+              code: 'SHP-500',
+              status: 'DELIVERED',
+              deliveredAt: new Date('2026-11-01T10:00:00.000Z'),
+            },
+          ],
+        },
+      ]);
       prisma.inventoryAllocation.findMany.mockResolvedValue([
         {
           id: 1,
@@ -631,6 +648,21 @@ describe('Checkout hardening', () => {
       await expect(service.updateStatus(500, 'DELIVERED' as never, 7)).rejects.toBeInstanceOf(
         ConflictException,
       );
+      expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses DELIVERED when no shipment proves the parcel arrived (409)', async () => {
+      stubDelivery();
+      // The order row says SHIPPING, but no partner order has a DELIVERED
+      // shipment: the operator cannot assert the delivery by hand.
+      prisma.partnerOrder.findMany.mockResolvedValue([
+        { id: 10, code: 'PO-500', status: 'SHIPPING', shipments: [] },
+      ]);
+
+      await expect(service.updateStatus(500, 'DELIVERED' as never, 7)).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(prisma.order.updateMany).not.toHaveBeenCalled();
       expect(prisma.inventoryMovement.create).not.toHaveBeenCalled();
     });
   });

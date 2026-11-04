@@ -252,7 +252,8 @@ export default function MyReviewsNewScreen() {
                         {item.variantName} · {formatQuantity(item.quantity)}
                       </Text>
                       <Text style={styles.itemMeta}>
-                        Đơn {item.orderCode} · {formatDateTime(item.deliveredAt)}
+                        Đơn {item.orderCode} ·{" "}
+                        {item.deliveredAt ? formatDateTime(item.deliveredAt) : "Chưa giao"}
                       </Text>
                     </View>
                     {active ? (

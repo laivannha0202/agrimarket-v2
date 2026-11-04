@@ -7,6 +7,7 @@ import {
   hasFullCollection,
   round2,
 } from '../common/utils/payment-collection.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import type { PaymentStatus } from '../../generated/prisma/enums.js';
 
 /**
@@ -23,12 +24,19 @@ import type { PaymentStatus } from '../../generated/prisma/enums.js';
  * the evidence of the very discrepancy it was asked to report, and the audit
  * trail would no longer explain the balance.
  *
- * Three independent facts are compared per order:
- *   obligation = orders.grand_total
- *   collected  = SUM(payments.amount) for payments with paid_at set and a
- *                non-FAILED status (a failed attempt moved no money)
- *   refunded   = SUM(refunds.amount) for COMPLETED refunds only (PENDING and
- *                APPROVED are decisions, not money)
+ * Four independent facts are compared per order:
+ *   originalValue = orders.grand_total (the agreed value, always preserved)
+ *   obligation    = originalValue, or 0 once the order is CANCELLED
+ *   collected     = SUM(payments.amount) for payments with paid_at set and a
+ *                   non-FAILED status (a failed attempt moved no money)
+ *   refunded      = SUM(refunds.amount) for COMPLETED refunds only (PENDING and
+ *                   APPROVED are decisions, not money)
+ *
+ * A cancelled order is not rewritten to zero: the original value stays on the
+ * row, the effective obligation is zero, and any money still retained after
+ * refunds is reported as `refundDue` (money that must go back). For a cancelled
+ * order the collection classification uses the net retained amount, so a fully
+ * refunded cancellation is clean instead of looking "over-collected" forever.
  *
  * The classification (`collection`) is computed here, never in the browser:
  * the Admin screen displays these numbers, it does not re-add them.
@@ -88,10 +96,16 @@ export interface ReconciliationFinding {
   code: string;
   status: string;
   createdAt: string;
+  /** Order value as agreed at checkout; never rewritten by a cancellation. */
+  originalValue: number;
+  /** Effective debt: 0 for a cancelled order, otherwise `originalValue`. */
   obligation: number;
   collected: number;
   refunded: number;
+  /** Still to collect against the effective obligation. */
   outstanding: number;
+  /** Money retained beyond the effective obligation; must be refunded. */
+  refundDue: number;
   collection: CollectionState;
   paymentStatuses: PaymentStatus[];
   refundState: RefundState;
@@ -120,8 +134,41 @@ export interface ReconciliationQuery {
   includeMatched?: boolean;
 }
 
-/** Upper bound on rows read in one report; the response says when it clipped. */
-export const MAX_RECONCILIATION_SCAN = 2000;
+/**
+ * Rows read per keyset page. The report walks the whole period in bounded
+ * batches instead of loading every order at once; the number is a memory
+ * bound, not a cap on what the report covers.
+ */
+export const RECONCILIATION_BATCH_SIZE = 500;
+
+const RECONCILIATION_ORDER_SELECT = {
+  id: true,
+  code: true,
+  status: true,
+  grandTotal: true,
+  createdAt: true,
+  payments: {
+    select: {
+      amount: true,
+      status: true,
+      paidAt: true,
+      refunds: { select: { amount: true, status: true } },
+    },
+  },
+  partnerOrders: {
+    select: {
+      settlementLines: {
+        select: {
+          settlement: { select: { id: true, code: true, status: true } },
+        },
+      },
+    },
+  },
+} satisfies Prisma.OrderSelect;
+
+type ReconciliationOrder = Prisma.OrderGetPayload<{
+  select: typeof RECONCILIATION_ORDER_SELECT;
+}>;
 
 function collectionState(collected: number, obligation: number): CollectionState {
   if (collected <= 0) return 'NONE';
@@ -140,51 +187,6 @@ export class PaymentReconciliationService {
     if (query.to) createdAt.lte = new Date(query.to);
     const inRange = Object.keys(createdAt).length > 0 ? { createdAt } : {};
 
-    /**
-     * Only orders that carry money (or a settlement line) are relevant. An
-     * order with neither is a fresh cart, not a discrepancy.
-     */
-    const orders = await this.prisma.order.findMany({
-      where: {
-        ...inRange,
-        OR: [
-          { payments: { some: {} } },
-          { partnerOrders: { some: { settlementLines: { some: {} } } } },
-        ],
-      },
-      select: {
-        id: true,
-        code: true,
-        status: true,
-        grandTotal: true,
-        createdAt: true,
-        payments: {
-          select: {
-            amount: true,
-            status: true,
-            paidAt: true,
-            refunds: { select: { amount: true, status: true } },
-          },
-        },
-        partnerOrders: {
-          select: {
-            settlementLines: {
-              select: {
-                settlement: { select: { id: true, code: true, status: true } },
-              },
-            },
-          },
-        },
-      },
-      orderBy: { id: 'desc' },
-      take: MAX_RECONCILIATION_SCAN + 1,
-    });
-
-    const truncated = orders.length > MAX_RECONCILIATION_SCAN;
-    const scanned = truncated ? orders.slice(0, MAX_RECONCILIATION_SCAN) : orders;
-
-    /** Every scanned order, with or without a finding. */
-    const rows: ReconciliationFinding[] = [];
     const byIssue: Record<ReconciliationIssue, number> = {
       UNDER_COLLECTED: 0,
       OVER_COLLECTED: 0,
@@ -199,147 +201,224 @@ export class PaymentReconciliationService {
       FULL: 0,
       OVER: 0,
     };
+    let totalOriginalValue = 0;
     let totalObligation = 0;
     let totalCollected = 0;
     let totalRefunded = 0;
-
-    for (const order of scanned) {
-      const obligation = round2(Number(order.grandTotal));
-      const collected = collectedAmount(order.payments);
-      const refunded = round2(
-        order.payments.reduce(
-          (sum, payment) =>
-            sum +
-            payment.refunds
-              .filter((refund) => refund.status === 'COMPLETED')
-              .reduce((refundSum, refund) => refundSum + Number(refund.amount), 0),
-          0,
-        ),
-      );
-      const settlements = [
-        ...new Map(
-          order.partnerOrders
-            .flatMap((partnerOrder) => partnerOrder.settlementLines)
-            .map((line) => [line.settlement.id, line.settlement] as const),
-        ).values(),
-      ];
-      const settled = settlements.length > 0;
-      const paymentStatuses = order.payments.map((payment) => payment.status);
-      const collection = collectionState(collected, obligation);
-      const issues: ReconciliationIssue[] = [];
-
-      if (collection === 'PARTIAL') issues.push('UNDER_COLLECTED');
-      if (collection === 'OVER') issues.push('OVER_COLLECTED');
-      if (settled && !hasFullCollection(collected, obligation)) {
-        issues.push('SETTLED_WITHOUT_FULL_COLLECTION');
-      }
-      if (refunded > 0 && collected <= 0) {
-        issues.push('REFUND_WITHOUT_COLLECTION');
-      }
-      if (paymentStatuses.some((status) => status !== 'FAILED' && status !== 'PENDING')) {
-        if (paymentStatuses.includes('REFUNDED') && Math.abs(refunded - collected) > MONEY_EPSILON) {
-          issues.push('REFUND_STATUS_MISMATCH');
-        } else if (
-          paymentStatuses.includes('PARTIALLY_REFUNDED') &&
-          (refunded <= MONEY_EPSILON || refunded + MONEY_EPSILON >= collected)
-        ) {
-          issues.push('REFUND_STATUS_MISMATCH');
-        } else if (paymentStatuses.includes('PAID') && refunded > MONEY_EPSILON) {
-          issues.push('REFUND_STATUS_MISMATCH');
-        }
-      }
-      /**
-       * A payment that claims money moved (PAID / *_REFUNDED) but carries no
-       * `paid_at` is excluded from `collected` above. Without this issue the
-       * order would look clean while the money it claims is invisible — the
-       * exact row an accountant must fix before the books can balance.
-       */
-      if (
-        order.payments.some(
-          (payment) =>
-            payment.paidAt === null && payment.status !== 'PENDING' && payment.status !== 'FAILED',
-        )
-      ) {
-        issues.push('MISSING_COLLECTION_EVIDENCE');
-      }
-
-      totalObligation = round2(totalObligation + obligation);
-      totalCollected = round2(totalCollected + collected);
-      totalRefunded = round2(totalRefunded + refunded);
-
-      const refundState: RefundState =
-        refunded <= MONEY_EPSILON ? 'NONE' : refunded + MONEY_EPSILON >= collected ? 'FULL' : 'PARTIAL';
-
-      byCollection[collection] += 1;
-      for (const issue of issues) byIssue[issue] += 1;
-      rows.push({
-        orderId: order.id,
-        code: order.code,
-        status: order.status,
-        createdAt: order.createdAt.toISOString(),
-        obligation,
-        collected,
-        refunded,
-        outstanding: round2(obligation - collected),
-        collection,
-        paymentStatuses,
-        refundState,
-        settled,
-        settlements,
-        issues,
-      });
-    }
-
-    const findings = rows.filter((row) => row.issues.length > 0);
+    let totalOutstanding = 0;
+    let totalRefundDue = 0;
+    let scanned = 0;
+    let ordersWithFindings = 0;
 
     /**
      * `includeMatched` only widens what the caller may LIST. Every number in
-     * `summary` stays a statement about the scanned period, not about the
+     * `summary` stays a statement about the whole date window, not about the
      * current filter, so "đơn có chênh lệch" never shrinks because a tab is
      * open.
      */
     const search = query.search?.trim().toLowerCase();
-    const listed = (query.includeMatched ? rows : findings).filter((row) => {
+    const start = (page - 1) * limit;
+    const listed: ReconciliationFinding[] = [];
+    let listedTotal = 0;
+    const matchesList = (row: ReconciliationFinding): boolean => {
+      if (!query.includeMatched && row.issues.length === 0) return false;
       if (query.status && row.status !== query.status) return false;
       if (query.issue && !row.issues.includes(query.issue)) return false;
       if (query.collection && row.collection !== query.collection) return false;
       if (query.refundState && row.refundState !== query.refundState) return false;
       if (search && !row.code.toLowerCase().includes(search)) return false;
       return true;
-    });
+    };
 
-    const start = (page - 1) * limit;
+    /**
+     * Walk the whole period in keyset batches (id DESC). Each query is bounded
+     * by `RECONCILIATION_BATCH_SIZE`, but there is no cap on the number of
+     * batches: a report must never silently stop at the first N orders. Only
+     * the requested page is retained while the summary counters cover every
+     * order, so memory stays bounded even when the period is large.
+     */
+    let cursorId: number | undefined;
+    for (;;) {
+      const batch = await this.prisma.order.findMany({
+        where: {
+          ...inRange,
+          ...(cursorId === undefined ? {} : { id: { lt: cursorId } }),
+          OR: [
+            { payments: { some: {} } },
+            { partnerOrders: { some: { settlementLines: { some: {} } } } },
+          ],
+        },
+        select: RECONCILIATION_ORDER_SELECT,
+        orderBy: { id: 'desc' },
+        take: RECONCILIATION_BATCH_SIZE,
+      });
+      if (batch.length === 0) break;
+      cursorId = batch[batch.length - 1].id;
+
+      for (const order of batch) {
+        const row = this.classify(order);
+        scanned += 1;
+        if (row.issues.length > 0) ordersWithFindings += 1;
+        byCollection[row.collection] += 1;
+        for (const issue of row.issues) byIssue[issue] += 1;
+        totalOriginalValue = round2(totalOriginalValue + row.originalValue);
+        totalObligation = round2(totalObligation + row.obligation);
+        totalCollected = round2(totalCollected + row.collected);
+        totalRefunded = round2(totalRefunded + row.refunded);
+        // Sum the per-order figures instead of netting over-collection against
+        // under-collection: 30k overpaid on one order does not reduce the 100k
+        // still owed on another. The two KPIs must be actionable independently.
+        totalOutstanding = round2(totalOutstanding + row.outstanding);
+        totalRefundDue = round2(totalRefundDue + row.refundDue);
+
+        if (matchesList(row)) {
+          if (listedTotal >= start && listed.length < limit) listed.push(row);
+          listedTotal += 1;
+        }
+      }
+
+      if (batch.length < RECONCILIATION_BATCH_SIZE) break;
+    }
+
     return {
       generatedAt: new Date().toISOString(),
       range: {
         from: query.from ?? null,
         to: query.to ?? null,
       },
-      scanned: scanned.length,
-      truncated,
-      scanLimit: MAX_RECONCILIATION_SCAN,
+      scanned,
       summary: {
-        ordersWithFindings: findings.length,
+        ordersWithFindings,
         byIssue,
         byCollection,
         totals: {
+          originalValue: totalOriginalValue,
           obligation: totalObligation,
           collected: totalCollected,
           refunded: totalRefunded,
-          outstanding: round2(totalObligation - totalCollected),
+          outstanding: totalOutstanding,
+          refundDue: totalRefundDue,
         },
       },
-      findings: listed.slice(start, start + limit),
+      findings: listed,
       meta: {
         page,
         limit,
-        total: listed.length,
-        totalPages: limit > 0 ? Math.ceil(listed.length / limit) : 0,
+        total: listedTotal,
+        totalPages: limit > 0 ? Math.ceil(listedTotal / limit) : 0,
       },
       note:
         'Read-only. Nothing here rewrites payments, refunds or settlements; a ' +
         'discrepancy is corrected through the normal collection/refund flow so ' +
         'the audit trail explains the new balance.',
+    };
+  }
+
+  /**
+   * Compare the money facts of one order and name every discrepancy.
+   *
+   * Kept as a pure per-row step so the report can classify a stream of batches
+   * without ever holding the whole period in memory.
+   */
+  private classify(order: ReconciliationOrder): ReconciliationFinding {
+    const originalValue = round2(Number(order.grandTotal));
+    const cancelled = order.status === 'CANCELLED';
+    // A cancelled order owes nothing. The original value is kept for the audit
+    // trail; it is not silently rewritten to 0 in the order row.
+    const obligation = cancelled ? 0 : originalValue;
+    const collected = collectedAmount(order.payments);
+    const refunded = round2(
+      order.payments.reduce(
+        (sum, payment) =>
+          sum +
+          payment.refunds
+            .filter((refund) => refund.status === 'COMPLETED')
+            .reduce((refundSum, refund) => refundSum + Number(refund.amount), 0),
+        0,
+      ),
+    );
+    const settlements = [
+      ...new Map(
+        order.partnerOrders
+          .flatMap((partnerOrder) => partnerOrder.settlementLines)
+          .map((line) => [line.settlement.id, line.settlement] as const),
+      ).values(),
+    ];
+    const settled = settlements.length > 0;
+    const paymentStatuses = order.payments.map((payment) => payment.status);
+    /**
+     * A cancelled order keeps the gross `collected` figure for the audit trail,
+     * but the classification looks at the money still retained after refunds:
+     * a cancellation that was paid and fully refunded is clean, not
+     * "over-collected" forever.
+     */
+    const effectiveCollected = cancelled
+      ? round2(Math.max(0, collected - refunded))
+      : collected;
+    const collection = collectionState(effectiveCollected, obligation);
+    const issues: ReconciliationIssue[] = [];
+
+    if (collection === 'PARTIAL') issues.push('UNDER_COLLECTED');
+    if (collection === 'OVER') issues.push('OVER_COLLECTED');
+    if (settled && !hasFullCollection(effectiveCollected, obligation)) {
+      issues.push('SETTLED_WITHOUT_FULL_COLLECTION');
+    }
+    if (refunded > 0 && collected <= 0) {
+      issues.push('REFUND_WITHOUT_COLLECTION');
+    }
+    if (paymentStatuses.some((status) => status !== 'FAILED' && status !== 'PENDING')) {
+      if (paymentStatuses.includes('REFUNDED') && Math.abs(refunded - collected) > MONEY_EPSILON) {
+        issues.push('REFUND_STATUS_MISMATCH');
+      } else if (
+        paymentStatuses.includes('PARTIALLY_REFUNDED') &&
+        (refunded <= MONEY_EPSILON || refunded + MONEY_EPSILON >= collected)
+      ) {
+        issues.push('REFUND_STATUS_MISMATCH');
+      } else if (paymentStatuses.includes('PAID') && refunded > MONEY_EPSILON) {
+        issues.push('REFUND_STATUS_MISMATCH');
+      }
+    }
+    /**
+     * A payment that claims money moved (PAID / *_REFUNDED) but carries no
+     * `paid_at` is excluded from `collected` above. Without this issue the
+     * order would look clean while the money it claims is invisible — the exact
+     * row an accountant must fix before the books can balance.
+     */
+    if (
+      order.payments.some(
+        (payment) =>
+          payment.paidAt === null && payment.status !== 'PENDING' && payment.status !== 'FAILED',
+      )
+    ) {
+      issues.push('MISSING_COLLECTION_EVIDENCE');
+    }
+
+    const outstanding = round2(Math.max(0, obligation - collected));
+    const refundDue = round2(Math.max(0, collected - refunded - obligation));
+    const refundState: RefundState =
+      refunded <= MONEY_EPSILON
+        ? 'NONE'
+        : refunded + MONEY_EPSILON >= collected
+          ? 'FULL'
+          : 'PARTIAL';
+
+    return {
+      orderId: order.id,
+      code: order.code,
+      status: order.status,
+      createdAt: order.createdAt.toISOString(),
+      originalValue,
+      obligation,
+      collected,
+      refunded,
+      outstanding,
+      refundDue,
+      collection,
+      paymentStatuses,
+      refundState,
+      settled,
+      settlements,
+      issues,
     };
   }
 }

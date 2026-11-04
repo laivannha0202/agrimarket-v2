@@ -686,7 +686,8 @@ export interface EligibleReviewItem {
   orderItemId: number;
   orderId: number;
   orderCode: string;
-  deliveredAt: string;
+  /** Real delivery time from the latest DELIVERED shipment; null for legacy orders. */
+  deliveredAt: string | null;
   productId: number;
   productName: string;
   variantName: string;

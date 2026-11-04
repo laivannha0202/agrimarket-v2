@@ -130,88 +130,98 @@ export class PaymentsService {
    * of silently re-stamping `paidAt` and double-logging the collection.
    */
   async updateStatus(id: number, dto: UpdatePaymentStatusDto, actorUserId: number) {
-    const payment = await this.findOne(id);
-    if (dto.status === payment.status) {
-      if (dto.status === PaymentStatus.REFUNDED) {
-        throw new BadRequestException(
-          `Cannot change payment status from ${payment.status} to ${dto.status}`,
-        );
-      }
-      return payment;
-    }
     /**
-     * `PARTIALLY_REFUNDED` / `REFUNDED` are DERIVED states: they are written by
-     * `completeRefund` from the sum of COMPLETED refund rows. Letting an
-     * operator set them by hand produced a payment that claims money was
-     * returned with no refund record, no reference and no settlement
-     * adjustment — the reconciliation report cannot tell that apart from a real
-     * refund, and the money is unrecoverable from the audit trail. Refunds go
-     * through `POST /payments/:id/refunds` (create -> approve -> complete).
+     * The status write and its audit row are one unit of work. Previously the
+     * payment was updated and committed first, then the audit was recorded in a
+     * second transaction: if the audit insert failed, the books showed money
+     * collected with no trail explaining who collected it. The compare-and-set
+     * is kept inside this transaction so a concurrent confirmation still loses
+     * cleanly instead of double-stamping `paidAt`.
      */
-    if (
-      dto.status === PaymentStatus.PARTIALLY_REFUNDED ||
-      dto.status === PaymentStatus.REFUNDED
-    ) {
-      throw new BadRequestException(
-        'Refund states are derived from completed refunds; record a refund instead of changing the payment status',
-      );
-    }
-    assertPaymentTransition(payment.status, dto.status);
-    if (dto.status === PaymentStatus.PAID) {
-      if (!dto.transactionReference?.trim()) {
+    return this.prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findUnique({ where: { id } });
+      if (!payment) throw new NotFoundException('Payment not found');
+      if (dto.status === payment.status) {
+        if (dto.status === PaymentStatus.REFUNDED) {
+          throw new BadRequestException(
+            `Cannot change payment status from ${payment.status} to ${dto.status}`,
+          );
+        }
+        return payment;
+      }
+      /**
+       * `PARTIALLY_REFUNDED` / `REFUNDED` are DERIVED states: they are written
+       * by `completeRefund` from the sum of COMPLETED refund rows. Letting an
+       * operator set them by hand produced a payment that claims money was
+       * returned with no refund record, no reference and no settlement
+       * adjustment — the reconciliation report cannot tell that apart from a
+       * real refund, and the money is unrecoverable from the audit trail.
+       * Refunds go through `POST /payments/:id/refunds` (create -> approve ->
+       * complete).
+       */
+      if (
+        dto.status === PaymentStatus.PARTIALLY_REFUNDED ||
+        dto.status === PaymentStatus.REFUNDED
+      ) {
         throw new BadRequestException(
-          'A transaction reference is required to confirm cash collection',
+          'Refund states are derived from completed refunds; record a refund instead of changing the payment status',
         );
       }
-      const order = await this.prisma.order.findUnique({
-        where: { id: payment.orderId },
-        select: { status: true },
-      });
-      if (!order) throw new NotFoundException('Order not found');
-      if (order.status === OrderStatus.CANCELLED) {
-        throw new BadRequestException('Cannot confirm a payment for a cancelled order');
+      assertPaymentTransition(payment.status, dto.status);
+      if (dto.status === PaymentStatus.PAID) {
+        if (!dto.transactionReference?.trim()) {
+          throw new BadRequestException(
+            'A transaction reference is required to confirm cash collection',
+          );
+        }
+        const order = await tx.order.findUnique({
+          where: { id: payment.orderId },
+          select: { status: true },
+        });
+        if (!order) throw new NotFoundException('Order not found');
+        if (order.status === OrderStatus.CANCELLED) {
+          throw new BadRequestException('Cannot confirm a payment for a cancelled order');
+        }
+        if (payment.method === PaymentMethod.COD && order.status !== OrderStatus.DELIVERED) {
+          throw new BadRequestException(
+            'Cash on delivery can only be confirmed once the order is delivered',
+          );
+        }
       }
-      if (payment.method === PaymentMethod.COD && order.status !== OrderStatus.DELIVERED) {
-        throw new BadRequestException(
-          'Cash on delivery can only be confirmed once the order is delivered',
-        );
-      }
-    }
-    const data: Prisma.PaymentUpdateInput = { status: dto.status };
-    if (dto.transactionReference) data.transactionReference = dto.transactionReference;
+      const data: Prisma.PaymentUpdateInput = { status: dto.status };
+      if (dto.transactionReference) data.transactionReference = dto.transactionReference;
 
-    let updated: Payment;
-    if (dto.status === PaymentStatus.PAID) {
-      // Compare-and-set, exactly like the order state machine. Two operators (or
-      // one double-tap, or a retried request) can pass the guards above
-      // concurrently, and a plain `update` would let the loser overwrite
-      // `paidAt`/`transactionReference` and write a SECOND audit row for money
-      // that was only collected once. Claiming the row with the status it was
-      // read at means exactly one request can confirm the collection; the other
-      // is told to reload instead of being told it succeeded.
-      const claimed = await this.prisma.payment.updateMany({
+      // Compare-and-set on the status that was read, for every transition —
+      // not only PAID. Two operators can pass the guards above concurrently;
+      // claiming the row with the observed status means exactly one writes the
+      // change and its audit row, and the loser is told to reload.
+      const claimed = await tx.payment.updateMany({
         where: { id, status: payment.status },
-        data: { ...data, paidAt: new Date() },
+        data:
+          dto.status === PaymentStatus.PAID
+            ? { ...data, paidAt: new Date() }
+            : data,
       });
       if (claimed.count === 0) {
         throw new ConflictException(
           'The payment status changed while this request was being processed, please reload',
         );
       }
-      updated = await this.prisma.payment.findUniqueOrThrow({ where: { id } });
-    } else {
-      updated = await this.prisma.payment.update({ where: { id }, data });
-    }
+      const updated = await tx.payment.findUniqueOrThrow({ where: { id } });
 
-    await this.audit.record({
-      actorUserId,
-      action: `PAYMENT_${dto.status}`,
-      entityType: 'Payment',
-      entityId: String(id),
-      beforeJson: { status: payment.status },
-      afterJson: { status: updated.status },
+      await this.audit.record(
+        {
+          actorUserId,
+          action: `PAYMENT_${dto.status}`,
+          entityType: 'Payment',
+          entityId: String(id),
+          beforeJson: { status: payment.status },
+          afterJson: { status: updated.status },
+        },
+        tx,
+      );
+      return updated;
     });
-    return updated;
   }
 
   /**
@@ -406,32 +416,44 @@ export class PaymentsService {
    * still moves no money and changes no payment status.
    */
   async approveRefund(id: number, actorUserId: number): Promise<Refund> {
-    const refund = await this.requireRefund(id);
-    if (refund.status === RefundStatus.APPROVED) return refund;
-    if (refund.status !== RefundStatus.PENDING) {
-      throw new BadRequestException(
-        `Only PENDING refunds can be approved (current: ${refund.status})`,
+    /**
+     * The status write and its audit row are one unit of work, like every other
+     * refund transition. If the audit insert failed after the approval had
+     * committed, the books would show an approved refund with no record of who
+     * approved it — the same failure mode P1-03 fixed for payment status.
+     */
+    return this.prisma.$transaction(async (tx) => {
+      const refund = await tx.refund.findUnique({ where: { id } });
+      if (!refund) throw new NotFoundException('Refund not found');
+      if (refund.status === RefundStatus.APPROVED) return refund;
+      if (refund.status !== RefundStatus.PENDING) {
+        throw new BadRequestException(
+          `Only PENDING refunds can be approved (current: ${refund.status})`,
+        );
+      }
+      const claimed = await tx.refund.updateMany({
+        where: { id, status: RefundStatus.PENDING },
+        data: { status: RefundStatus.APPROVED, approvedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw new ConflictException(
+          'The refund status changed while this request was being processed, please reload',
+        );
+      }
+      const updated = await tx.refund.findUniqueOrThrow({ where: { id } });
+      await this.audit.record(
+        {
+          actorUserId,
+          action: 'REFUND_APPROVE',
+          entityType: 'Refund',
+          entityId: String(id),
+          beforeJson: { status: refund.status },
+          afterJson: { status: updated.status, approvedAt: updated.approvedAt },
+        },
+        tx,
       );
-    }
-    const claimed = await this.prisma.refund.updateMany({
-      where: { id, status: RefundStatus.PENDING },
-      data: { status: RefundStatus.APPROVED, approvedAt: new Date() },
+      return updated;
     });
-    if (claimed.count === 0) {
-      throw new ConflictException(
-        'The refund status changed while this request was being processed, please reload',
-      );
-    }
-    const updated = await this.prisma.refund.findUniqueOrThrow({ where: { id } });
-    await this.audit.record({
-      actorUserId,
-      action: 'REFUND_APPROVE',
-      entityType: 'Refund',
-      entityId: String(id),
-      beforeJson: { status: refund.status },
-      afterJson: { status: updated.status, approvedAt: updated.approvedAt },
-    });
-    return updated;
   }
 
   /**

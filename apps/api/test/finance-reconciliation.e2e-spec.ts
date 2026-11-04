@@ -179,11 +179,11 @@ describe.skipIf(!hasTestDb)('Finance reconciliation (e2e)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({
       scanned: expect.any(Number),
-      truncated: false,
-      scanLimit: expect.any(Number),
       range: { from: null, to: null },
       meta: { page: 1, limit: 20, total: expect.any(Number), totalPages: expect.any(Number) },
     });
+    expect(res.body).not.toHaveProperty('truncated');
+    expect(res.body).not.toHaveProperty('scanLimit');
     expect(res.body.generatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(Object.keys(res.body.summary.byIssue).sort()).toEqual([
       'MISSING_COLLECTION_EVIDENCE',

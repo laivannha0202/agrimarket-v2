@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  MAX_RECONCILIATION_SCAN,
   PaymentReconciliationService,
+  RECONCILIATION_BATCH_SIZE,
 } from '../../src/finance/payment-reconciliation.service.js';
 import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
 
@@ -70,10 +70,12 @@ describe('PaymentReconciliationService', () => {
     expect(report.findings).toEqual([]);
     expect(report.summary.ordersWithFindings).toBe(0);
     expect(report.summary.totals).toEqual({
+      originalValue: 100000,
       obligation: 100000,
       collected: 100000,
       refunded: 0,
       outstanding: 0,
+      refundDue: 0,
     });
   });
 
@@ -106,6 +108,96 @@ describe('PaymentReconciliationService', () => {
     const report = await service.report();
 
     expect(report.findings[0].issues).toContain('OVER_COLLECTED');
+    expect(report.findings[0].refundDue).toBe(20000);
+    expect(report.summary.totals.refundDue).toBe(20000);
+  });
+
+  it('does not net an over-collected order against another order still owing', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 71,
+        grandTotal: 100000,
+        payments: [{ amount: 50000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+      orderRow({
+        id: 72,
+        grandTotal: 100000,
+        payments: [{ amount: 130000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    // 50k is still owed on order 71 and 30k must be returned on order 72.
+    // Netting them would understate the receivable to 20k and hide the refund.
+    expect(report.summary.totals).toMatchObject({
+      originalValue: 200000,
+      obligation: 200000,
+      collected: 180000,
+      outstanding: 50000,
+      refundDue: 30000,
+    });
+  });
+
+  it('keeps the original value of a cancelled order and reports the refund due', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 61,
+        status: 'CANCELLED',
+        grandTotal: 100000,
+        payments: [{ amount: 40000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    // The order value is not rewritten to 0: it stays on the row as the
+    // original value, while the effective obligation is 0.
+    expect(report.findings[0]).toMatchObject({
+      originalValue: 100000,
+      obligation: 0,
+      collected: 40000,
+      refunded: 0,
+      outstanding: 0,
+      refundDue: 40000,
+      collection: 'OVER',
+    });
+    expect(report.findings[0].issues).toContain('OVER_COLLECTED');
+    expect(report.summary.totals).toMatchObject({
+      originalValue: 100000,
+      obligation: 0,
+      refundDue: 40000,
+    });
+  });
+
+  it('treats a fully refunded cancellation as clean, not over-collected', async () => {
+    prisma.order.findMany.mockResolvedValue([
+      orderRow({
+        id: 62,
+        status: 'CANCELLED',
+        grandTotal: 100000,
+        payments: [
+          {
+            amount: 40000,
+            status: 'REFUNDED',
+            paidAt: PAID_AT,
+            refunds: [{ amount: 40000, status: 'COMPLETED' }],
+          },
+        ],
+      }),
+    ]);
+
+    const report = await service.report();
+
+    expect(report.findings).toEqual([]);
+    expect(report.summary.byCollection.NONE).toBe(1);
+    expect(report.summary.totals).toMatchObject({
+      originalValue: 100000,
+      obligation: 0,
+      collected: 40000,
+      refunded: 40000,
+      refundDue: 0,
+    });
   });
 
   it('flags a settled order whose collection is incomplete', async () => {
@@ -303,17 +395,51 @@ describe('PaymentReconciliationService', () => {
     expect(report.meta).toMatchObject({ page: 2, limit: 2, total: 3, totalPages: 2 });
   });
 
-  it('says when the scan limit clipped the report', async () => {
-    prisma.order.findMany.mockResolvedValue(
-      Array.from({ length: MAX_RECONCILIATION_SCAN + 1 }, (_, index) =>
-        orderRow({ id: index + 1, grandTotal: 1000 }),
-      ),
+  it('covers more than 2,000 orders in bounded keyset batches', async () => {
+    const total = 2_345;
+    const orders = Array.from({ length: total }, (_, index) =>
+      orderRow({
+        id: total - index,
+        grandTotal: 100000,
+        payments: [{ amount: 50000, status: 'PAID', paidAt: PAID_AT }],
+      }),
+    );
+    const batches: number[][] = [];
+    prisma.order.findMany.mockImplementation(
+      async (args: { where?: { id?: { lt?: number } }; take?: number }) => {
+        const take = args.take ?? total;
+        const cursor = args.where?.id?.lt;
+        const matching =
+          cursor === undefined ? orders : orders.filter((row) => row.id < cursor);
+        const batch = matching.slice(0, take);
+        batches.push(batch.map((row) => row.id));
+        return batch;
+      },
     );
 
-    const report = await service.report({ limit: 5 });
+    const report = await service.report({ page: 118, limit: 20 });
 
-    expect(report.truncated).toBe(true);
-    expect(report.scanned).toBe(MAX_RECONCILIATION_SCAN);
+    expect(report.scanned).toBe(total);
+    expect(report.summary.ordersWithFindings).toBe(total);
+    expect(report.summary.byIssue.UNDER_COLLECTED).toBe(total);
+    expect(report.summary.totals).toMatchObject({
+      obligation: total * 100000,
+      collected: total * 50000,
+      outstanding: total * 50000,
+    });
+    expect(report.meta).toMatchObject({ page: 118, limit: 20, total, totalPages: 118 });
+    // 2,345 findings = 117 full pages + 5 rows on the last page.
+    expect(report.findings).toHaveLength(5);
+
+    // Every read was bounded, and each cursor moved strictly below the
+    // previous batch — no order is read twice and none is skipped.
+    expect(batches).toHaveLength(Math.ceil(total / RECONCILIATION_BATCH_SIZE));
+    for (const batch of batches) {
+      expect(batch.length).toBeLessThanOrEqual(RECONCILIATION_BATCH_SIZE);
+    }
+    for (let index = 1; index < batches.length; index += 1) {
+      expect(Math.max(...batches[index])).toBeLessThan(Math.min(...batches[index - 1]));
+    }
   });
 
   it('classifies every scanned order by how much of the obligation was collected', async () => {

@@ -299,6 +299,31 @@ export async function purgeCreated(
   });
   await prisma.settlement.deleteMany({ where: { partnerId: { in: created.partners } } });
   await prisma.payment.deleteMany({ where: { order: { customerId: { in: users } } } });
+  // Delivery fixtures create shipments (and their event trail) against a
+  // partner order. The shipment FK is RESTRICT, so they must be removed before
+  // the partner order rows or every cleanup after a delivery test fails.
+  await prisma.shipmentEvent.deleteMany({
+    where: {
+      shipment: {
+        partnerOrder: {
+          OR: [
+            { partnerId: { in: created.partners } },
+            { order: { customerId: { in: users } } },
+          ],
+        },
+      },
+    },
+  });
+  await prisma.shipment.deleteMany({
+    where: {
+      partnerOrder: {
+        OR: [
+          { partnerId: { in: created.partners } },
+          { order: { customerId: { in: users } } },
+        ],
+      },
+    },
+  });
   await prisma.orderItem.deleteMany({ where: { productVariantId: { in: variants } } });
   await prisma.partnerOrder.deleteMany({ where: { order: { customerId: { in: users } } } });
   await prisma.order.deleteMany({ where: { customerId: { in: users } } });

@@ -220,7 +220,7 @@ export default function LotDetailPage() {
               <Alert
                 type="warning"
                 showIcon
-                message="Không tải được kết quả kiểm tra"
+                title="Không tải được kết quả kiểm tra"
                 description="Kiểm tra lại kết nối máy chủ rồi thử lại."
               />
             ) : audit.data ? (
@@ -235,7 +235,7 @@ export default function LotDetailPage() {
                   }
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message={
+                  title={
                     audit.data.missing > 0
                       ? `Thiếu ${audit.data.missing} mục bắt buộc`
                       : audit.data.warnings > 0

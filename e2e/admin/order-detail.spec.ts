@@ -46,8 +46,16 @@ test.describe('Admin order detail', () => {
       await expect(page.getByRole('tab', { name: new RegExp(tab) })).toBeVisible();
     }
 
-    // The money summary is the one-glance block above the tabs.
-    for (const label of ['Tổng thanh toán', 'Đã thu', 'Còn phải thu', 'Đã hoàn tiền']) {
+    // The money summary is the one-glance block above the tabs. It names all
+    // six finance concepts instead of collapsing them into one "total".
+    for (const label of [
+      'Giá trị đơn',
+      'Công nợ hiệu lực',
+      'Đã thu',
+      'Còn phải thu',
+      'Đã hoàn tiền',
+      'Cần hoàn trả',
+    ]) {
       await expect(page.getByText(label).first()).toBeVisible();
     }
 
@@ -60,16 +68,16 @@ test.describe('Admin order detail', () => {
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
       expect(overflow).toBeLessThanOrEqual(1);
-      // xs=12 → the four summary cards form a 2×2 grid instead of one row.
-      const first = await page.locator('.agri-card').filter({ hasText: 'Tổng thanh toán' }).first().boundingBox();
-      const second = await page.locator('.agri-card').filter({ hasText: 'Đã thu' }).first().boundingBox();
+      // xs=12 → the six summary cards wrap into a grid instead of one row.
+      const first = await page.locator('.agri-card').filter({ hasText: 'Giá trị đơn' }).first().boundingBox();
+      const second = await page.locator('.agri-card').filter({ hasText: 'Công nợ hiệu lực' }).first().boundingBox();
       expect(first && second).toBeTruthy();
       expect(Math.abs((first?.y ?? 0) - (second?.y ?? 0))).toBeLessThan(2);
       return;
     }
 
     await expect(page.getByText('Khách hàng & giao nhận')).toBeVisible();
-    await expect(page.getByText('Tổng thanh toán').first()).toBeVisible();
+    await expect(page.getByText('Giá trị đơn').first()).toBeVisible();
 
     // Cross-system consistency: the money block must print the stored order
     // snapshot, not a value recomputed in the browser.
@@ -88,8 +96,9 @@ test.describe('Admin order detail', () => {
     await page.getByRole('tab', { name: 'Thanh toán' }).click();
     const paymentPanel = page.getByRole('tabpanel', { name: 'Thanh toán' });
     await expect(paymentPanel.getByText('Tổng hợp thanh toán')).toBeVisible();
-    await expect(paymentPanel.getByText('Tổng phải thu')).toBeVisible();
+    await expect(paymentPanel.getByText('Công nợ hiệu lực')).toBeVisible();
     await expect(paymentPanel.getByText('Còn phải thu')).toBeVisible();
+    await expect(paymentPanel.getByText('Cần hoàn trả')).toBeVisible();
     await expect(paymentPanel.getByText('Lịch sử thanh toán')).toBeVisible();
     await expect(paymentPanel.getByText('Chờ thanh toán').first()).toBeVisible();
 

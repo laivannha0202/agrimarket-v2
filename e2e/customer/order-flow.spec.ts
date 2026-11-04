@@ -7,14 +7,15 @@ import {
   CUSTOMER_EMAIL,
   CUSTOMER_PASSWORD,
   OTHER_CUSTOMER_EMAIL,
+  advanceOrderToReadyToShip,
   apiLogin,
   bearer,
   createCodOrder,
+  deliverOrderViaShipment,
   fetchOrderPdf,
   firstSellableVariant,
   markPaymentPaid,
   refundOrder,
-  setOrderStatus,
 } from '../support/api';
 
 /**
@@ -126,10 +127,10 @@ test.describe('Customer order flow', () => {
     const payment = order.payments?.[0];
     expect(payment).toBeTruthy();
 
-    // Walk the real state machine to DELIVERED, then record the COD collection.
-    for (const status of ['CONFIRMED', 'PREPARING', 'READY_TO_SHIP', 'SHIPPING', 'DELIVERED']) {
-      await setOrderStatus(request, adminToken, order.id, status);
-    }
+    // Walk the real order state machine to READY_TO_SHIP, then deliver through a
+    // shipment. The manual DELIVERED transition is refused without evidence.
+    await advanceOrderToReadyToShip(request, adminToken, order.id);
+    await deliverOrderViaShipment(request, adminToken, order.id);
     await markPaymentPaid(request, adminToken, payment!.id, `E2E-COD-${order.id}`);
     await refundOrder(request, adminToken, payment!.id, 10_000, `E2E-RF-${order.id}`);
 

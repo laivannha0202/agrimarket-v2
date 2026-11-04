@@ -221,6 +221,102 @@ describe.skipIf(!hasTestDb)('AgriMarket API — warehouse admin hardening (e2e)'
     });
   });
 
+  describe('C0. create validates the draft before storing it', () => {
+    it('rejects duplicate lines and a lot paired with another product', async () => {
+      const w = await makeStockWorld('C0');
+      const other = await makeStockWorld('C0B');
+
+      await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'INBOUND',
+        lines: [
+          { productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 5, unit: 'kg' },
+          { productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 5, unit: 'kg' },
+        ],
+      }).expect(400);
+
+      await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'INBOUND',
+        lines: [
+          {
+            productLotId: w.lot.id,
+            productVariantId: other.variant.id,
+            quantity: 5,
+            unit: 'kg',
+          },
+        ],
+      }).expect(400);
+
+      // Neither rejected request left a document behind.
+      expect(
+        await prisma.warehouseDocument.count({
+          where: { lines: { some: { productLotId: w.lot.id } } },
+        }),
+      ).toBe(0);
+
+      await cleanupStockWorld(other);
+      await cleanupStockWorld(w);
+    });
+  });
+
+  describe('C1. OUTBOUND document guards stock and the lot balance', () => {
+    it('decrements on-hand and lot remaining, and refuses to ship reserved stock', async () => {
+      const w = await makeStockWorld('C1');
+      const inbound = await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'INBOUND',
+        lines: [{ productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 20, unit: 'kg' }],
+      }).expect(201);
+      await post(`/api/v1/warehouse-documents/${inbound.body.id}/complete`, adminToken).expect(201);
+
+      const balance = await prisma.inventoryBalance.findFirstOrThrow({
+        where: {
+          warehouseId: fixtures.warehouseId,
+          productLotId: w.lot.id,
+          productVariantId: w.variant.id,
+        },
+      });
+      expect(Number(balance.onHand)).toBe(20);
+      const lotBefore = await prisma.productLot.findUniqueOrThrow({ where: { id: w.lot.id } });
+      expect(Number(lotBefore.remainingQuantity)).toBe(500);
+
+      const outbound = await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'OUTBOUND',
+        lines: [{ productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 5, unit: 'kg' }],
+      }).expect(201);
+      await post(`/api/v1/warehouse-documents/${outbound.body.id}/complete`, adminToken).expect(201);
+
+      const after = await prisma.inventoryBalance.findUniqueOrThrow({ where: { id: balance.id } });
+      expect(Number(after.onHand)).toBe(15);
+      const lotAfter = await prisma.productLot.findUniqueOrThrow({ where: { id: w.lot.id } });
+      expect(Number(lotAfter.remainingQuantity)).toBe(495);
+
+      // 10 units are promised to an order. Shipping 10 more would leave 5 on
+      // hand, below the reservation, so the guard must reject the document.
+      await prisma.inventoryBalance.update({
+        where: { id: balance.id },
+        data: { reserved: 10 },
+      });
+      const blocked = await post('/api/v1/warehouse-documents', adminToken, {
+        warehouseId: fixtures.warehouseId,
+        type: 'OUTBOUND',
+        lines: [{ productLotId: w.lot.id, productVariantId: w.variant.id, quantity: 10, unit: 'kg' }],
+      }).expect(201);
+      await post(`/api/v1/warehouse-documents/${blocked.body.id}/complete`, adminToken).expect(400);
+
+      const afterBlocked = await prisma.inventoryBalance.findUniqueOrThrow({
+        where: { id: balance.id },
+      });
+      expect(Number(afterBlocked.onHand)).toBe(15);
+      const lotBlocked = await prisma.productLot.findUniqueOrThrow({ where: { id: w.lot.id } });
+      expect(Number(lotBlocked.remainingQuantity)).toBe(495);
+
+      await cleanupStockWorld(w);
+    });
+  });
+
   describe('C2. RETURN document quarantines stock until QC release', () => {
     it('receives into blocked, opens a WAREHOUSE_RETURN case, and releases only after PASS', async () => {
       const w = await makeStockWorld('C2');

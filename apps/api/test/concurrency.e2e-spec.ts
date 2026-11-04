@@ -592,6 +592,18 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
       await prisma.payment.create({
         data: { orderId: order.id, method: 'COD', amount: 30000, status: 'PENDING' },
       });
+      // Delivery is only legal with physical evidence: the parcel reached the
+      // customer. The race still exercises the order-level compare-and-set.
+      await prisma.shipment.create({
+        data: {
+          code: world.t(`SHD${r}`),
+          partnerOrderId: po.id,
+          carrier: 'E2E',
+          status: 'DELIVERED',
+          shippedAt: new Date(),
+          deliveredAt: new Date(),
+        },
+      });
 
       await Promise.allSettled([
         orders.updateStatus(order.id, 'DELIVERED' as never, adminId),
@@ -778,6 +790,16 @@ describe.skipIf(!hasTestDb)('AgriMarket API — concurrency acceptance (e2e)', (
       });
       const payment = await prisma.payment.create({
         data: { orderId: order.id, method: 'COD', amount: 30000, status: 'PENDING' },
+      });
+      await prisma.shipment.create({
+        data: {
+          code: world.t(`SHDW${r}`),
+          partnerOrderId: po.id,
+          carrier: 'E2E',
+          status: 'DELIVERED',
+          shippedAt: new Date(),
+          deliveredAt: new Date(),
+        },
       });
 
       // Deliver first, then try to cancel: the cancellation finds a terminal

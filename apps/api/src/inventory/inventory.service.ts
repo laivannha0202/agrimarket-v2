@@ -701,14 +701,21 @@ export class InventoryService {
   }
 
   /**
-   * Change a balance's on-hand quantity, atomically, without going negative.
+   * Change a balance's on-hand quantity, atomically, without going negative
+   * and without undercutting stock that is already committed.
    *
-   * One conditional UPDATE: `on_hand = on_hand + ? WHERE id = ? AND
-   * on_hand + ? >= 0`. The predicate is re-evaluated under the row's exclusive
-   * lock, so concurrent stock changes cannot lose each other's arithmetic, and
-   * an outbound document can never drive `on_hand` below zero. Returns `null`
-   * when the guard rejected the change, with `before`/`after` read back for the
-   * movement ledger.
+   * One conditional UPDATE:
+   *   `on_hand = on_hand + ? WHERE id = ?
+   *      AND on_hand + ? >= 0
+   *      AND on_hand + ? >= reserved + blocked`
+   *
+   * The second guard is what keeps a warehouse OUTBOUND document from shipping
+   * units that are reserved for an order or blocked in quarantine. Without it
+   * `on_hand` could fall below `reserved + blocked` and `available` became
+   * negative — the balance then claimed stock that did not exist. The predicate
+   * is re-evaluated under the row's exclusive lock, so concurrent stock changes
+   * cannot lose each other's arithmetic. Returns `null` when the guard rejected
+   * the change, with `before`/`after` read back for the movement ledger.
    */
   async changeOnHand(
     tx: Tx,
@@ -720,6 +727,7 @@ export class InventoryService {
          SET on_hand = on_hand + ${delta}, updated_at = UTC_TIMESTAMP(3)
        WHERE id = ${balanceId}
          AND on_hand + ${delta} >= 0
+         AND on_hand + ${delta} >= reserved + blocked
     `;
     if (affected === 0) return null;
     const balance = await tx.inventoryBalance.findUniqueOrThrow({ where: { id: balanceId } });

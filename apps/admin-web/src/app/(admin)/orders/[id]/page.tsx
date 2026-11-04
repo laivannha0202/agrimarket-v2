@@ -71,11 +71,15 @@ const NEXT_STATUS: Record<string, { value: string; label: string }[]> = {
     { value: "READY_TO_SHIP", label: "Sẵn sàng giao" },
     { value: "CANCELLED", label: "Hủy đơn" },
   ],
-  READY_TO_SHIP: [
-    { value: "SHIPPING", label: "Bắt đầu giao" },
-    { value: "CANCELLED", label: "Hủy đơn" },
-  ],
-  SHIPPING: [{ value: "DELIVERED", label: "Đã giao" }],
+  /**
+   * Delivery is recorded from the shipment, never from this menu: a shipment
+   * that leaves the warehouse rolls the order up to SHIPPING, and only evidence
+   * from every partner order (a DELIVERED shipment with a real deliveredAt)
+   * rolls it up to DELIVERED. Offering those two buttons here was the root of
+   * orders marked DELIVERED with parcels still in transit.
+   */
+  READY_TO_SHIP: [{ value: "CANCELLED", label: "Hủy đơn" }],
+  SHIPPING: [{ value: "CANCELLED", label: "Hủy đơn" }],
   DELIVERED: [],
   CANCELLED: [],
 };
@@ -293,12 +297,14 @@ function OrderDetailView() {
         <>
           <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
             {[
-              { label: "Tổng thanh toán", value: formatMoney(order.grandTotal) },
+              { label: "Giá trị đơn", value: formatMoney(summary?.originalValue ?? 0) },
+              { label: "Công nợ hiệu lực", value: formatMoney(summary?.obligation ?? 0) },
               { label: "Đã thu", value: formatMoney(summary?.collected ?? 0) },
               { label: "Còn phải thu", value: formatMoney(summary?.outstanding ?? 0) },
               { label: "Đã hoàn tiền", value: formatMoney(summary?.refunded ?? 0) },
+              { label: "Cần hoàn trả", value: formatMoney(summary?.refundDue ?? 0) },
             ].map((item) => (
-              <Col key={item.label} xs={12} lg={6}>
+              <Col key={item.label} xs={12} sm={8} xl={4}>
                 <div className="agri-card" style={{ padding: "12px 16px" }}>
                   <div className="agri-muted" style={{ fontSize: 12 }}>
                     {item.label}

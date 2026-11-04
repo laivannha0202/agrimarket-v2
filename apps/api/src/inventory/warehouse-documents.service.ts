@@ -53,6 +53,14 @@ export class WarehouseDocumentsService {
     const prefix = datedCodePrefix('WHD', now);
     return this.prisma.$transaction(async (tx) => {
       await InventoryService.requireActiveWarehouse(tx, dto.warehouseId);
+      // The create path used to accept any lot/variant pair (including a
+      // duplicate line or a missing lot) and only failed much later, when the
+      // document was completed and the stock write broke. Validate the draft
+      // with the same rules the edit path uses, inside the same transaction.
+      this.assertNoDuplicateLines(dto.lines);
+      for (const line of dto.lines) {
+        await this.assertDraftLine(tx, line);
+      }
       const existing = await tx.warehouseDocument.findMany({
         where: { code: { startsWith: prefix } },
         select: { code: true },
@@ -416,7 +424,7 @@ export class WarehouseDocumentsService {
     }
     const lot = await tx.productLot.findUnique({
       where: { id: line.productLotId },
-      select: { id: true, unit: true },
+      select: { id: true, unit: true, productId: true },
     });
     if (!lot) throw new BadRequestException(`Lô hàng #${line.productLotId} không tồn tại`);
     const variant = await tx.productVariant.findUnique({
@@ -424,6 +432,15 @@ export class WarehouseDocumentsService {
       select: { id: true, productId: true },
     });
     if (!variant) throw new BadRequestException(`Quy cách #${line.productVariantId} không tồn tại`);
+    // A lot belongs to a product, a variant belongs to a product: pairing a lot
+    // with another product's variant would create an inventory balance (and
+    // later an allocation) that mixes two products, breaking both stock and
+    // traceability. The query already read `productId`; enforce it.
+    if (variant.productId !== lot.productId) {
+      throw new BadRequestException(
+        `Lô #${line.productLotId} không thuộc sản phẩm của quy cách #${line.productVariantId}`,
+      );
+    }
   }
 
   /**
@@ -508,12 +525,29 @@ export class WarehouseDocumentsService {
             actorUserId,
           });
         } else if (doc.type === WarehouseDocumentType.OUTBOUND) {
-          // The non-negative guard lives in the UPDATE, so it is enforced under
-          // the row lock instead of on a value read earlier.
+          // The guards live in the UPDATE, so they are enforced under the row
+          // lock instead of on a value read earlier: on-hand can never go
+          // negative, and it can never fall below `reserved + blocked` (the
+          // units are promised to an order or held in quarantine).
           const changed = await this.inventory.changeOnHand(tx, balance.id, -qty);
           if (!changed) {
             throw new BadRequestException(
-              `Outbound would make on-hand negative for lot ${line.productLotId}`,
+              `Outbound would take on-hand below reserved + blocked for lot ${line.productLotId}`,
+            );
+          }
+          // Goods physically leave, so the lot's remaining quantity follows —
+          // exactly like `consumeOrderStock`. Guarded so a document can never
+          // claim more units than the lot still holds.
+          const lotAffected = await tx.$executeRaw`
+            UPDATE product_lots
+               SET remaining_quantity = remaining_quantity - ${qty},
+                   updated_at = UTC_TIMESTAMP(3)
+             WHERE id = ${line.productLotId}
+               AND remaining_quantity >= ${qty}
+          `;
+          if (lotAffected === 0) {
+            throw new ConflictException(
+              `Lô ${line.productLotId} không còn đủ số lượng để xuất kho, vui lòng tải lại`,
             );
           }
           await this.inventory.recordMovement(tx, {

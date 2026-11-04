@@ -63,6 +63,7 @@ export const queryKeys = {
   refund: (id: number | string) => ["refund", String(id)] as const,
   shipments: (params?: ListParams) => ["shipments", params ?? {}] as const,
   shipment: (id: number | string) => ["shipment", String(id)] as const,
+  eligiblePartnerOrders: ["shipments", "eligible-partner-orders"] as const,
   auditLogs: (params?: ListParams) => ["audit-logs", params ?? {}] as const,
 
   reportsSummary: (params?: ListParams) => ["reports-summary", params ?? {}] as const,

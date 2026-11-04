@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { Button, Form, Input, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -15,7 +16,7 @@ import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDateTime } from "@/lib/format";
 import { SHIPMENT_STATUS, shipmentStatus, statusOptions } from "@/lib/status";
-import type { Shipment } from "@/types/api";
+import type { EligiblePartnerOrder, Shipment } from "@/types/api";
 
 /**
  * Allowed shipment transitions, mirroring the backend state machine.
@@ -61,6 +62,19 @@ export default function ShipmentsPage() {
     resources.shipments,
     list.params,
   );
+
+  /**
+   * The create form offers the partner orders the backend will actually accept
+   * (READY_TO_SHIP, no active parcel). Asking for a raw id made the operator
+   * guess and turned every wrong guess into a 400 after submission.
+   */
+  const { data: eligiblePartnerOrders = [], isLoading: eligibleLoading } = useQuery<
+    EligiblePartnerOrder[]
+  >({
+    queryKey: queryKeys.eligiblePartnerOrders,
+    queryFn: resources.eligiblePartnerOrders,
+    enabled: createOpen,
+  });
 
   const create = useAction(
     (values: { partnerOrderId: number; carrier?: string; trackingCode?: string }) =>
@@ -216,12 +230,26 @@ export default function ShipmentsPage() {
         submitting={create.isPending}
       >
         <Form.Item
-          label="ID đơn đối tác"
+          label="Đơn đối tác"
           name="partnerOrderId"
-          rules={[{ required: true, message: "Nhập ID đơn đối tác." }]}
-          extra="Đơn hàng và đơn đối tác phải đang ở trạng thái Chờ giao (READY_TO_SHIP)."
+          rules={[{ required: true, message: "Chọn đơn đối tác." }]}
+          extra="Chỉ hiện các đơn hàng và đơn đối tác đang ở trạng thái Chờ giao (READY_TO_SHIP) và chưa có vận đơn đang xử lý."
         >
-          <Input type="number" placeholder="VD: 12" />
+          <Select
+            showSearch
+            optionFilterProp="label"
+            loading={eligibleLoading}
+            placeholder="Chọn đơn hàng / đối tác"
+            notFoundContent={
+              eligibleLoading
+                ? "Đang tải..."
+                : "Không có đơn đối tác nào đủ điều kiện tạo vận đơn."
+            }
+            options={eligiblePartnerOrders.map((po) => ({
+              value: po.id,
+              label: `${po.order.code} · ${po.code} · ${po.partner.name}`,
+            }))}
+          />
         </Form.Item>
         <Form.Item label="Đơn vị vận chuyển" name="carrier">
           <Input placeholder="VD: GHN, GHTK, Viettel Post" />
