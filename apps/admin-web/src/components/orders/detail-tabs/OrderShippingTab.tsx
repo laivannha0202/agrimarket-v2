@@ -73,7 +73,7 @@ function ShipmentBlock({ shipment }: { shipment: Shipment }) {
                   : e.status === "DELIVERED"
                     ? "green"
                     : "blue",
-              children: (
+              content: (
                 <div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <StatusTag status={shipmentStatus(e.status)} />
