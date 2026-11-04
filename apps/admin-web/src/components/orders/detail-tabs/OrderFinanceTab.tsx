@@ -8,7 +8,8 @@
  * these fields.
  */
 
-import { Alert, Table, Typography } from "antd";
+import { Alert, Collapse, Table, Tooltip, Typography } from "antd";
+import { InfoCircleOutlined } from "@ant-design/icons";
 import { DetailCard } from "@/components/common/DetailPage";
 import { InfoDescriptions } from "@/components/common/InfoDescriptions";
 import { StatusTag } from "@/components/common/StatusTag";
@@ -65,6 +66,8 @@ function PartnerFinanceCard({ partnerOrder }: { partnerOrder: PartnerOrder }) {
   const lines = partnerOrder.settlementLines ?? [];
   const adjustments = partnerOrder.settlementAdjustments ?? [];
   const line = lines[0];
+  const commissionLabel = line ? "Hoa hồng đã ghi nhận" : "Hoa hồng dự kiến";
+  const payableLabel = line ? "Đã quyết toán" : "Phải trả dự kiến";
 
   return (
     <DetailCard
@@ -82,113 +85,125 @@ function PartnerFinanceCard({ partnerOrder }: { partnerOrder: PartnerOrder }) {
           },
           {
             key: "commission",
-            // Before a settlement line exists these are the amounts computed
-            // from the order snapshot ("dự kiến"), not money owed. After it,
-            // the settlement line is the recorded/agreed figure.
-            label: line ? "Hoa hồng (đã ghi nhận)" : "Hoa hồng (dự kiến)",
+            label: commissionLabel,
             children: formatMoney(partnerOrder.commissionAmount),
           },
           {
             key: "payable",
-            label: line ? "Phải trả đối tác (đã quyết toán)" : "Phải trả đối tác (dự kiến)",
+            label: payableLabel,
             children: <strong>{formatMoney(partnerOrder.payableAmount)}</strong>,
           },
         ]}
       />
 
-      <div style={{ height: 16 }} />
+      <div style={{ height: 12 }} />
       {line?.settlement ? (
         <>
-          <Typography.Text strong>Quyết toán</Typography.Text>
-          <div style={{ height: 8 }} />
-          <InfoDescriptions
-            column={{ xs: 1, sm: 2, md: 3 }}
+          <Collapse
             items={[
               {
-                key: "code",
-                label: "Mã quyết toán",
-                children: <span className="agri-mono">{line.settlement.code}</span>,
-              },
-              {
-                key: "status",
-                label: "Trạng thái",
-                children: <StatusTag status={settlementStatus(line.settlement.status)} />,
-              },
-              {
-                key: "confirmedAt",
-                label: "Xác nhận lúc",
-                children: formatDateTime(line.settlement.confirmedAt),
-              },
-              {
-                key: "gross",
-                label: "Doanh thu ghi nhận",
-                children: formatMoney(line.grossAmount),
-              },
-              {
-                key: "refund",
-                label: "Hoàn tiền đã trừ",
-                children: formatMoney(line.refundAmount),
-              },
-              {
-                key: "linePayable",
-                label: "Dòng phải trả",
-                children: <strong>{formatMoney(line.payableAmount)}</strong>,
-              },
-              {
-                key: "settlementPayable",
-                label: "Tổng phải trả kỳ",
-                children: formatMoney(line.settlement.payableAmount),
-              },
-              {
-                key: "settlementAdjustment",
-                label: "Điều chỉnh kỳ",
-                children: formatMoney(line.settlement.adjustmentAmount),
-              },
-            ]}
-          />
-
-          <div style={{ height: 12 }} />
-          <Typography.Text strong>Chi trả</Typography.Text>
-          <Table
-            size="small"
-            rowKey="id"
-            style={{ marginTop: 8 }}
-            pagination={false}
-            scroll={{ x: 560 }}
-            dataSource={line.settlement.payouts ?? []}
-            locale={{ emptyText: <SectionEmpty text="Chưa có lệnh chi trả." /> }}
-            columns={[
-              {
-                title: "Mã",
-                dataIndex: "code",
-                render: (v: string) => <span className="agri-mono">{v}</span>,
-              },
-              {
-                title: "Số tiền",
-                dataIndex: "amount",
-                align: "right",
-                render: (v: string) => <span className="agri-nowrap">{formatMoney(v)}</span>,
-              },
-              {
-                title: "Trạng thái",
-                dataIndex: "status",
-                render: (s: string) => <StatusTag status={payoutStatus(s)} />,
-              },
-              {
-                title: "Tham chiếu",
-                dataIndex: "reference",
-                render: (v: string | null) => v ?? "—",
-              },
-              {
-                title: "Chi lúc",
-                dataIndex: "paidAt",
-                render: (v: string | null) => formatDateTime(v),
+                key: "settlement",
+                label: "Chi tiết quyết toán",
+                children: (
+                  <>
+                    <InfoDescriptions
+                      column={{ xs: 1, sm: 2, md: 3 }}
+                      items={[
+                        {
+                          key: "code",
+                          label: "Mã kỳ quyết toán",
+                          children: <span className="agri-mono">{line.settlement.code}</span>,
+                        },
+                        {
+                          key: "status",
+                          label: "Trạng thái quyết toán",
+                          children: <StatusTag status={settlementStatus(line.settlement.status)} />,
+                        },
+                        {
+                          key: "confirmedAt",
+                          label: "Xác nhận lúc",
+                          children: formatDateTime(line.settlement.confirmedAt),
+                        },
+                        {
+                          key: "gross",
+                          label: "Doanh thu ghi nhận (đơn)",
+                          children: formatMoney(line.grossAmount),
+                        },
+                        {
+                          key: "refund",
+                          label: "Hoàn tiền đã trừ (đơn)",
+                          children: formatMoney(line.refundAmount),
+                        },
+                        {
+                          key: "linePayable",
+                          label: "Dòng phải trả (đơn)",
+                          children: <strong>{formatMoney(line.payableAmount)}</strong>,
+                        },
+                        {
+                          key: "settlementPayable",
+                          label: "Tổng phải trả cả kỳ",
+                          children: formatMoney(line.settlement.payableAmount),
+                        },
+                        {
+                          key: "settlementAdjustment",
+                          label: "Điều chỉnh kỳ",
+                          children: formatMoney(line.settlement.adjustmentAmount),
+                        },
+                      ]}
+                    />
+                    <div style={{ marginTop: 12 }}>
+                      <Typography.Text strong>Chi trả</Typography.Text>
+                      <div style={{ fontSize: 12, marginTop: 4 }} className="agri-muted">
+                        Các lệnh chi trả thuộc cả kỳ quyết toán, không phải riêng đơn này.
+                      </div>
+                      <Table
+                        size="small"
+                        rowKey="id"
+                        style={{ marginTop: 8 }}
+                        pagination={false}
+                        scroll={{ x: 560 }}
+                        dataSource={line.settlement.payouts ?? []}
+                        locale={{ emptyText: <SectionEmpty text="Chưa có lệnh chi trả." /> }}
+                        columns={[
+                          {
+                            title: "Mã",
+                            dataIndex: "code",
+                            render: (v: string) => <span className="agri-mono">{v}</span>,
+                          },
+                          {
+                            title: "Số tiền",
+                            dataIndex: "amount",
+                            align: "right",
+                            render: (v: string) => <span className="agri-nowrap">{formatMoney(v)}</span>,
+                          },
+                          {
+                            title: "Trạng thái",
+                            dataIndex: "status",
+                            render: (s: string) => <StatusTag status={payoutStatus(s)} />,
+                          },
+                          {
+                            title: "Tham chiếu",
+                            dataIndex: "reference",
+                            render: (v: string | null) => v ?? "—",
+                          },
+                          {
+                            title: "Chi lúc",
+                            dataIndex: "paidAt",
+                            render: (v: string | null) => formatDateTime(v),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </>
+                ),
               },
             ]}
           />
         </>
       ) : (
-        <SectionEmpty text="Đơn đối tác này chưa được đưa vào kỳ quyết toán nào." />
+        <div style={{ fontSize: 13 }} className="agri-muted">
+          Chưa có kỳ quyết toán.
+        </div>
       )}
 
       <div style={{ height: 16 }} />
@@ -215,12 +230,12 @@ export function OrderFinanceTab({ order }: { order: Order }) {
   }
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Alert
-        type="info"
-        showIcon
-        title="Số liệu nội bộ"
-        description="Hoa hồng, quyết toán và chi trả chỉ hiển thị trong trang quản trị. Khách hàng và phiếu PDF dành cho khách không nhận các trường này."
-      />
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }} className="agri-muted">
+        <Tooltip title="Hoa hồng, quyết toán và chi trả chỉ hiển thị trong trang quản trị. Khách hàng và phiếu PDF dành cho khách không nhận các trường này.">
+          <InfoCircleOutlined />
+        </Tooltip>
+        <span>Số liệu nội bộ — chỉ quản trị viên.</span>
+      </div>
       {order.status === "CANCELLED" ? (
         <Alert
           type="warning"
@@ -234,4 +249,4 @@ export function OrderFinanceTab({ order }: { order: Order }) {
       ))}
     </div>
   );
-}
+}
