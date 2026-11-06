@@ -164,7 +164,11 @@ export class OrdersController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: DeliveryReconciliationDto,
   ) {
-    const options = { dryRun: dto.dryRun, actorUserId: user.id };
+    // Fail closed: only an explicit `dryRun: false` may rewrite rows. A
+    // missing field keeps the DTO default `true`, and a JSON `null` (which
+    // `@IsOptional` lets through unvalidated) must also stay a dry run
+    // instead of falling through to the repair as a falsy value.
+    const options = { dryRun: dto.dryRun !== false, actorUserId: user.id };
     return dto.orderId === undefined
       ? this.deliveryReconciliation.reconcileAll(options)
       : this.deliveryReconciliation.reconcileOrder(dto.orderId, options);
