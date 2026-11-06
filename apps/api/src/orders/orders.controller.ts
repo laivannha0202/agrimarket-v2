@@ -13,9 +13,16 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrdersService } from './orders.service.js';
 import { OrderDocumentService } from './order-document.service.js';
+import { OrderDeliveryReconciliationService } from './order-delivery-reconciliation.service.js';
 import type { Response } from 'express';
 import { CheckoutDto, CheckoutPreviewDto } from './dto/checkout.dto.js';
-import { MyOrderQueryDto, OrderQueryDto, UpdateOrderStatusDto } from './dto/order-status.dto.js';
+import {
+  MyOrderQueryDto,
+  OrderQueryDto,
+  UpdateOrderStatusDto,
+} from './dto/order-status.dto.js';
+import { DeliveryReconciliationDto } from './dto/order-status.dto.js';
+import { PaginationQueryDto } from '../common/dto/pagination-query.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
@@ -26,6 +33,7 @@ export class OrdersController {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly orderDocuments: OrderDocumentService,
+    private readonly deliveryReconciliation: OrderDeliveryReconciliationService,
   ) {}
 
   /**
@@ -36,7 +44,8 @@ export class OrdersController {
   @ApiBearerAuth()
   @Post('checkout')
   @ApiOperation({
-    summary: 'Checkout: create order, split by partner, reserve stock (CUSTOMER)',
+    summary:
+      'Checkout: create order, split by partner, reserve stock (CUSTOMER)',
     description:
       'The shipping fee is decided by the backend. Send an `Idempotency-Key` header ' +
       '(or `idempotencyKey` in the body) to make the request retry-safe: the same key ' +
@@ -48,7 +57,10 @@ export class OrdersController {
     @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     const key = dto.idempotencyKey?.trim() || idempotencyKey?.trim();
-    return this.ordersService.checkout(user.id, key ? { ...dto, idempotencyKey: key } : dto);
+    return this.ordersService.checkout(
+      user.id,
+      key ? { ...dto, idempotencyKey: key } : dto,
+    );
   }
 
   @Roles('CUSTOMER')
@@ -61,7 +73,10 @@ export class OrdersController {
       'given lines (or the current cart), plus the sellable quantity per line. ' +
       'Nothing is created and no stock is reserved.',
   })
-  checkoutPreview(@CurrentUser() user: AuthenticatedUser, @Body() dto: CheckoutPreviewDto) {
+  checkoutPreview(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CheckoutPreviewDto,
+  ) {
     return this.ordersService.checkoutPreview(user.id, dto);
   }
 
@@ -69,7 +84,10 @@ export class OrdersController {
   @ApiBearerAuth()
   @Get('me')
   @ApiOperation({ summary: 'List my orders (status filter, CUSTOMER)' })
-  myOrders(@CurrentUser() user: AuthenticatedUser, @Query() query: MyOrderQueryDto) {
+  myOrders(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: MyOrderQueryDto,
+  ) {
     return this.ordersService.findForCustomer(user.id, query);
   }
 
@@ -77,9 +95,13 @@ export class OrdersController {
   @ApiBearerAuth()
   @Get('me/:id')
   @ApiOperation({
-    summary: 'Get one of my orders with allocated lot trace codes and shipment events (CUSTOMER)',
+    summary:
+      'Get one of my orders with allocated lot trace codes and shipment events (CUSTOMER)',
   })
-  myOrder(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseIntPipe) id: number) {
+  myOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.ordersService.findOneForCustomer(id, user.id);
   }
 
@@ -92,7 +114,10 @@ export class OrdersController {
       'Runs the order state machine: only PENDING_CONFIRMATION, CONFIRMED, PREPARING, ' +
       'READY_TO_SHIP and SHIPPING orders can be cancelled. Reservations are released.',
   })
-  cancelMyOrder(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseIntPipe) id: number) {
+  cancelMyOrder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.ordersService.cancelForCustomer(id, user.id, user.id);
   }
 
@@ -102,6 +127,47 @@ export class OrdersController {
   @ApiOperation({ summary: 'List all orders (search/status filters, ADMIN)' })
   findAll(@Query() query: OrderQueryDto) {
     return this.ordersService.findAll(query);
+  }
+
+  /**
+   * Delivery evidence must sit in front of the `:id` routes: NestJS registers
+   * controller routes in declaration order and `GET :id` (ParseIntPipe) would
+   * otherwise swallow this path with a 400.
+   */
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Get('delivery-reconciliation')
+  @ApiOperation({
+    summary:
+      'Monitor orders marked DELIVERED without delivery evidence (ADMIN)',
+    description:
+      'Every DELIVERED order whose shipments do not back the status — the row the database ' +
+      'invariant audit flags as `order_delivered_without_shipment_evidence` — with the decision ' +
+      'a reconciliation run would take for it.',
+  })
+  deliveryReconciliationAudit(@Query() query: PaginationQueryDto) {
+    return this.deliveryReconciliation.list(query);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post('delivery-reconciliation')
+  @ApiOperation({
+    summary: 'Repair DELIVERED orders that lack delivery evidence (ADMIN)',
+    description:
+      'Revert legacy rows whose status says delivered while the shipments do not: the order and ' +
+      'its partner orders go back to the evidence-backed status (SHIPPING / READY_TO_SHIP) and the ' +
+      'stock they consumed is restored, one compensating ADJUSTMENT movement per allocation. ' +
+      'Payments are never touched. `dryRun` defaults to true — a bare POST only reports.',
+  })
+  reconcileDelivery(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeliveryReconciliationDto,
+  ) {
+    const options = { dryRun: dto.dryRun, actorUserId: user.id };
+    return dto.orderId === undefined
+      ? this.deliveryReconciliation.reconcileAll(options)
+      : this.deliveryReconciliation.reconcileOrder(dto.orderId, options);
   }
 
   @Roles('ADMIN')
@@ -141,7 +207,10 @@ export class OrdersController {
     const customerId = user.role === 'CUSTOMER' ? user.id : undefined;
     const buffer = await this.orderDocuments.renderOrderPdf(id, customerId);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="order-' + id + '.pdf"');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="order-' + id + '.pdf"',
+    );
     res.end(buffer);
   }
 
@@ -155,8 +224,10 @@ export class OrdersController {
   ): Promise<void> {
     const buffer = await this.orderDocuments.renderPackingSlip(id);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'attachment; filename="packing-' + id + '.pdf"');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="packing-' + id + '.pdf"',
+    );
     res.end(buffer);
   }
-
 }
