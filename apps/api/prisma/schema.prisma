@@ -30,6 +30,20 @@ enum RecordStatus {
   INACTIVE
 }
 
+enum PartnerType {
+  UNSPECIFIED
+  COOPERATIVE
+  COMPANY
+  HOUSEHOLD
+  INDIVIDUAL
+}
+
+enum PartnerVerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
 enum SeasonStatus {
   PLANNED
   GROWING
@@ -437,20 +451,23 @@ model Ward {
 // ---------------------------------------------------------------------------
 
 model Partner {
-  id                 Int          @id @default(autoincrement())
-  code               String       @unique
-  name               String
-  representativeName String       @map("representative_name")
-  phone              String
-  email              String
-  address            String
-  taxCode            String?      @map("tax_code")
-  bankAccountName    String?      @map("bank_account_name")
-  bankAccountNumber  String?      @map("bank_account_number")
-  bankName           String?      @map("bank_name")
-  status             RecordStatus @default(ACTIVE)
-  createdAt          DateTime     @default(now()) @map("created_at")
-  updatedAt          DateTime     @updatedAt @map("updated_at")
+  id                      Int                       @id @default(autoincrement())
+  code                    String                    @unique
+  type                    PartnerType               @default(UNSPECIFIED)
+  name                    String
+  representativeName      String?                   @map("representative_name")
+  phone                   String                    @unique
+  email                   String?                   @unique
+  address                 String?
+  taxCode                 String?                   @unique @map("tax_code")
+  registrationDocumentUrl String?                   @map("registration_document_url") @db.VarChar(1000)
+  verificationStatus      PartnerVerificationStatus @default(PENDING) @map("verification_status")
+  bankAccountName         String?                   @map("bank_account_name")
+  bankAccountNumber       String?                   @map("bank_account_number")
+  bankName                String?                   @map("bank_name")
+  status                  RecordStatus              @default(ACTIVE)
+  createdAt               DateTime                  @default(now()) @map("created_at")
+  updatedAt               DateTime                  @updatedAt @map("updated_at")
 
   farms                 Farm[]
   products              Product[]
@@ -462,7 +479,8 @@ model Partner {
   settlementRecoveries  SettlementRecovery[]
 
   @@index([name])
-  @@index([phone])
+  @@index([type])
+  @@index([verificationStatus])
   @@map("partners")
 }
 

@@ -11,6 +11,7 @@ import { InfoDescriptions } from "@/components/common/InfoDescriptions";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { FarmFormFields } from "@/components/farm/FarmFormFields";
+import { FarmPartnerTransfer } from "@/components/farm/FarmPartnerTransfer";
 import { useDetailQuery } from "@/hooks/useDetailQuery";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
@@ -199,6 +200,8 @@ export default function FarmDetailPage() {
               ]}
             />
           </DetailCard>
+
+          <FarmPartnerTransfer farm={farm} />
 
           <DetailCard
             title="Vụ mùa"

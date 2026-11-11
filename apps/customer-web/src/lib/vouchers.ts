@@ -139,3 +139,51 @@ export function voucherValueLabel(
   if (voucher.discountType === "PERCENT") return `Giảm ${raw}%`;
   return `Giảm ${Math.round(raw).toLocaleString("vi-VN")} ₫`;
 }
+
+/** The part of a voucher's life cycle a shopper can see and filter by. */
+export type VoucherPhase = "ongoing" | "upcoming" | "ended" | "inactive";
+
+export type VoucherStatusTone = "success" | "warning" | "danger" | "neutral";
+
+export interface VoucherStatus {
+  phase: VoucherPhase;
+  label: string;
+  tone: VoucherStatusTone;
+  /** False when the programme exists but cannot be redeemed right now. */
+  running: boolean;
+}
+
+/**
+ * Programme status — not the customer's personal eligibility.
+ *
+ * A voucher can be *running* (inside its dates and with quota left) while still
+ * not applying to a specific cart because the subtotal is below the minimum.
+ * The card therefore says "Đang diễn ra", never "Đủ điều kiện": only checkout
+ * can decide the latter from the real order.
+ *
+ * `now === 0` is the SSR/hydration snapshot; the date window is skipped so the
+ * first render has a stable phase until the shared clock is available.
+ */
+export function voucherStatus(voucher: Voucher, now: number): VoucherStatus {
+  if (voucher.status !== "ACTIVE") {
+    return { phase: "inactive", label: "Tạm dừng", tone: "neutral", running: false };
+  }
+
+  const start = new Date(voucher.startsAt).getTime();
+  const end = new Date(voucher.endsAt).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    return { phase: "ended", label: "Không xác định", tone: "neutral", running: false };
+  }
+
+  if (now !== 0 && now < start) {
+    return { phase: "upcoming", label: "Sắp diễn ra", tone: "warning", running: false };
+  }
+  if (now !== 0 && now > end) {
+    return { phase: "ended", label: "Đã kết thúc", tone: "neutral", running: false };
+  }
+  if (voucher.usageLimit !== null && voucher.usedCount >= voucher.usageLimit) {
+    return { phase: "ongoing", label: "Hết lượt", tone: "danger", running: false };
+  }
+
+  return { phase: "ongoing", label: "Đang diễn ra", tone: "success", running: true };
+}

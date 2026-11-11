@@ -5,7 +5,7 @@ import { InventoryService } from '../../src/inventory/inventory.service.js';
 import { PromotionsService } from '../../src/promotions/promotions.service.js';
 import { CommissionService } from '../../src/finance/commission.service.js';
 import { LocationsService } from '../../src/locations/locations.service.js';
-import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
+import { createMockPrisma, stubPartnerLock, type MockPrisma } from '../helpers/prisma-mock.js';
 import { ProductLotStatus } from '../../generated/prisma/enums.js';
 
 /**
@@ -85,8 +85,20 @@ describe('Checkout cart handling — Buy Now vs cart checkout', () => {
       sku: 'A-1',
       basePrice: 50000,
       status: 'ACTIVE',
-      product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'ACTIVE' },
+      product: {
+        id: 1,
+        partnerId: 1,
+        categoryId: 1,
+        name: 'Sản phẩm A',
+        status: 'ACTIVE',
+        partner: { status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+      },
     });
+    // The in-transaction Partner lock (task 05.4.2.6) decides from the rows its
+    // own locking statement returns; the fixture's seller is ACTIVE + VERIFIED.
+    stubPartnerLock(prisma, [
+      { id: 1, status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+    ]);
     prisma.flashSaleItem.findMany.mockResolvedValue([]);
     prisma.productDiscount.findFirst.mockResolvedValue(null);
     prisma.order.findMany.mockResolvedValue([]);

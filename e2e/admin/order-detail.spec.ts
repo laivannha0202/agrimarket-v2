@@ -108,7 +108,7 @@ test.describe('Admin order detail', () => {
     await page.getByRole('tab', { name: 'Tài chính nội bộ' }).click();
     await expect(page.getByText('Số liệu nội bộ')).toBeVisible();
     await expect(
-      page.getByText('Đơn đối tác này chưa được đưa vào kỳ quyết toán nào.'),
+      page.getByText('Chưa có kỳ quyết toán.'),
     ).toBeVisible();
 
     // A rendering bug would surface as a literal object string.

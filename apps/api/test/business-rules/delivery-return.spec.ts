@@ -40,8 +40,25 @@ describe('Delivery failure & return rules', () => {
     };
   }
 
+  // updateStatus reads the relationship once, then re-reads the locked row,
+  // and finally fetches the updated row after its compare-and-set.
+  function mockShipmentTransition(
+    original: ReturnType<typeof shipmentRow>,
+    nextStatus?: ShipmentStatus,
+  ) {
+    prisma.shipment.findUnique.mockResolvedValue(original);
+    prisma.shipment.findUniqueOrThrow.mockResolvedValueOnce(original);
+    if (nextStatus) {
+      prisma.shipment.findUniqueOrThrow.mockResolvedValueOnce({
+        ...original,
+        status: nextStatus,
+      });
+    }
+  }
+
   beforeEach(() => {
     prisma = createMockPrisma();
+    prisma.partnerOrder.findUnique.mockResolvedValue({ orderId: 5 });
     const inventory = new InventoryService(prisma as never, audit as never);
     service = new ShipmentsService(
       prisma as never,
@@ -53,12 +70,8 @@ describe('Delivery failure & return rules', () => {
 
   it('follows the OUT_FOR_DELIVERY -> DELIVERY_FAILED -> RETURNING -> RETURNED path', async () => {
     const base = shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY);
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base, ShipmentStatus.DELIVERY_FAILED);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.DELIVERY_FAILED,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
     prisma.partnerOrder.count.mockResolvedValue(1);
@@ -80,7 +93,7 @@ describe('Delivery failure & return rules', () => {
   });
 
   it('rejects an invalid shipment transition', async () => {
-    prisma.shipment.findUnique.mockResolvedValue(shipmentRow(ShipmentStatus.DELIVERED));
+    mockShipmentTransition(shipmentRow(ShipmentStatus.DELIVERED));
 
     await expect(
       service.updateStatus(1, { status: ShipmentStatus.IN_TRANSIT }, 99),
@@ -155,13 +168,13 @@ describe('Delivery failure & return rules', () => {
   });
 
   it('moves both partner order and order to SHIPPING on IN_TRANSIT', async () => {
-    const base = shipmentRow(ShipmentStatus.READY);
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    const base = shipmentRow(
+      ShipmentStatus.READY,
+      PartnerOrderStatus.READY_TO_SHIP,
+      OrderStatus.READY_TO_SHIP,
+    );
+    mockShipmentTransition(base, ShipmentStatus.IN_TRANSIT);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.IN_TRANSIT,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
     prisma.partnerOrder.count.mockResolvedValue(0);
@@ -181,12 +194,8 @@ describe('Delivery failure & return rules', () => {
 
   it('DELIVERED consumes the reservation once and a replay is idempotent', async () => {
     const base = shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY);
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base, ShipmentStatus.DELIVERED);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.DELIVERED,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     prisma.partnerOrder.updateMany.mockResolvedValue({ count: 1 });
     prisma.partnerOrder.count.mockResolvedValue(0);
@@ -243,9 +252,9 @@ describe('Delivery failure & return rules', () => {
     expect(movement.referenceId).toBe(5);
 
     // Replaying the same DELIVERED status is a no-op: no second event, no
-    // second consume. The stored shipment now reads DELIVERED, so the service
-    // takes the idempotent early return before opening a transaction.
+    // second consume. The locked row now reads DELIVERED.
     prisma.shipment.findUnique.mockResolvedValue({ ...base, status: ShipmentStatus.DELIVERED });
+    prisma.shipment.findUniqueOrThrow.mockResolvedValue({ ...base, status: ShipmentStatus.DELIVERED });
     prisma.inventoryMovement.create.mockClear();
     const replay = await service.updateStatus(1, { status: ShipmentStatus.DELIVERED }, 99);
     expect(replay.status).toBe(ShipmentStatus.DELIVERED);
@@ -254,7 +263,7 @@ describe('Delivery failure & return rules', () => {
   });
 
   it('refuses DELIVERED unless the order and partner order are SHIPPING', async () => {
-    prisma.shipment.findUnique.mockResolvedValue(
+    mockShipmentTransition(
       shipmentRow(
         ShipmentStatus.OUT_FOR_DELIVERY,
         PartnerOrderStatus.READY_TO_SHIP,
@@ -269,7 +278,7 @@ describe('Delivery failure & return rules', () => {
   });
 
   it('refuses DELIVERED for a cancelled order', async () => {
-    prisma.shipment.findUnique.mockResolvedValue(
+    mockShipmentTransition(
       shipmentRow(
         ShipmentStatus.OUT_FOR_DELIVERY,
         PartnerOrderStatus.CANCELLED,
@@ -284,7 +293,7 @@ describe('Delivery failure & return rules', () => {
   });
 
   it('refuses cancellation after the parcel left the warehouse', async () => {
-    prisma.shipment.findUnique.mockResolvedValue(shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY));
+    mockShipmentTransition(shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY));
 
     await expect(
       service.updateStatus(1, { status: ShipmentStatus.CANCELLED }, 99),
@@ -292,7 +301,7 @@ describe('Delivery failure & return rules', () => {
   });
 
   it('a concurrent DELIVERED loses the compare-and-set instead of consuming twice', async () => {
-    prisma.shipment.findUnique.mockResolvedValue(shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY));
+    mockShipmentTransition(shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY));
     // Another request claimed the row first: 0 rows match.
     prisma.shipment.updateMany.mockResolvedValue({ count: 0 });
 
@@ -308,12 +317,8 @@ describe('Delivery failure & return rules', () => {
       PartnerOrderStatus.DELIVERED,
       OrderStatus.DELIVERED,
     );
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base, ShipmentStatus.DELIVERED);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.DELIVERED,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     // Partner order already DELIVERED and order already DELIVERED: 0 rows
     // claimed at both levels, no consume.
@@ -345,12 +350,8 @@ describe('Delivery failure & return rules', () => {
 
   it('does not roll the order up while a sibling shipment is still active', async () => {
     const base = shipmentRow(ShipmentStatus.OUT_FOR_DELIVERY);
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base, ShipmentStatus.DELIVERED);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.DELIVERED,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     // A second parcel of the same partner order is still moving.
     prisma.shipment.count.mockResolvedValue(1);
@@ -388,12 +389,8 @@ describe('Delivery failure & return rules', () => {
 
   it('quarantines a RETURNED parcel and never makes the stock sellable again', async () => {
     const base = shipmentRow(ShipmentStatus.RETURNING);
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base, ShipmentStatus.RETURNED);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.RETURNED,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     prisma.inventoryAllocation.findMany.mockResolvedValue([
       {
@@ -471,12 +468,8 @@ describe('Delivery failure & return rules', () => {
       PartnerOrderStatus.CANCELLED,
       OrderStatus.CANCELLED,
     );
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base, ShipmentStatus.RETURNED);
     prisma.shipment.updateMany.mockResolvedValue({ count: 1 });
-    prisma.shipment.findUniqueOrThrow.mockResolvedValue({
-      ...base,
-      status: ShipmentStatus.RETURNED,
-    });
     prisma.shipmentEvent.create.mockResolvedValue({});
     prisma.partnerOrder.count.mockResolvedValue(0);
 
@@ -492,10 +485,9 @@ describe('Delivery failure & return rules', () => {
 
   it('keeps quarantine and stock untouched when RETURNED is replayed', async () => {
     // The delivery webhook is at-least-once: a retry after the first RETURNED
-    // committed must be a pure read. The stored shipment is already RETURNED,
-    // so updateStatus returns before opening a transaction.
+    // committed must be a pure read after the row lock.
     const base = shipmentRow(ShipmentStatus.RETURNED);
-    prisma.shipment.findUnique.mockResolvedValue(base);
+    mockShipmentTransition(base);
 
     const replay = await service.updateStatus(1, { status: ShipmentStatus.RETURNED }, 99);
 
@@ -529,9 +521,8 @@ describe('Delivery failure & return rules', () => {
       { where: { id: 3, status: ShipmentStatus.IN_TRANSIT }, data: { status: ShipmentStatus.RETURNING } },
       { where: { id: 4, status: ShipmentStatus.OUT_FOR_DELIVERY }, data: { status: ShipmentStatus.RETURNING } },
       { where: { id: 5, status: ShipmentStatus.DELIVERY_FAILED }, data: { status: ShipmentStatus.RETURNING } },
-      { where: { id: 6, status: ShipmentStatus.RETURNING }, data: { status: ShipmentStatus.RETURNING } },
     ]);
-    expect(prisma.shipmentEvent.create).toHaveBeenCalledTimes(6);
+    expect(prisma.shipmentEvent.create).toHaveBeenCalledTimes(5);
   });
 
   it('a losing cancellation CAS writes no shipment event', async () => {

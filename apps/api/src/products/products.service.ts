@@ -18,7 +18,12 @@ import {
   UpdateVariantDto,
 } from './dto/product.dto.js';
 import type { Prisma, Product, ProductVariant } from '../../generated/prisma/client.js';
-import { RecordStatus } from '../../generated/prisma/enums.js';
+import { PartnerVerificationStatus, RecordStatus } from '../../generated/prisma/enums.js';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
+// Public catalogue and public Farm reads share one partner eligibility rule: a
+// partner sells something to the storefront only while it is ACTIVE and
+// VERIFIED. Reusing the single constant keeps the two gates from drifting.
+import { publicPartnerVisibility } from '../farms/farm-visibility.js';
 
 const productInclude = {
   category: { select: { id: true, name: true, slug: true } },
@@ -49,29 +54,43 @@ export class ProductsService {
    * slug is a 409 with a business message instead of a Prisma error dump.
    */
   async create(dto: CreateProductDto) {
-    await this.assertFarmBelongsToPartner(dto.farmId, dto.partnerId);
     const slug =
       dto.slug?.trim() ||
       (await uniqueSlug(dto.name, (s) => this.slugTaken(s)));
+    const data = {
+      partnerId: dto.partnerId,
+      categoryId: dto.categoryId,
+      farmId: dto.farmId,
+      name: dto.name,
+      slug,
+      description: dto.description,
+      status: dto.status,
+      images: dto.images
+        ? { create: dto.images.map((i) => ({ ...i })) }
+        : undefined,
+      variants: dto.variants
+        ? { create: dto.variants.map((v) => ({ ...v })) }
+        : undefined,
+    };
     try {
-      return await this.prisma.product.create({
-        data: {
-          partnerId: dto.partnerId,
-          categoryId: dto.categoryId,
-          farmId: dto.farmId,
-          name: dto.name,
-          slug,
-          description: dto.description,
-          status: dto.status,
-          images: dto.images
-            ? { create: dto.images.map((i) => ({ ...i })) }
-            : undefined,
-          variants: dto.variants
-            ? { create: dto.variants.map((v) => ({ ...v })) }
-            : undefined,
+      return await this.prisma.$transaction(
+        async (tx) => {
+          // Match farm transfer's lock order: Farm -> Partner -> Product.
+          // Drafts also retain the Farm lock when linked to a Farm, but do not
+          // require an eligible Partner until they are published.
+          if (dto.farmId !== undefined && dto.farmId !== null) {
+            await tx.$queryRaw<Array<{ id: number }>>`
+              SELECT id FROM farms WHERE id = ${dto.farmId} FOR UPDATE
+            `;
+          }
+          await this.assertFarmBelongsToPartner(dto.farmId, dto.partnerId, tx);
+          if (dto.status !== RecordStatus.INACTIVE) {
+            await this.assertPartnerCanSell(dto.partnerId, tx);
+          }
+          return tx.product.create({ data, include: productInclude });
         },
-        include: productInclude,
-      });
+        { isolationLevel: 'ReadCommitted' },
+      );
     } catch (error) {
       if (isUniqueViolationOn(error, 'slug')) {
         throw new ConflictException('Đường dẫn sản phẩm đã tồn tại. Hãy chọn tên hoặc đường dẫn khác.');
@@ -88,6 +107,13 @@ export class ProductsService {
    * storefront never has to re-implement the pricing rules or guess stock. This
    * is a public response: only sellable stock is counted, and no warehouse,
    * lot or cost data is included.
+   *
+   * Public visibility (guest + CUSTOMER, C-11) needs BOTH gates: the product is
+   * ACTIVE and its partner is ACTIVE + VERIFIED. Partner PENDING / REJECTED /
+   * INACTIVE hides every product of that partner, the `status` query parameter
+   * is ignored for non-ADMIN callers (it can never widen the set), and
+   * `findMany` and `count` share the identical `where` so pagination totals
+   * never mention hidden rows. ADMIN keeps the unfiltered management view.
    */
   async findAll(
     query: {
@@ -98,18 +124,23 @@ export class ProductsService {
       categoryId?: number;
       partnerId?: number;
     },
-    options: { onlyActive?: boolean } = {},
+    viewer?: AuthenticatedUser,
   ): Promise<PaginatedResult<Product & { variants: PricedVariant[] }>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const search = normalizeSearch(query.search);
+    const isAdmin = viewer?.role === 'ADMIN';
     const where: Prisma.ProductWhereInput = {
-      // The public storefront only ever sees ACTIVE products. The status filter
-      // is an admin tool and is ignored for anonymous/customer callers.
-      ...(options.onlyActive
-        ? { status: RecordStatus.ACTIVE }
-        : query.status
+      // ADMIN keeps the status filter; anonymous/customer callers are pinned to
+      // the public set: ACTIVE product sold by an ACTIVE, VERIFIED partner.
+      ...(isAdmin
+        ? query.status
           ? { status: query.status }
-          : {}),
+          : {}
+        : {
+            status: RecordStatus.ACTIVE,
+            partner: publicPartnerVisibility,
+          }),
+      // partnerId/categoryId/search only ever narrow the (already gated) set.
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.partnerId ? { partnerId: query.partnerId } : {}),
       ...(search
@@ -150,20 +181,27 @@ export class ProductsService {
   /**
    * Product detail with priced variants.
    *
-   * `onlyActive` is set by the public endpoint: an INACTIVE product is
-   * indistinguishable from a missing one (404) for anonymous/customer callers,
-   * while the admin detail route can still open it for editing.
+   * Public reads (guest + CUSTOMER) resolve the product under the same gate as
+   * the list: an INACTIVE product or a product whose partner is PENDING /
+   * REJECTED / INACTIVE is indistinguishable from a missing one — whether the
+   * caller reaches it by ID or by slug — so both return 404. ADMIN (whose token
+   * the controller recognises) still opens any product, by ID, for editing.
    */
-  async findOne(id: number, options: { onlyActive?: boolean } = {}) {
-    const product = options.onlyActive
-      ? await this.prisma.product.findFirst({
-          where: { id, status: RecordStatus.ACTIVE },
-          include: productInclude,
-        })
-      : await this.prisma.product.findUnique({
-          where: { id },
-          include: productInclude,
-        });
+  async findOne(id: number, viewer?: AuthenticatedUser) {
+    const product =
+      viewer?.role === 'ADMIN'
+        ? await this.prisma.product.findUnique({
+            where: { id },
+            include: productInclude,
+          })
+        : await this.prisma.product.findFirst({
+            where: {
+              id,
+              status: RecordStatus.ACTIVE,
+              partner: publicPartnerVisibility,
+            },
+            include: productInclude,
+          });
     if (!product) throw new NotFoundException('Product not found');
 
     const variantIds = product.variants.map((variant) => variant.id);
@@ -207,9 +245,6 @@ export class ProductsService {
 
   async update(id: number, dto: UpdateProductDto): Promise<Product> {
     const existing = await this.requireProduct(id);
-    if (dto.farmId !== undefined) {
-      await this.assertFarmBelongsToPartner(dto.farmId, existing.partnerId);
-    }
     // The slug is the product's stable path: renames never rewrite it unless
     // the caller explicitly sends a new one. Normalise it the same way.
     const data = { ...dto };
@@ -223,6 +258,26 @@ export class ProductsService {
       data.slug = clean;
     }
     try {
+      if (dto.status === RecordStatus.ACTIVE || dto.farmId !== undefined) {
+        return await this.prisma.$transaction(
+          async (tx) => {
+            // Farm must be locked before Partner to match transferPartner().
+            if (typeof dto.farmId === 'number') {
+              await tx.$queryRaw<Array<{ id: number }>>`
+                SELECT id FROM farms WHERE id = ${dto.farmId} FOR UPDATE
+              `;
+            }
+            if (dto.farmId !== undefined) {
+              await this.assertFarmBelongsToPartner(dto.farmId, existing.partnerId, tx);
+            }
+            if (dto.status === RecordStatus.ACTIVE) {
+              await this.assertPartnerCanSell(existing.partnerId, tx);
+            }
+            return tx.product.update({ where: { id }, data, include: productInclude });
+          },
+          { isolationLevel: 'ReadCommitted' },
+        );
+      }
       return await this.prisma.product.update({ where: { id }, data, include: productInclude });
     } catch (error) {
       if (isUniqueViolationOn(error, 'slug')) {
@@ -273,9 +328,10 @@ export class ProductsService {
   private async assertFarmBelongsToPartner(
     farmId: number | undefined,
     partnerId: number,
+    db: Pick<Prisma.TransactionClient, 'farm'> = this.prisma,
   ): Promise<void> {
     if (farmId === undefined || farmId === null) return;
-    const farm = await this.prisma.farm.findUnique({
+    const farm = await db.farm.findUnique({
       where: { id: farmId },
       select: { partnerId: true },
     });
@@ -284,6 +340,32 @@ export class ProductsService {
     }
     if (farm.partnerId !== partnerId) {
       throw new BadRequestException('Trang trại không thuộc đơn vị bán hàng đã chọn.');
+    }
+  }
+
+  /**
+   * Serialize every Product publication with Partner status/verification
+   * changes. Call only inside the Product transaction, after any Farm lock.
+   */
+  private async assertPartnerCanSell(
+    partnerId: number,
+    tx: Pick<Prisma.TransactionClient, '$queryRaw' | 'partner'>,
+  ): Promise<void> {
+    const locked = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT id FROM partners WHERE id = ${partnerId} FOR UPDATE
+    `;
+    if (locked.length === 0) throw new NotFoundException('Partner not found');
+
+    const partner = await tx.partner.findUnique({
+      where: { id: partnerId },
+      select: { status: true, verificationStatus: true },
+    });
+    if (!partner) throw new NotFoundException('Partner not found');
+    if (
+      partner.status !== RecordStatus.ACTIVE ||
+      partner.verificationStatus !== PartnerVerificationStatus.VERIFIED
+    ) {
+      throw new BadRequestException('Đối tác phải được xác minh và đang hoạt động để kinh doanh sản phẩm.');
     }
   }
 

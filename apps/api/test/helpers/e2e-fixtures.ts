@@ -125,10 +125,17 @@ export async function seedFixtures(
       code: t('PARTNER-A'),
       name: `HTX Rau sạch ${runId}`,
       representativeName: 'Nguyễn Văn A',
-      phone: '0987654321',
+      // Unique per run: `partners.phone` is a UNIQUE column and the demo seed
+      // ships with these exact phone numbers, so an untagged fixture would
+      // collide on any test database that had been seeded before.
+      phone: t('PARTNER-A-PHONE'),
       email: t('a@partner.vn'),
       address: 'Hưng Yên',
       status: 'ACTIVE',
+      // The public catalogue gates on VERIFIED partners (same rule for farms
+      // and products), so the selling partner of the fixture must be verified
+      // for its ACTIVE product/farm to appear in the public list and detail.
+      verificationStatus: 'VERIFIED',
       // Deliberately populated so the P0-A tests can prove the public API never
       // exposes them while the ADMIN view still does.
       taxCode: `${runId}-TAX-A`,
@@ -142,7 +149,7 @@ export async function seedFixtures(
       code: t('PARTNER-B'),
       name: `HTX Trái cây ${runId}`,
       representativeName: 'Trần Thị B',
-      phone: '0987654322',
+      phone: t('PARTNER-B-PHONE'),
       email: t('b@partner.vn'),
       address: 'Hải Dương',
       status: 'INACTIVE',
@@ -193,6 +200,39 @@ export async function seedFixtures(
       name: `Cam sành ${runId}`,
       slug: t('cam-sanh'),
       status: 'INACTIVE',
+    },
+  });
+
+  // A third partner keeps the public catalogue self-sufficient: demo-seed
+  // partners are PENDING (the security report's 14-product situation), so they
+  // contribute NO rows to `GET /products` behind the ACTIVE + VERIFIED gate.
+  // productA alone would make the "narrows meta.total" assertions compare
+  // 1 < 1. Its name/slug must NOT contain the runId search token, or the
+  // run-scoped search assertions would count it (public 1 / admin 2).
+  const partnerC = await prisma.partner.create({
+    data: {
+      code: t('PARTNER-C'),
+      name: `HTX Bầu xanh ${runId}`,
+      representativeName: 'Đặng Văn C',
+      phone: t('PARTNER-C-PHONE'),
+      email: t('c@partner.vn'),
+      address: 'Thái Bình',
+      status: 'ACTIVE',
+      verificationStatus: 'VERIFIED',
+    },
+  });
+  // Only referenced through the partner cleanup walk (its partner is deleted
+  // first), so the row object itself is never needed by a test.
+  await prisma.product.create({
+    data: {
+      partnerId: partnerC.id,
+      categoryId: categoryB.id,
+      name: 'Bầu xanh',
+      // A run-free but still unique slug: the e2e suites run sequentially and
+      // purge the previous run's partner tree (code `runId-PARTNER-C`) before
+      // seeding, so this slug never collides across runs.
+      slug: `bau-xanh-rua-${makeRunId('')}`,
+      status: 'ACTIVE',
     },
   });
 

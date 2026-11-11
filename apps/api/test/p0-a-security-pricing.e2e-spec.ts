@@ -218,7 +218,7 @@ describe.skipIf(!hasTestDb)('P0-A security & pricing (e2e)', () => {
         code: `${RUN_ID}-PARTNER-A`,
         name: `HTX Rau sạch ${RUN_ID}`,
         representativeName: 'Nguyễn Văn A',
-        phone: '0987654321',
+        phone: `${RUN_ID}-PARTNER-A-PHONE`,
         email: `${RUN_ID}-a@partner.vn`,
         address: 'Hưng Yên',
         status: 'ACTIVE',
@@ -262,9 +262,12 @@ describe.skipIf(!hasTestDb)('P0-A security & pricing (e2e)', () => {
     });
 
     it('keeps the full pre-image (tax/bank) in the update audit snapshot', async () => {
-      const originalName = `HTX Rau sạch ${RUN_ID}`;
+      const fixedAddress = 'Hưng Yên (e2e updated)';
+      // `name` is VERIFIED-partner legal info (renaming one is a 409 by design);
+      // the property under test is the audit PRE-IMAGE completeness, which any
+      // allowed update proves just as well.
       await patch(`/api/v1/partners/${fixtures.partnerAId}`, adminToken, {
-        name: `${originalName} (updated)`,
+        address: fixedAddress,
       }).expect(200);
 
       const audit = await prisma.auditLog.findFirst({
@@ -284,9 +287,11 @@ describe.skipIf(!hasTestDb)('P0-A security & pricing (e2e)', () => {
         bankName: 'VietinBank E2E',
       });
 
-      // Restore the fixture name for the remaining assertions.
+      expect(JSON.stringify(audit?.beforeJson)).not.toContain(fixedAddress);
+
+      // Restore the fixture address for the remaining assertions.
       await patch(`/api/v1/partners/${fixtures.partnerAId}`, adminToken, {
-        name: originalName,
+        address: 'Hưng Yên',
       }).expect(200);
     });
 

@@ -1,6 +1,13 @@
 import { describe, it, expect } from "vitest";
 import type { Order } from "@/types/api";
-import { hasDeliveryMismatch, shipmentCounts, undeliveredShipmentCount } from "@/lib/orderShipping";
+import {
+  hasDeliveryMismatch,
+  hasPartnerDeliveryMismatch,
+  mismatchedPartnerOrders,
+  partnerShipmentStatusSummary,
+  shipmentCounts,
+  undeliveredShipmentCount,
+} from "@/lib/orderShipping";
 
 function mkOrder(status: string, shipStatuses: string[]): Order {
   return {
@@ -71,5 +78,71 @@ describe("order shipping logic", () => {
   it("no mismatch for cancelled order", () => {
     const o = mkOrder("CANCELLED", ["IN_TRANSIT"]);
     expect(hasDeliveryMismatch(o)).toBe(false);
+  });
+});
+
+describe("partner delivery mismatch helpers", () => {
+  it("detects partner mismatch", () => {
+    const po = { status: "DELIVERED", shipments: [{ status: "IN_TRANSIT" }] } as { status: string; shipments: { status: string }[] };
+    expect(hasPartnerDeliveryMismatch(po)).toBe(true);
+    expect(hasPartnerDeliveryMismatch({ status: "DELIVERED", shipments: [{ status: "DELIVERED", deliveredAt: "2026-10-01T02:00:00Z" }] })).toBe(false);
+  });
+  it("partner shipment summary single vs multiple", () => {
+    expect(partnerShipmentStatusSummary({ shipments: [{ status: "IN_TRANSIT" }, { status: "IN_TRANSIT" }] })).toBe("Đang vận chuyển");
+    expect(partnerShipmentStatusSummary({ shipments: [{ status: "IN_TRANSIT" }, { status: "DELIVERED" }] })).toBe("Nhiều trạng thái");
+    expect(partnerShipmentStatusSummary({ shipments: [] })).toBe("Chưa có vận đơn");
+  });
+  it("mismatched partner orders list", () => {
+    const o = {
+      status: "DELIVERED",
+      partnerOrders: [
+        { id: 1, code: "PO1", partner: { name: "A" }, status: "DELIVERED", shipments: [{ status: "IN_TRANSIT" }] },
+        { id: 2, code: "PO2", partner: { name: "B" }, status: "DELIVERED", shipments: [{ status: "DELIVERED", deliveredAt: "2026-10-01T02:00:00Z" }] },
+      ],
+    };
+    const list = mismatchedPartnerOrders(o);
+    expect(list).toHaveLength(1);
+    expect(list[0].name).toBe("A");
+  });
+  it("shipment counts distinguish errors from in-progress", () => {
+    const o = mkOrder("DELIVERED", ["DELIVERY_FAILED", "IN_TRANSIT", "DELIVERED"]);
+    const c = shipmentCounts(o);
+    expect(c.problems).toBe(1);
+    expect(c.inProgress).toBe(1);
+    expect(c.delivered).toBe(1);
+  });
+  it("detects delivered order without a shipment", () => {
+    const o = mkOrder("DELIVERED", []);
+    expect(hasDeliveryMismatch(o)).toBe(true);
+    expect(hasPartnerDeliveryMismatch(o.partnerOrders![0])).toBe(true);
+    expect(mismatchedPartnerOrders(o)).toEqual([{ code: "PO", name: "P" }]);
+  });
+  it("detects missing deliveredAt even when shipment status is DELIVERED", () => {
+    const o = mkOrder("DELIVERED", ["DELIVERED"]);
+    o.partnerOrders![0].shipments![0].deliveredAt = null;
+    expect(hasDeliveryMismatch(o)).toBe(true);
+    expect(hasPartnerDeliveryMismatch(o.partnerOrders![0])).toBe(true);
+  });
+  it("requires every partner's evidence, including partners without shipments", () => {
+    const o = mkOrder("DELIVERED", ["DELIVERED"]);
+    o.partnerOrders!.push({ ...o.partnerOrders![0], id: 11, code: "PO-EMPTY", shipments: [] });
+    expect(hasDeliveryMismatch(o)).toBe(true);
+    expect(mismatchedPartnerOrders(o)).toEqual([{ code: "PO-EMPTY", name: "P" }]);
+  });
+  it("accepts a delivered shipment alongside a terminal returned attempt", () => {
+    const o = mkOrder("DELIVERED", ["RETURNED", "DELIVERED"]);
+    expect(hasDeliveryMismatch(o)).toBe(false);
+    expect(hasPartnerDeliveryMismatch(o.partnerOrders![0])).toBe(false);
+  });
+  it("detects a delivered order with a cancelled partner", () => {
+    const o = mkOrder("DELIVERED", ["DELIVERED"]);
+    o.partnerOrders![0].status = "CANCELLED";
+    expect(hasDeliveryMismatch(o)).toBe(true);
+    expect(mismatchedPartnerOrders(o)).toHaveLength(1);
+  });
+  it("detects delivered order without partner orders", () => {
+    const o = mkOrder("DELIVERED", []);
+    o.partnerOrders = [];
+    expect(hasDeliveryMismatch(o)).toBe(true);
   });
 });

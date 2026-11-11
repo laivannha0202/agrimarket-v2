@@ -11,7 +11,7 @@ import { InventoryService } from '../inventory/inventory.service.js';
 import { QuarantineService, QUARANTINE_SOURCES } from '../quarantine/quarantine.service.js';
 import { buildDatedCode, datedCodePrefix, nextDatedSequence } from '../common/utils/code.util.js';
 import { claimSequence } from '../common/utils/code-sequence.js';
-import { buildPagination, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
+import { buildPagination, normalizeSearch, paginate, type PaginatedResult } from '../common/dto/pagination-query.dto.js';
 import { CreateShipmentDto, UpdateShipmentStatusDto } from './dto/shipment.dto.js';
 import type { Prisma, Shipment } from '../../generated/prisma/client.js';
 import {
@@ -70,7 +70,19 @@ export class ShipmentsService {
    * the duplicate check sees the winner's row.
    */
   async create(dto: CreateShipmentDto, actorUserId?: number) {
+    const reference = await this.prisma.partnerOrder.findUnique({
+      where: { id: dto.partnerOrderId },
+      select: { orderId: true },
+    });
+    if (!reference) throw new NotFoundException('Partner order not found');
+
     return this.prisma.$transaction(async (tx) => {
+      // Match order cancellation and shipment updates: parent order first,
+      // partner order second. Otherwise create-vs-cancel can deadlock.
+      const orderLock = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM orders WHERE id = ${reference.orderId} FOR UPDATE
+      `;
+      if (orderLock.length === 0) throw new NotFoundException('Order not found');
       const locked = await tx.$queryRaw<{ id: number }[]>`
         SELECT id FROM partner_orders WHERE id = ${dto.partnerOrderId} FOR UPDATE
       `;
@@ -201,9 +213,41 @@ export class ShipmentsService {
     });
   }
 
-  async findAll(query: { page?: number; limit?: number; status?: ShipmentStatus }): Promise<PaginatedResult<Shipment>> {
+  async findAll(query: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    status?: ShipmentStatus;
+  }): Promise<PaginatedResult<Shipment>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.ShipmentWhereInput = query.status ? { status: query.status } : {};
+    const search = normalizeSearch(query.search);
+    /**
+     * Server-side keyword search, mirroring `OrdersService.findAll` so the two
+     * admin list pages behave the same. One keyword matches every identifier an
+     * operator actually holds: the shipment code (`SHP…`), the parent order
+     * code (`ORD…`), the partner-order code (`…-P01`), the carrier's tracking
+     * code, and the partner name — so searching `ORD-20261006-0003` returns
+     * ALL of that order's parcels, not just one of them. `contains` is case-
+     * insensitive here because the tables use `utf8mb4_unicode_ci` (same as the
+     * orders list); the filter composes with `status` before pagination, so
+     * `meta.total` counts the filtered set, page bounds stay inside it, and no
+     * dataset is ever pulled to the client to filter by hand.
+     */
+    const where: Prisma.ShipmentWhereInput = {
+      ...(query.status ? { status: query.status } : {}),
+      ...(search
+        ? {
+            OR: [
+              { code: { contains: search } },
+              { trackingCode: { contains: search } },
+              { carrier: { contains: search } },
+              { partnerOrder: { code: { contains: search } } },
+              { partnerOrder: { order: { code: { contains: search } } } },
+              { partnerOrder: { partner: { name: { contains: search } } } },
+            ],
+          }
+        : {}),
+    };
     const [data, total] = await Promise.all([
       this.prisma.shipment.findMany({
         where,
@@ -263,54 +307,76 @@ export class ShipmentsService {
    * once to blocked stock with quarantine cases — never released as sellable.
    */
   async updateStatus(id: number, dto: UpdateShipmentStatusDto, actorUserId: number) {
-    const shipment = await this.findOne(id);
-    if (shipment.status === dto.status) {
-      // Idempotent replay: no event and no second stock side effect.
-      return shipment;
-    }
-    const allowed = SHIPMENT_TRANSITIONS[shipment.status] ?? [];
-    if (!allowed.includes(dto.status)) {
-      throw new BadRequestException(
-        `Cannot change shipment status from ${shipment.status} to ${dto.status}`,
-      );
-    }
+    // This read supplies immutable relationship IDs only. All status decisions
+    // are made again after locking the parent order inside the transaction.
+    const reference = await this.findOne(id);
+    return this.prisma.$transaction(async (tx) => {
+      // Cancellation locks order -> partner orders -> shipments. Follow the
+      // same order before reading states, recording events or touching stock.
+      const orderLock = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM orders WHERE id = ${reference.partnerOrder.order.id} FOR UPDATE
+      `;
+      if (orderLock.length === 0) throw new NotFoundException('Order not found');
+      const partnerLock = await tx.$queryRaw<{ id: number }[]>`
+        SELECT id FROM partner_orders WHERE id = ${reference.partnerOrder.id} FOR UPDATE
+      `;
+      if (partnerLock.length === 0) throw new NotFoundException('Partner order not found');
 
-    const partnerOrder = shipment.partnerOrder;
-    const orderStatus = partnerOrder.order.status;
-    const orderCancelled = orderStatus === OrderStatus.CANCELLED;
-    const partnerCancelled = partnerOrder.status === PartnerOrderStatus.CANCELLED;
-
-    if (dto.status === ShipmentStatus.DELIVERED) {
-      if (orderCancelled || partnerCancelled) {
-        throw new ConflictException('Cannot deliver a shipment for a cancelled order');
+      const shipment = await tx.shipment.findUniqueOrThrow({
+        where: { id },
+        include: { partnerOrder: { include: { order: true } } },
+      });
+      if (shipment.status === dto.status) {
+        // Idempotent replay after the lock: no duplicate event, stock or audit.
+        return shipment;
       }
-      const orderShippable =
-        orderStatus === OrderStatus.SHIPPING || orderStatus === OrderStatus.DELIVERED;
-      const partnerShippable =
-        partnerOrder.status === PartnerOrderStatus.SHIPPING ||
-        partnerOrder.status === PartnerOrderStatus.DELIVERED;
-      if (!orderShippable || !partnerShippable) {
+      if (shipment.status !== reference.status) {
         throw new ConflictException(
-          'A shipment can only be delivered when the order and partner order are SHIPPING',
+          'The shipment status changed while this request was being processed, please reload',
         );
       }
-    } else if (dto.status !== ShipmentStatus.CANCELLED && dto.status !== ShipmentStatus.RETURNED) {
-      if (orderCancelled || partnerCancelled) {
-        throw new ConflictException('Cannot move a shipment for a cancelled order');
+      const allowed = SHIPMENT_TRANSITIONS[shipment.status] ?? [];
+      if (!allowed.includes(dto.status)) {
+        throw new BadRequestException(
+          `Cannot change shipment status from ${shipment.status} to ${dto.status}`,
+        );
       }
-      if (
-        partnerOrder.status === PartnerOrderStatus.DELIVERED ||
-        orderStatus === OrderStatus.DELIVERED
-      ) {
-        throw new ConflictException('Cannot move a shipment after its order was delivered');
+
+      const partnerOrder = shipment.partnerOrder;
+      const orderStatus = partnerOrder.order.status;
+      const orderCancelled = orderStatus === OrderStatus.CANCELLED;
+      const partnerCancelled = partnerOrder.status === PartnerOrderStatus.CANCELLED;
+
+      if (dto.status === ShipmentStatus.DELIVERED) {
+        if (orderCancelled || partnerCancelled) {
+          throw new ConflictException('Cannot deliver a shipment for a cancelled order');
+        }
+        const orderShippable =
+          orderStatus === OrderStatus.SHIPPING || orderStatus === OrderStatus.DELIVERED;
+        const partnerShippable =
+          partnerOrder.status === PartnerOrderStatus.SHIPPING ||
+          partnerOrder.status === PartnerOrderStatus.DELIVERED;
+        if (!orderShippable || !partnerShippable) {
+          throw new ConflictException(
+            'A shipment can only be delivered when the order and partner order are SHIPPING',
+          );
+        }
+      } else if (dto.status !== ShipmentStatus.CANCELLED && dto.status !== ShipmentStatus.RETURNED) {
+        if (orderCancelled || partnerCancelled) {
+          throw new ConflictException('Cannot move a shipment for a cancelled order');
+        }
+        if (
+          partnerOrder.status === PartnerOrderStatus.DELIVERED ||
+          orderStatus === OrderStatus.DELIVERED
+        ) {
+          throw new ConflictException('Cannot move a shipment after its order was delivered');
+        }
       }
-    }
 
-    if (dto.status === ShipmentStatus.CANCELLED && orderStatus === OrderStatus.DELIVERED) {
-      throw new ConflictException('Cannot cancel a shipment after delivery');
-    }
+      if (dto.status === ShipmentStatus.CANCELLED && orderStatus === OrderStatus.DELIVERED) {
+        throw new ConflictException('Cannot cancel a shipment after delivery');
+      }
 
-    return this.prisma.$transaction(async (tx) => {
       const now = new Date();
       const data: Prisma.ShipmentUpdateInput = { status: dto.status };
       if (dto.status === ShipmentStatus.IN_TRANSIT) data.shippedAt = now;
@@ -490,7 +556,7 @@ export class ShipmentsService {
           entityType: 'Shipment',
           entityId: String(id),
           beforeJson: { status: shipment.status },
-          afterJson: { status: dto.status },
+          afterJson: { status: dto.status, source: 'ADMIN_MANUAL' },
           reason: dto.failureReason,
         },
         tx,
@@ -522,7 +588,10 @@ export class ShipmentsService {
         shipment.status === ShipmentStatus.READY
       ) {
         next = ShipmentStatus.CANCELLED;
-      } else if (SHIPMENT_LEFT_WAREHOUSE_STATUSES.includes(shipment.status)) {
+      } else if (
+        shipment.status !== ShipmentStatus.RETURNING &&
+        SHIPMENT_LEFT_WAREHOUSE_STATUSES.includes(shipment.status)
+      ) {
         next = ShipmentStatus.RETURNING;
       }
       if (!next) continue;

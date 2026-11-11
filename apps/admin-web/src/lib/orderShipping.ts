@@ -1,4 +1,5 @@
 import { formatDateTime } from "@/lib/format";
+import { shipmentStatus } from "@/lib/status";
 import type { Order, Shipment } from "@/types/api";
 
 /** Flatten every shipment on every partner order of an order. */
@@ -46,24 +47,33 @@ export function shipmentCounts(order: Order | null | undefined): ShipmentCounts 
   };
 }
 
-/**
- * True when an order/partner order is recorded as delivered but at least one of
- * its shipments is not DELIVERED. This is a *display* condition only — it never
- * mutates the underlying records.
- */
+const activeShipmentStatuses = new Set([
+  "PENDING", "READY", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERY_FAILED", "RETURNING",
+]);
+
+type DeliveryPartner = {
+  status?: string | null;
+  shipments?: { status: string; deliveredAt?: string | Date | null }[] | null;
+};
+
+/** Mirror the backend delivery-evidence rule for read-only mismatch warnings. */
+function lacksDeliveryEvidence(partnerOrder: DeliveryPartner): boolean {
+  const shipments = partnerOrder.shipments ?? [];
+  return (
+    partnerOrder.status === "CANCELLED" ||
+    !shipments.some((s) => s.status === "DELIVERED" && !!s.deliveredAt) ||
+    shipments.some((s) => activeShipmentStatuses.has(s.status))
+  );
+}
+
+/** Display-only mismatch detection for order and partner delivery evidence. */
 export function hasDeliveryMismatch(order: Order | null | undefined): boolean {
   if (!order) return false;
-  const shipments = collectShipments(order);
-  if (shipments.length === 0) return false;
-  if (order.status === "DELIVERED" && shipments.some((s) => s.status !== "DELIVERED")) {
-    return true;
-  }
-  for (const po of order.partnerOrders ?? []) {
-    if (po.status === "DELIVERED" && (po.shipments ?? []).some((s) => s.status !== "DELIVERED")) {
-      return true;
-    }
-  }
-  return false;
+  const partnerOrders = order.partnerOrders ?? [];
+  if (order.status === "DELIVERED" && partnerOrders.length === 0) return true;
+  return partnerOrders.some(
+    (po) => (order.status === "DELIVERED" || po.status === "DELIVERED") && lacksDeliveryEvidence(po),
+  );
 }
 
 export function undeliveredShipmentCount(order: Order | null | undefined): number {
@@ -102,4 +112,41 @@ export function shipmentProgressStatus(status: string): "wait" | "process" | "fi
   if (status === "DELIVERED") return "finish";
   if (status === "DELIVERY_FAILED" || status === "CANCELLED") return "error";
   return "process";
+}
+
+/** Display-only: partner order recorded delivered without sufficient evidence. */
+export function hasPartnerDeliveryMismatch(
+  partnerOrder: DeliveryPartner | null | undefined,
+): boolean {
+  if (!partnerOrder) return false;
+  if (partnerOrder.status !== "DELIVERED") return false;
+  return lacksDeliveryEvidence(partnerOrder);
+}
+
+/**
+ * Compact label for the aggregate shipment state of a partner order. Returns
+ * the single status label when all shipments agree, otherwise "Nhiều trạng thái".
+ */
+export function partnerShipmentStatusSummary(
+  partnerOrder: { shipments?: { status: string }[] | null } | null | undefined,
+): string {
+  const shipments = partnerOrder?.shipments ?? [];
+  if (shipments.length === 0) return "Chưa có vận đơn";
+  const statuses = new Set(shipments.map((s) => s.status));
+  if (statuses.size === 1) {
+    return shipmentStatus(shipments[0].status).label;
+  }
+  return "Nhiều trạng thái";
+}
+
+/** Partner orders missing delivery evidence for a recorded delivered state. */
+export function mismatchedPartnerOrders(order: { status?: string | null; partnerOrders?: (DeliveryPartner & { code: string; partner?: { name?: string | null } | null })[] | null } | null | undefined): { code: string; name: string }[] {
+  if (!order) return [];
+  const out: { code: string; name: string }[] = [];
+  for (const po of order.partnerOrders ?? []) {
+    if ((order.status === "DELIVERED" || po.status === "DELIVERED") && lacksDeliveryEvidence(po)) {
+      out.push({ code: po.code, name: po.partner?.name ?? po.code });
+    }
+  }
+  return out;
 }

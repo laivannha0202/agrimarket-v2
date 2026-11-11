@@ -5,6 +5,7 @@ import { buildPagination, paginate, type PaginatedResult } from '../common/dto/p
 import { CreateHarvestDto, UpdateHarvestDto } from './dto/harvest.dto.js';
 import type { Harvest, Prisma } from '../../generated/prisma/client.js';
 import { SeasonStatus } from '../../generated/prisma/enums.js';
+import { publicFarmVisibility } from '../farms/farm-visibility.js';
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
@@ -76,7 +77,9 @@ export class HarvestsService {
     limit?: number;
   }): Promise<PaginatedResult<Harvest>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
-    const where: Prisma.HarvestWhereInput = {};
+    const where: Prisma.HarvestWhereInput = {
+      season: { is: { farm: publicFarmVisibility } },
+    };
     const [data, total] = await Promise.all([
       this.prisma.harvest.findMany({
         where,
@@ -91,10 +94,19 @@ export class HarvestsService {
   }
 
   async findOne(id: number) {
-    const harvest = await this.prisma.harvest.findUnique({
-      where: { id },
-      include: { productLots: true, season: { include: { farm: true } } },
-    });
+    return this.findOneByVisibility(id, true);
+  }
+
+  private async findOneByVisibility(id: number, publicOnly: boolean) {
+    const harvest = publicOnly
+      ? await this.prisma.harvest.findFirst({
+          where: { id, season: { is: { farm: publicFarmVisibility } } },
+          include: { productLots: true, season: { include: { farm: true } } },
+        })
+      : await this.prisma.harvest.findUnique({
+          where: { id },
+          include: { productLots: true, season: { include: { farm: true } } },
+        });
     if (!harvest) throw new NotFoundException('Harvest not found');
     return harvest;
   }
@@ -104,7 +116,7 @@ export class HarvestsService {
    * We allow correcting it upward, but never below the sum of existing lots.
    */
   async update(id: number, dto: UpdateHarvestDto, actorUserId?: number): Promise<Harvest> {
-    const before = await this.findOne(id);
+    const before = await this.findOneByVisibility(id, false);
     if (before.season.status === SeasonStatus.CANCELLED) {
       throw new BadRequestException('Cannot edit a harvest on a cancelled season');
     }

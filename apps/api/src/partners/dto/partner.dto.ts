@@ -1,108 +1,164 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
-import { RecordStatus } from '../../../generated/prisma/enums.js';
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl, Matches, MaxLength } from 'class-validator';
+import { PartnerType, PartnerVerificationStatus, RecordStatus } from '../../../generated/prisma/enums.js';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 export class CreatePartnerDto {
+  @ApiProperty({ enum: PartnerType })
+  @IsEnum(PartnerType)
+  type!: PartnerType;
+
   @ApiProperty({ example: 'HTX Rau quả Minh Châu' })
   @IsString()
-  @MaxLength(200)
+  @IsNotEmpty()
+  @MaxLength(191)
   name!: string;
 
-  @ApiProperty({ example: 'Nguyễn Văn Minh' })
+  @ApiPropertyOptional({ example: 'Nguyễn Văn Minh' })
+  @IsOptional()
   @IsString()
   @MaxLength(150)
-  representativeName!: string;
+  representativeName?: string;
 
   @ApiProperty({ example: '0987654321' })
   @IsString()
+  @Matches(/^\+?[0-9][0-9\s.-]{7,19}$/, { message: 'Số điện thoại không hợp lệ.' })
   @MaxLength(20)
   phone!: string;
 
-  @ApiProperty({ example: 'minhchau@agrimarket.vn' })
+  @ApiPropertyOptional({ example: 'minhchau@agrimarket.vn' })
+  @IsOptional()
   @IsEmail()
-  email!: string;
+  @MaxLength(191)
+  email?: string;
 
-  @ApiProperty({ example: 'Thôn Đa Hòa, xã Minh Châu, Hưng Yên' })
+  @ApiPropertyOptional({ example: 'Thôn Đa Hòa, xã Minh Châu, Hưng Yên' })
+  @IsOptional()
   @IsString()
-  address!: string;
+  @MaxLength(191)
+  address?: string;
 
   @ApiPropertyOptional({ example: '0900123456' })
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   taxCode?: string;
+
+  @ApiPropertyOptional({ description: 'HTTPS document link' })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { message: 'Đường dẫn giấy tờ phải là HTTPS.' })
+  @MaxLength(1000)
+  registrationDocumentUrl?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   bankAccountName?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   bankAccountNumber?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   bankName?: string;
-
-  @ApiPropertyOptional({ enum: RecordStatus, default: RecordStatus.ACTIVE })
-  @IsOptional()
-  @IsEnum(RecordStatus)
-  status?: RecordStatus;
 }
 
 export class UpdatePartnerDto {
+  @ApiPropertyOptional({ enum: PartnerType })
+  @IsOptional()
+  @IsEnum(PartnerType)
+  type?: PartnerType;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @IsNotEmpty()
+  @MaxLength(191)
   name?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(150)
   representativeName?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9][0-9\s.-]{7,19}$/, { message: 'Số điện thoại không hợp lệ.' })
   phone?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsEmail()
+  @MaxLength(191)
   email?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   address?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   taxCode?: string;
+
+  @ApiPropertyOptional({ description: 'HTTPS document link' })
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true }, { message: 'Đường dẫn giấy tờ phải là HTTPS.' })
+  @MaxLength(1000)
+  registrationDocumentUrl?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   bankAccountName?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   bankAccountNumber?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(191)
   bankName?: string;
+}
 
-  @ApiPropertyOptional({ enum: RecordStatus })
+export class PartnerVerificationDto {
+  @ApiProperty({ enum: PartnerVerificationStatus })
+  @IsEnum(PartnerVerificationStatus)
+  verificationStatus!: PartnerVerificationStatus;
+
+  @ApiPropertyOptional()
   @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class PartnerBusinessStatusDto {
+  @ApiProperty({ enum: RecordStatus })
   @IsEnum(RecordStatus)
-  status?: RecordStatus;
+  status!: RecordStatus;
+
+  @ApiProperty({ description: 'Reason for business status change' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason!: string;
 }
 
 /** Query DTO for `GET /partners`: strict status enum (400 on unknown values). */
@@ -111,6 +167,16 @@ export class PartnerQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(RecordStatus)
   declare status?: RecordStatus;
+
+  @ApiPropertyOptional({ enum: PartnerType })
+  @IsOptional()
+  @IsEnum(PartnerType)
+  type?: PartnerType;
+
+  @ApiPropertyOptional({ enum: PartnerVerificationStatus })
+  @IsOptional()
+  @IsEnum(PartnerVerificationStatus)
+  verificationStatus?: PartnerVerificationStatus;
 }
 
 /**
@@ -131,16 +197,16 @@ export class PartnerPublicResponseDto {
   name!: string;
 
   @ApiProperty({ example: 'Nguyễn Văn Minh' })
-  representativeName!: string;
+  representativeName!: string | null;
 
   @ApiProperty({ example: '0987654321' })
   phone!: string;
 
   @ApiProperty({ example: 'minhchau@agrimarket.vn' })
-  email!: string;
+  email!: string | null;
 
   @ApiProperty({ example: 'Thôn Đa Hòa, xã Minh Châu, Hưng Yên' })
-  address!: string;
+  address!: string | null;
 
   @ApiProperty({ enum: RecordStatus })
   status!: RecordStatus;

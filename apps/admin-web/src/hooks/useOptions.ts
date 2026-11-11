@@ -4,6 +4,54 @@ import { useQuery } from "@tanstack/react-query";
 import { useLookup } from "@/hooks/useLookup";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
+import type { Partner } from "@/types/api";
+
+/** Minimal partner fields needed by the farm creation selector. */
+export type FarmPartnerOption = Pick<
+  Partner,
+  "id" | "code" | "name" | "status"
+>;
+
+interface PublicPartnerPage {
+  data: FarmPartnerOption[];
+  meta: { totalPages: number };
+}
+
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3000/api/v1";
+
+/** Read the public partner projection without attaching the ADMIN bearer token. */
+async function fetchPublicPartnerPage(
+  params: Record<string, string | number>,
+  signal?: AbortSignal,
+): Promise<PublicPartnerPage> {
+  const url = new URL(`${API_BASE_URL.replace(/\/+$/, "")}/partners`);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
+
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    signal,
+    cache: "no-store",
+  });
+  const body: unknown = await response.json().catch(() => undefined);
+
+  if (!response.ok) {
+    const message =
+      body && typeof body === "object" && "message" in body
+        ? (body as { message?: unknown }).message
+        : undefined;
+    throw new Error(
+      Array.isArray(message)
+        ? message.filter((item): item is string => typeof item === "string").join(" ")
+        : typeof message === "string" && message.trim()
+          ? message
+          : "Không tải được danh sách đối tác.",
+    );
+  }
+
+  return body as PublicPartnerPage;
+}
 
 /** Select options backed by real backend lookups (max 100 rows each). */
 export function useCategoryOptions(enabled = true) {
@@ -21,6 +69,44 @@ export function usePartnerOptions(enabled = true) {
     fetcher: resources.partners,
     labelOf: (p) => `${p.code} — ${p.name}`,
     enabled,
+  });
+}
+
+/**
+ * Farm creation needs every partner so draft farms can reference partners in
+ * any review/business state. The API caps each page at 100 rows, so read every
+ * page and keep only the non-confidential fields used by this selector.
+ */
+export function useFarmPartnerOptions(enabled = true, eligibleOnly = false) {
+  return useQuery<FarmPartnerOption[], Error>({
+    queryKey: queryKeys.partners({ scope: "farm-create-lookup", eligibleOnly }),
+    enabled,
+    staleTime: 0,
+    queryFn: async ({ signal }) => {
+      // The public endpoint applies the verification filter in the database
+      // while its Prisma projection excludes legal and banking columns.
+      const filters: Record<string, string | number> =
+        eligibleOnly
+          ? { status: "ACTIVE", verificationStatus: "VERIFIED" }
+          : {};
+      const firstPage = await fetchPublicPartnerPage(
+        { page: 1, limit: 100, ...filters },
+        signal,
+      );
+      const partners = [...firstPage.data];
+      let totalPages = firstPage.meta.totalPages;
+
+      for (let page = 2; page <= totalPages; page += 1) {
+        const result = await fetchPublicPartnerPage(
+          { page, limit: 100, ...filters },
+          signal,
+        );
+        partners.push(...result.data);
+        totalPages = Math.max(totalPages, result.meta.totalPages);
+      }
+
+      return partners.map(({ id, code, name, status }) => ({ id, code, name, status }));
+    },
   });
 }
 

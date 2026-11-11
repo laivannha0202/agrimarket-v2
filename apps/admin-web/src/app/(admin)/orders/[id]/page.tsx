@@ -283,7 +283,7 @@ function OrderDetailView() {
                 disabled={!canAct}
               >
                 <Button type="primary" loading={updateStatus.isPending || pending}>
-                  Chuyển trạng thái
+                  Chuyển trạng thái đơn
                 </Button>
               </Dropdown>
             ) : (

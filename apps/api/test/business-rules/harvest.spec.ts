@@ -43,6 +43,7 @@ describe('Harvest invariants', () => {
         expiresAt: '2026-05-01',
       }),
     ).rejects.toThrow(/exceed harvest quantity/);
+    expect(prisma.productLot.create).not.toHaveBeenCalled();
   });
 
   it('allows a lot that fits exactly within the harvest quantity', async () => {
@@ -79,7 +80,43 @@ describe('Harvest invariants', () => {
     ).rejects.toThrow(/Harvest not found/);
   });
 
-  it('rejects a product that belongs to a different farm and partner', async () => {
+  it('accepts a product and harvest farm that belong to the same partner', async () => {
+    prisma.product.findUnique.mockResolvedValue({ id: 2, farmId: 10, partnerId: 1 } as never);
+    prisma.productLot.aggregate.mockResolvedValue({ _sum: { quantity: 0 } });
+    prisma.productLot.findMany.mockResolvedValue([]);
+    prisma.productLot.create.mockImplementation(async ({ data }: { data: unknown }) => data);
+    prisma.traceEvent.create.mockResolvedValue({});
+
+    await expect(
+      lots.create({
+        productId: 2,
+        harvestId: 1,
+        quantity: 10,
+        unit: 'kg',
+        grade: 'Loại 1',
+        expiresAt: '2026-05-01',
+      }),
+    ).resolves.toBeDefined();
+    expect(prisma.productLot.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a product from another partner even when its farmId matches the harvest farm', async () => {
+    prisma.product.findUnique.mockResolvedValue({ id: 2, farmId: 10, partnerId: 77 } as never);
+
+    await expect(
+      lots.create({
+        productId: 2,
+        harvestId: 1,
+        quantity: 10,
+        unit: 'kg',
+        grade: 'Loại 1',
+        expiresAt: '2026-05-01',
+      }),
+    ).rejects.toThrow(/same partner/);
+    expect(prisma.productLot.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a product from another partner and another farm', async () => {
     prisma.product.findUnique.mockResolvedValue({ id: 2, farmId: 99, partnerId: 77 } as never);
 
     await expect(
@@ -91,7 +128,28 @@ describe('Harvest invariants', () => {
         grade: 'Loại 1',
         expiresAt: '2026-05-01',
       }),
-    ).rejects.toThrow(/same farm \(or at least the same partner\)/);
+    ).rejects.toThrow(/same partner/);
+    expect(prisma.productLot.create).not.toHaveBeenCalled();
+  });
+
+  it('accepts a product linked to a different farm of the same partner', async () => {
+    prisma.product.findUnique.mockResolvedValue({ id: 3, farmId: 20, partnerId: 1 } as never);
+    prisma.productLot.aggregate.mockResolvedValue({ _sum: { quantity: 0 } });
+    prisma.productLot.findMany.mockResolvedValue([]);
+    prisma.productLot.create.mockImplementation(async ({ data }: { data: unknown }) => data);
+    prisma.traceEvent.create.mockResolvedValue({});
+
+    await expect(
+      lots.create({
+        productId: 3,
+        harvestId: 1,
+        quantity: 10,
+        unit: 'kg',
+        grade: 'Loại 1',
+        expiresAt: '2026-05-01',
+      }),
+    ).resolves.toBeDefined();
+    expect(prisma.productLot.create).toHaveBeenCalledTimes(1);
   });
 
   it('accepts a product with no farm when the partner matches', async () => {

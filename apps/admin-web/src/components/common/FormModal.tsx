@@ -11,8 +11,9 @@ interface FormModalProps<TValues extends Record<string, unknown> = Record<string
   onCancel: () => void;
   onSubmit: (values: TValues) => void;
   submitting?: boolean;
+  okDisabled?: boolean;
   okText?: string;
-  width?: number;
+  width?: number | string;
   children: ReactNode;
 }
 
@@ -35,6 +36,7 @@ export function FormModal<TValues extends Record<string, unknown> = Record<strin
   onCancel,
   onSubmit,
   submitting,
+  okDisabled,
   okText = "Lưu",
   width = 560,
   children,
@@ -46,6 +48,7 @@ export function FormModal<TValues extends Record<string, unknown> = Record<strin
       onCancel={onCancel}
       onOk={() => form.submit()}
       confirmLoading={submitting}
+      okButtonProps={{ disabled: Boolean(okDisabled || submitting) }}
       okText={okText}
       cancelText="Hủy"
       width={width}

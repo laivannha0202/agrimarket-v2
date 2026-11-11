@@ -112,7 +112,7 @@ describe("Order shipping/finance tabs", () => {
     });
     renderWithProviders(<OrderShippingTab order={order} />);
     expect(screen.getByText(/Trạng thái đơn và vận đơn chưa khớp\./)).toBeInTheDocument();
-    expect(screen.getByText(/Cần đối chiếu/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Cần đối chiếu/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Chưa giao").length).toBeGreaterThan(0);
   });
 
@@ -154,7 +154,19 @@ describe("Order shipping/finance tabs", () => {
     });
     renderWithProviders(<OrderShippingTab order={order} />);
     expect(screen.getByText("Thiếu thời điểm giao")).toBeInTheDocument();
-    expect(screen.queryByText(/Trạng thái đơn và vận đơn chưa khớp/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Trạng thái đơn và vận đơn chưa khớp/)).toBeInTheDocument();
+  });
+
+  it("warns when delivered partner order has no shipment", () => {
+    renderWithProviders(<OrderShippingTab order={baseOrder()} />);
+    expect(screen.getByText(/Trạng thái đơn và vận đơn chưa khớp/)).toBeInTheDocument();
+    expect(screen.getByText("Chưa tạo vận đơn cho đối tác này.")).toBeInTheDocument();
+  });
+
+  it("warns when a delivered order has no partner orders", () => {
+    renderWithProviders(<OrderShippingTab order={baseOrder({ partnerOrders: [] })} />);
+    expect(screen.getByText(/Trạng thái đơn và vận đơn chưa khớp/)).toBeInTheDocument();
+    expect(screen.getByText("Đơn hàng chưa có đối tác / vận đơn.")).toBeInTheDocument();
   });
 
   it("does not show mismatch alert for normal delivered order", () => {

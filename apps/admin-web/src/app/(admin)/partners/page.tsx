@@ -2,19 +2,20 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Button, Form } from "antd";
-import { EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { Button, Form, Space } from "antd";
+import { EditOutlined, PlusOutlined, EyeOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { FormModal } from "@/components/common/FormModal";
 import { PartnerFormFields } from "@/components/partner/PartnerFormFields";
+import { PARTNER_TYPE_OPTIONS, PARTNER_VERIFICATION_OPTIONS, partnerFormPayload, partnerTypeLabel, partnerVerificationStatus, showPartnerFieldError } from "@/components/partner/partner-ui";
 import { useListState } from "@/hooks/useListState";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
-import { recordStatus } from "@/lib/status";
+import { RECORD_STATUS, recordStatus, statusOptions } from "@/lib/status";
 import type { Partner } from "@/types/api";
 
 export default function PartnersPage() {
@@ -56,6 +57,14 @@ export default function PartnersPage() {
     setOpen(true);
   };
 
+  const submitPartner = async (values: Record<string, unknown>) => {
+    try {
+      await save.mutateAsync(partnerFormPayload(values));
+    } catch (error) {
+      showPartnerFieldError(form, error);
+    }
+  };
+
   const columns: ColumnsType<Partner> = [
     {
       title: "Đối tác",
@@ -73,28 +82,27 @@ export default function PartnersPage() {
         </div>
       ),
     },
-    { title: "Người đại diện", dataIndex: "representativeName" },
-    { title: "Điện thoại", dataIndex: "phone" },
-    { title: "Email", dataIndex: "email", width: 260 },
+    { title: "Loại hình", dataIndex: "type", width: 140, render: (type: Partner["type"]) => partnerTypeLabel(type) },
+    { title: "Người đại diện", dataIndex: "representativeName", render: (value: string | null) => value || "—" },
+    { title: "Liên hệ", width: 210, render: (_, row) => <div>
+      <div>{row.phone}</div><div className="agri-muted" style={{ fontSize: 12 }}>{row.email || "—"}</div>
+    </div> },
     {
-      title: "Trạng thái",
+      title: "Kinh doanh",
       dataIndex: "status",
       render: (s: string) => <StatusTag status={recordStatus(s)} />,
     },
+    { title: "Hồ sơ", dataIndex: "verificationStatus", width: 140,
+      render: (status: Partner["verificationStatus"]) => <StatusTag status={partnerVerificationStatus(status)} /> },
     {
       title: "Thao tác",
-      width: 90,
+      width: 130,
       fixed: "right",
       render: (_, row) => (
-        <Button
-          type="link"
-          size="small"
-          icon={<EditOutlined />}
-          style={{ paddingInline: 0 }}
-          onClick={() => openEdit(row)}
-        >
-          Sửa
-        </Button>
+        <Space size={4}>
+          <Link href={`/partners/${row.id}`}><Button type="link" size="small" icon={<EyeOutlined />} style={{ paddingInline: 0 }}>Xem</Button></Link>
+          <Button type="link" size="small" icon={<EditOutlined />} style={{ paddingInline: 0 }} onClick={() => openEdit(row)}>Sửa</Button>
+        </Space>
       ),
     },
   ];
@@ -105,8 +113,14 @@ export default function PartnersPage() {
         title="Đối tác bán hàng"
         searchValue={list.search}
         onSearchChange={list.setSearch}
-        searchPlaceholder="Tìm theo tên, mã, người đại diện..."
+        searchPlaceholder="Tìm tên, mã đối tác, số điện thoại..."
         onReset={list.reset}
+        filters={[
+          { key: "type", placeholder: "Loại đối tác", value: list.filters.type, options: PARTNER_TYPE_OPTIONS, width: 170 },
+          { key: "status", placeholder: "Kinh doanh", value: list.filters.status, options: statusOptions(RECORD_STATUS), width: 145 },
+          { key: "verificationStatus", placeholder: "Xác minh", value: list.filters.verificationStatus, options: PARTNER_VERIFICATION_OPTIONS, width: 160 },
+        ]}
+        onFilterChange={list.setFilter}
         toolbarExtra={
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
             Thêm đối tác
@@ -123,7 +137,7 @@ export default function PartnersPage() {
         limit={list.limit}
         onPageChange={list.setPage}
         onLimitChange={list.setLimit}
-        scrollX={1040}
+        scrollX={1200}
         itemLabel="đối tác"
       />
 
@@ -135,7 +149,7 @@ export default function PartnersPage() {
           setOpen(false);
           setEditing(null);
         }}
-        onSubmit={(values) => save.mutate(values as Record<string, unknown>)}
+        onSubmit={(values) => void submitPartner(values as Record<string, unknown>)}
         submitting={save.isPending}
         width={640}
       >

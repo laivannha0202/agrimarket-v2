@@ -11,6 +11,7 @@ import {
 import { CreateLotDto, RecallLotDto } from './dto/lot.dto.js';
 import type { Prisma, ProductLot } from '../../generated/prisma/client.js';
 import { ProductLotStatus, TraceEventType } from '../../generated/prisma/enums.js';
+import { publicFarmVisibility } from '../farms/farm-visibility.js';
 
 const CODE_ATTEMPTS = 3;
 
@@ -26,10 +27,9 @@ export class LotsService {
    * exceed the harvest quantity — this is the core traceability invariant.
    * A new lot always starts as PENDING_QC: it can never be SELLABLE directly.
    *
-   * The product must belong to the same farm as the harvest's season (or, for a
-   * product with no farm, at least to the same partner): a lot is the physical
-   * goods of one harvest, so attributing it to another producer's product would
-   * make the public trace chain claim an origin the goods never had.
+   * The product and the harvest's production farm must belong to the same
+   * partner. Products may be linked to another farm of that partner, but a
+   * matching farmId must never bypass the partner ownership check.
    *
    * The Σ ≤ harvest check runs inside the same transaction as the insert and
    * re-reads the harvest with `SELECT ... FOR UPDATE` (`lockHarvest`), so two
@@ -46,11 +46,10 @@ export class LotsService {
 
     const product = await this.prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundException('Product not found');
-    const sameFarm = product.farmId !== null && product.farmId === harvest.season.farmId;
     const samePartner = product.partnerId === harvest.season.farm.partnerId;
-    if (!sameFarm && !samePartner) {
+    if (!samePartner) {
       throw new BadRequestException(
-        'The product must belong to the same farm (or at least the same partner) as the harvest',
+        'The product and harvest farm must belong to the same partner (HTX)',
       );
     }
 
@@ -171,6 +170,7 @@ export class LotsService {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const search = normalizeSearch(query.search);
     const where: Prisma.ProductLotWhereInput = {
+      harvest: { is: { season: { is: { farm: publicFarmVisibility } } } },
       ...(query.status ? { status: query.status } : {}),
       ...(query.productId ? { productId: query.productId } : {}),
       ...(search
@@ -200,29 +200,31 @@ export class LotsService {
   }
 
   async findOne(id: number) {
-    const lot = await this.prisma.productLot.findUnique({
-      where: { id },
-      include: {
-        product: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } }, category: true } },
-        harvest: { include: { season: { include: { farm: true } } } },
-        // The inspector is shown next to each QC row; without this the detail
-        // page renders "—" for a value the QC list already displays.
-        qcInspections: {
-          orderBy: { inspectedAt: 'desc' },
-          include: { inspectorUser: { select: { id: true, fullName: true } } },
-        },
-        traceEvents: { orderBy: { occurredAt: 'asc' } },
-        // The stock table needs the warehouse and sale-variant names, not just
-        // their ids. `available` is derived (on_hand − reserved − blocked) the
-        // same way `InventoryService.withAvailable` computes it for the list.
-        inventoryBalances: {
-          include: {
-            warehouse: { select: { id: true, code: true, name: true } },
-            productVariant: { select: { id: true, sku: true, name: true } },
-          },
+    return this.findOneByVisibility(id, true);
+  }
+
+  private async findOneByVisibility(id: number, publicOnly: boolean) {
+    const include = {
+      product: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } }, category: true } },
+      harvest: { include: { season: { include: { farm: true } } } },
+      qcInspections: {
+        orderBy: { inspectedAt: 'desc' as const },
+        include: { inspectorUser: { select: { id: true, fullName: true } } },
+      },
+      traceEvents: { orderBy: { occurredAt: 'asc' as const } },
+      inventoryBalances: {
+        include: {
+          warehouse: { select: { id: true, code: true, name: true } },
+          productVariant: { select: { id: true, sku: true, name: true } },
         },
       },
-    });
+    } satisfies Prisma.ProductLotInclude;
+    const lot = publicOnly
+      ? await this.prisma.productLot.findFirst({
+          where: { id, harvest: { is: { season: { is: { farm: publicFarmVisibility } } } } },
+          include,
+        })
+      : await this.prisma.productLot.findUnique({ where: { id }, include });
     if (!lot) throw new NotFoundException('Product lot not found');
     return {
       ...lot,
@@ -258,7 +260,7 @@ export class LotsService {
   }
 
   async recall(id: number, dto: RecallLotDto, actorUserId: number): Promise<ProductLot> {
-    const before = await this.findOne(id);
+    const before = await this.findOneByVisibility(id, false);
     const lot = await this.prisma.productLot.update({
       where: { id },
       data: { status: ProductLotStatus.RECALLED },

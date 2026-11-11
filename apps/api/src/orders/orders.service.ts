@@ -37,11 +37,13 @@ import { normalizeVietnamesePhone } from '../common/utils/phone.util.js';
 import { normalizeWhitespace } from '../common/utils/vietnamese-text.js';
 import { reservationTtlMsForMethod } from './reservation-policy.js';
 import { assertPaymentMethodAvailable } from '../payments/payment-methods.js';
-import type { Order, Prisma } from '../../generated/prisma/client.js';
+import { Prisma } from '../../generated/prisma/client.js';
+import type { Order } from '../../generated/prisma/client.js';
 import {
   InventoryMovementType,
   OrderStatus,
   PartnerOrderStatus,
+  PartnerVerificationStatus,
   PaymentMethod,
   PaymentStatus,
   RecordStatus,
@@ -49,6 +51,34 @@ import {
 
 const MAX_IDEMPOTENCY_KEY_LENGTH = 100;
 const CODE_ATTEMPTS = 3;
+
+/**
+ * Refusal returned for every line whose seller may not trade right now.
+ *
+ * Deliberately one fixed sentence with no product/partner name in it: the
+ * storefront must not disclose *why* a listing became unsellable (a rejected
+ * legal file is not the buyer's business), and the buyer only needs to know the
+ * line cannot be bought. The exact wording is part of the API contract with the
+ * web app, so it is a constant, not a formatted string.
+ */
+const PARTNER_NOT_SELLABLE_MESSAGE =
+  'Sản phẩm hiện chưa đủ điều kiện kinh doanh. Vui lòng chọn sản phẩm khác.';
+
+/**
+ * A seller may only sell when it is both ACTIVE (not suspended) and VERIFIED
+ * (its legal file passed review). Same rule as the public catalogue
+ * (`publicPartnerVisibility`) and product publication
+ * (`ProductsService.assertPartnerCanSell`), so a product cannot be bought from a
+ * seller the storefront would refuse to list it under.
+ */
+function isPartnerSellable(
+  partner: { status: string; verificationStatus: string } | null | undefined,
+): boolean {
+  return (
+    partner?.status === RecordStatus.ACTIVE &&
+    partner.verificationStatus === PartnerVerificationStatus.VERIFIED
+  );
+}
 
 /** A payment in one of these states means real money is already involved. */
 const SETTLED_PAYMENT_STATUSES: PaymentStatus[] = [
@@ -529,6 +559,53 @@ export class OrdersService {
     // MySQL 8 through the mariadb adapter.
     return this.prisma.$transaction(
       async (tx) => {
+        // SELLER ELIGIBILITY, RE-CHECKED AT THE WRITE STEP.
+        //
+        // `resolveLines` above already refused an ineligible line, but it read
+        // through the pooled client *before* this transaction opened. Between
+        // that read and the first write below, an operator can suspend a
+        // partner or move its verification back to PENDING/REJECTED, and the
+        // order would then be written for a seller that is no longer allowed to
+        // trade. Nothing about the decision may come from the request, so the
+        // rule is re-evaluated here on the transaction's own snapshot, for
+        // EVERY line (a multi-seller cart has no "the valid one" — one
+        // ineligible seller refuses the whole checkout), and before any
+        // resource is claimed: no order row, no order code, no voucher
+        // redemption, no stock reservation, no payment. If any line fails, the
+        // `BadRequestException` rolls the transaction back, so the cart is left
+        // exactly as it was (cart consumption is the last write).
+        //
+        // Each fresh read also *rebinds* the line to the seller it actually has
+        // now, so the lock set and the per-partner split below are built from
+        // the same rows this loop judged — never from the pre-transaction
+        // snapshot. (Only the seller is rebound: category, price and name
+        // snapshots keep the pre-flight resolution, so pricing and commission
+        // rules are untouched by this lock.)
+        const sellerIds: number[] = [];
+        for (const line of lines) {
+          const variant = await this.loadSellableVariant(tx, line.productVariantId);
+          line.partnerId = variant.product.partnerId;
+          sellerIds.push(line.partnerId);
+        }
+
+        // LOCK THE SELLERS, THEN JUDGE THEM AGAIN UNDER THE LOCK.
+        //
+        // The reads above are plain SELECTs: they can judge an ACTIVE +
+        // VERIFIED seller and still write the order after a concurrent
+        // suspension commits, because nothing stopped that suspension from
+        // landing between the read and the insert. `lockSellablePartners` takes
+        // a shared row lock (`FOR SHARE`) on every seller — the lock that
+        // conflicts with the `FOR UPDATE` the partner-management paths take —
+        // and judges the state returned by that locking statement, so the two
+        // paths can only interleave as "status change first -> checkout
+        // refuses" or "checkout first -> status change hits the open-order
+        // blocker".
+        //
+        // Runs before the order-code counter, the voucher claim, the order row
+        // and every warehouse/balance lock: nothing is claimed for a seller that
+        // may not sell.
+        await this.lockSellablePartners(tx, sellerIds);
+
         // Re-resolve every line against the transaction's fresh snapshot before
         // anything is written. The pre-transaction pricing above can be
         // invalidated by a concurrent checkout (a flash sale ends, its quota is
@@ -809,6 +886,114 @@ export class OrdersService {
   }
 
   /**
+   * Lock every Partner that sells a line of this checkout and decide, from the
+   * rows returned BY THAT LOCKING READ, whether all of them may still trade.
+   *
+   * THE RACE THIS CLOSES
+   *
+   * The eligibility read in `createOrder` is a plain `SELECT`: it is fresh at
+   * statement time but it holds nothing, so a partner suspension can land
+   * between the read and the insert:
+   *
+   *   1. checkout reads Partner ACTIVE + VERIFIED (no lock);
+   *   2. suspension locks the row, counts 0 open orders, commits INACTIVE;
+   *   3. checkout inserts the order + partner order + reservation and commits.
+   *
+   * The customer then holds an order for a seller that was already stopped when
+   * the order committed — and the suspension's own open-order blocker saw
+   * nothing, so the operator's guard did not fire either. A plain re-read does
+   * not help: it can always be followed by the same gap.
+   *
+   * THE FIX
+   *
+   * Lock the Partner rows with `FOR SHARE` and read `status` /
+   * `verification_status` *from the locking statement*. InnoDB then serialises
+   * this checkout against every X(partner) writer — the same lock
+   * `PartnersService.changeBusinessStatus` / `verify` / `update` and
+   * `ProductsService.assertPartnerCanSell` take:
+   *
+   *   - suspension commits first  -> this lock waits for it, then reads
+   *     INACTIVE and refuses the whole checkout with
+   *     `PARTNER_NOT_SELLABLE_MESSAGE`;
+   *   - checkout commits first    -> the suspension waits for this lock, then
+   *     its open-order count sees the freshly committed partner order and
+   *     refuses with the existing "handle open orders first" conflict. The
+   *     order stands, and it was created while the seller was still eligible.
+   *
+   * WHY THE STATUS COMES FROM THE LOCKING STATEMENT, NOT A SECOND READ
+   *
+   * A locking read always returns the latest committed row version, but a
+   * *plain* read that follows it inside the same transaction can still answer
+   * from an older consistent snapshot: verified on MySQL 8 through this
+   * adapter under REPEATABLE READ, where `SELECT ... FOR SHARE` returned
+   * INACTIVE while the `partner.findMany` right after it returned the stale
+   * ACTIVE. Reading the pair in the same statement that takes the lock makes
+   * the decision correct at any isolation level instead of only under the
+   * READ COMMITTED this transaction currently requests.
+   *
+   * WHY `FOR SHARE` AND NOT `FOR UPDATE`
+   *
+   * Checkout never writes a Partner; it only needs the writers to queue behind
+   * it. `FOR SHARE` is exactly that (`InventoryService.lockWarehouseShared`
+   * documents the same reasoning for warehouses): it conflicts with the
+   * suspension's X lock, which is the queueing point we need, while two
+   * checkouts of the same seller still run in parallel instead of serialising
+   * every order for a popular partner. Verified against MySQL 8: two `FOR
+   * SHARE` holders coexist, and both a `changeBusinessStatus` X lock and a
+   * product-publication X lock wait for them.
+   *
+   * LOCK ORDER
+   *
+   * One statement for the whole set, ascending Partner id and de-duplicated
+   * first, so two multi-seller checkouts that share sellers take those rows in
+   * the same order and cannot deadlock each other. It runs before the
+   * order-code counter and before every warehouse/balance lock, so the order is
+   * `partner -> code counter -> warehouse -> balance`. The `partner_orders`
+   * insert below needs an S(partner) lock through its FK, which is compatible
+   * with the S lock already held here (verified: the insert does not block).
+   *
+   * The refusal message is the fixed API-contract sentence (never a partner id
+   * or the specific reason), identical to the pre-flight gate, so a client
+   * cannot distinguish "was already stopped" from "was stopped mid-checkout".
+   */
+  private async lockSellablePartners(
+    tx: Prisma.TransactionClient,
+    partnerIds: number[],
+  ): Promise<void> {
+    const ids = [...new Set(partnerIds)].sort((a, b) => a - b);
+    if (ids.length === 0) return;
+
+    // Snake_case columns are read as-is (no alias) so the result shape does not
+    // depend on how the driver maps aliases; the mapping happens in TS below.
+    const locked = await tx.$queryRaw<
+      Array<{ id: number; status: string; verification_status: string }>
+    >`
+      SELECT id, status, verification_status
+        FROM partners
+       WHERE id IN (${Prisma.join(ids)})
+       ORDER BY id
+         FOR SHARE
+    `;
+
+    // Fail closed on a short result: the ids came from a variant -> product
+    // join in this same transaction, so a missing row means a concurrent
+    // delete, and a money path must not guess.
+    if (locked.length !== ids.length) {
+      throw new BadRequestException(PARTNER_NOT_SELLABLE_MESSAGE);
+    }
+    for (const partner of locked) {
+      if (
+        !isPartnerSellable({
+          status: partner.status,
+          verificationStatus: partner.verification_status,
+        })
+      ) {
+        throw new BadRequestException(PARTNER_NOT_SELLABLE_MESSAGE);
+      }
+    }
+  }
+
+  /**
    * Take shared warehouse locks for every warehouse this checkout could touch,
    * in ascending id order, BEFORE the first balance is claimed.
    *
@@ -986,26 +1171,72 @@ export class OrdersService {
     }));
   }
 
+  /**
+   * Load one ordered variant together with the two things that decide whether
+   * it may be sold at all: its Product and that Product's Partner (the seller).
+   *
+   * `db` is the Prisma client *or* a transaction client, so the exact same rule
+   * runs twice with no chance of drift:
+   *
+   *   1. `resolveLines` (outside the transaction) for the preview and for the
+   *      early refusal — nothing is claimed, no voucher/code/stock is touched;
+   *   2. the eligibility loop at the top of the checkout transaction (inside
+   *      it, on the fresh READ COMMITTED snapshot) so a status change that
+   *      landed between the pre-flight read and the write still refuses the
+   *      order.
+   *
+   * Three independent gates, all server-side:
+   *
+   *   - the variant is ACTIVE (`ProductVariant.status`);
+   *   - its Product is ACTIVE (`Product.status`);
+   *   - its seller is ACTIVE and VERIFIED (`Partner.status` +
+   *     `Partner.verificationStatus`) — the same pair the public catalogue and
+   *     product publication already require (`publicPartnerVisibility`,
+   *     `ProductsService.assertPartnerCanSell`). Without it a suspended or
+   *     unverified seller could still take money through a stale listing.
+   *
+   * A missing partner relation is treated as "not sellable": the relation is
+   * required in the schema, so the only way to see it absent is an incomplete
+   * read, and failing closed is the safe answer for a money path.
+   */
+  private async loadSellableVariant(
+    db: Pick<Prisma.TransactionClient, 'productVariant'>,
+    productVariantId: number,
+  ) {
+    const variant = await db.productVariant.findUnique({
+      where: { id: productVariantId },
+      include: {
+        product: {
+          include: { partner: { select: { status: true, verificationStatus: true } } },
+        },
+      },
+    });
+    if (!variant) throw new NotFoundException(`Product variant ${productVariantId} not found`);
+    // A deactivated variant (or product) can never enter a new order — this
+    // single check covers both preview and checkout, so the storefront and
+    // the API cannot disagree. Past orders are untouched (price snapshots).
+    if (variant.status !== RecordStatus.ACTIVE) {
+      throw new BadRequestException(`Product variant ${variant.sku} is no longer for sale`);
+    }
+    if (variant.product.status !== RecordStatus.ACTIVE) {
+      throw new BadRequestException(`Product ${variant.product.name} is no longer for sale`);
+    }
+    // The seller gate. Message is intentionally generic and identical for
+    // PENDING / REJECTED / INACTIVE partners: the buyer must not learn why a
+    // seller was stopped, and the storefront keys its copy off this sentence.
+    if (!isPartnerSellable(variant.product.partner)) {
+      throw new BadRequestException(PARTNER_NOT_SELLABLE_MESSAGE);
+    }
+    return variant;
+  }
+
   private async resolveLines(
     items: { productVariantId: number; quantity: number }[],
     customerId: number,
   ): Promise<ResolvedLine[]> {
     const lines: ResolvedLine[] = [];
     for (const item of items) {
-      const variant = await this.prisma.productVariant.findUnique({
-        where: { id: item.productVariantId },
-        include: { product: true },
-      });
-      if (!variant) throw new NotFoundException(`Product variant ${item.productVariantId} not found`);
-      // A deactivated variant (or product) can never enter a new order — this
-      // single check covers both preview and checkout, so the storefront and
-      // the API cannot disagree. Past orders are untouched (price snapshots).
-      if (variant.status !== 'ACTIVE') {
-        throw new BadRequestException(`Product variant ${variant.sku} is no longer for sale`);
-      }
-      if (variant.product.status !== 'ACTIVE') {
-        throw new BadRequestException(`Product ${variant.product.name} is no longer for sale`);
-      }
+      const variant = await this.loadSellableVariant(this.prisma, item.productVariantId);
       // Customer-aware pricing: skip flash items this customer can no longer
       // buy (quota exhausted or personal limit reached) so two sales that
       // share a price stay independent programs. The in-transaction

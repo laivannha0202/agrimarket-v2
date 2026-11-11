@@ -1,38 +1,30 @@
 "use client";
 
-/**
- * Mã giảm giá — web twin of the Mobile `vouchers` screen.
- *
- * A read-only catalogue of the vouchers the backend currently serves
- * (`GET /vouchers`). There is no "claim" or "my voucher" endpoint, so the
- * screen never offers one: the code is chosen at checkout, where it is
- * validated against the real order and the discount is computed by the server.
- *
- * The list is therefore *informational*: it states each programme's real rules
- * and whether the code is currently usable at all. It deliberately does not
- * judge whether a code fits a particular cart — that depends on the order, and
- * the checkout screen is where the code is picked and the exact saving shown.
- */
+/** Public voucher catalogue. The checkout flow validates the selected code. */
 
-import { Box, Button, Container, Group, SimpleGrid, Stack, Text } from "@mantine/core";
-import { IconInfoCircle, IconLock, IconTicket } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
+import { Button, Skeleton } from "@mantine/core";
+import { IconTicket, IconTicketOff } from "@tabler/icons-react";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/api/query-keys";
 import { useNow } from "@/lib/hooks/useNow";
-import { useAuth } from "@/lib/auth/useAuth";
-import { useIsHydrated } from "@/lib/hooks/useIsHydrated";
 import { EmptyState, ErrorState } from "@/components/common/States";
 import { VoucherCard } from "@/components/promotion/VoucherCard";
-import { splitVouchers } from "@/lib/vouchers";
-import { AppCard } from "@/components/ui/kit";
-import { layout } from "@/theme";
+import { IconArrow } from "@/components/promotion/voucher-icons";
+import { splitVouchers, voucherStatus } from "@/lib/vouchers";
+import type { Voucher } from "@/lib/api/types";
+import type { VoucherStatus } from "@/lib/vouchers";
+import styles from "./voucher.module.css";
+
+interface VoucherOption {
+  voucher: Voucher;
+  status: VoucherStatus;
+}
 
 export function VoucherListView() {
   const now = useNow();
-  const hydrated = useIsHydrated();
-  const { user, isCustomer } = useAuth();
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: queryKeys.vouchers.list(50),
@@ -40,302 +32,172 @@ export function VoucherListView() {
     staleTime: 60_000,
   });
 
-  const vouchers = data?.data ?? [];
+  const vouchers = useMemo<Voucher[]>(() => data?.data ?? [], [data]);
 
-  const { eligible, ineligible } = splitVouchers(vouchers, null, {
-    now: now === 0 ? undefined : now,
-  });
+  const options = useMemo<VoucherOption[]>(() => {
+    // No catalog order in view: the minimum-order rule is a property of a
+    // specific order, so only the period/quota rules reorder the list —
+    // usable codes first, then the rest.
+    const { eligible, ineligible } = splitVouchers(vouchers, null, {
+      now: now === 0 ? undefined : now,
+    });
+    return [...eligible, ...ineligible].map((option) => ({
+      voucher: option.voucher,
+      status: voucherStatus(option.voucher, now),
+    }));
+  }, [vouchers, now]);
 
-  const signedIn = hydrated && Boolean(user) && isCustomer;
-  const showGuestInvite = hydrated && !signedIn;
+  const ongoingCount = useMemo(
+    () => options.filter((option) => option.status.running).length,
+    [options],
+  );
 
-  /**
-   * One programme leaves half of the desktop row empty. Pairing it with the
-   * usage guide keeps that row composed instead of showing a card and a void.
-   */
-  const guideBesideCard = eligible.length + ineligible.length === 1;
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    },
+    [],
+  );
+
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToastMessage(null), 2500);
+  }, []);
+
+  const multiple = options.length > 1;
 
   return (
-    <Container size={layout.containerSize} px={{ base: 12, sm: "lg" }} py={{ base: 16, sm: 28 }}>
-      <Stack gap={18}>
-        {/* Desktop-only breadcrumb trail; the phone uses the app bar's back button. */}
-        <Group gap={6} visibleFrom="sm" wrap="wrap">
-          <Text component={Link} href="/" fz={13} c="var(--agri-muted)">
-            Trang chủ
-          </Text>
-          <Text fz={13} c="var(--agri-muted-soft)">
-            /
-          </Text>
-          <Text fz={13} c="var(--agri-text)">
-            Mã giảm giá
-          </Text>
-        </Group>
+    <div className={styles.page}>
+      <nav className={styles.crumbs} aria-label="Breadcrumb">
+        <Link href="/">Trang chủ</Link>
+        <span className={styles.sep}>/</span>
+        <span aria-current="page">Mã giảm giá</span>
+      </nav>
 
-        {/* Page header */}
-        <Stack gap={6} maw={760}>
-          <Group gap={10} align="center" wrap="nowrap">
-            <Box
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: 12,
-                display: "grid",
-                placeItems: "center",
-                background: "var(--agri-primary-soft)",
-                border: "1px solid var(--agri-primary-border)",
-                flexShrink: 0,
+      <section className={styles.intro} aria-labelledby="page-title">
+        <div className={styles.introText}>
+          <h1 id="page-title" className={styles.introTitle}>
+            Mã giảm giá
+          </h1>
+          <p className={styles.introDesc}>
+            Chọn ưu đãi phù hợp, sao chép mã và tiết kiệm khi mua nông sản.
+          </p>
+        </div>
+        {options.length > 0 ? (
+          <span className={styles.count}>
+            <span className={styles.countDot} aria-hidden="true" />
+            {ongoingCount} ưu đãi đang diễn ra
+          </span>
+        ) : null}
+      </section>
+
+      {isError ? (
+        <ErrorState error={error} onRetry={() => refetch()} />
+      ) : isLoading ? (
+        <VoucherListSkeleton />
+      ) : options.length === 0 ? (
+        <EmptyState
+          icon={<IconTicketOff size={28} />}
+          title="Ưu đãi đang được làm mới"
+          description="Hiện chưa có mã giảm giá nào đang mở. Bạn vẫn có thể khám phá nông sản và quay lại khi có ưu đãi mới."
+          action={
+            <Button
+              component={Link}
+              href="/san-pham"
+              radius={10}
+              leftSection={<IconTicket size={16} />}
+              styles={{
+                root: { minHeight: 44, paddingInline: 17 },
+                label: { fontSize: 14, fontWeight: 700 },
               }}
             >
-              <IconTicket size={20} color="var(--agri-primary)" aria-hidden />
-            </Box>
-            <Text fz={{ base: 22, sm: 28 }} fw={800} c="var(--agri-text-strong)" lh={1.15}>
-              Ưu đãi nông sản
-            </Text>
-          </Group>
-          <Text fz={{ base: 13.5, sm: 15 }} c="var(--agri-muted)" lh={1.5} maw={680}>
-            Khám phá các chương trình khuyến mãi đang áp dụng tại AgriMarket.
-          </Text>
-        </Stack>
+              Khám phá sản phẩm
+            </Button>
+          }
+        />
+      ) : (
+        <section
+          className={`${styles.voucherList}${multiple ? ` ${styles.multiple}` : ""}`}
+          aria-label="Danh sách mã giảm giá"
+        >
+          {options.map((option) => (
+            <VoucherCard
+              key={option.voucher.id}
+              voucher={option.voucher}
+              onToast={showToast}
+            />
+          ))}
+        </section>
+      )}
 
-        {/* Guest invite — informational, never forced. */}
-        {showGuestInvite ? (
-          <AppCard
-            padding={14}
-            style={{
-              borderColor: "var(--agri-primary-border)",
-              background: "var(--agri-primary-soft)",
-            }}
-          >
-            <Group gap={12} align="center" wrap="wrap">
-              <Box
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 999,
-                  display: "grid",
-                  placeItems: "center",
-                  background: "var(--agri-surface)",
-                  border: "1px solid var(--agri-primary-border)",
-                  flexShrink: 0,
-                }}
-              >
-                <IconLock size={18} color="var(--agri-primary)" aria-hidden />
-              </Box>
-              <Stack gap={2} style={{ flex: 1, minWidth: 220, maxWidth: 760 }}>
-                <Text fz={14} fw={700} c="var(--agri-text-strong)">
-                  Đăng nhập để sử dụng mã tại checkout
-                </Text>
-                <Text fz={12.5} c="var(--agri-muted)" lh={1.45}>
-                  Bạn vẫn có thể xem và sao chép các mã công khai. Đăng nhập giúp theo dõi trạng
-                  thái sử dụng và áp dụng mã khi đặt hàng.
-                </Text>
-              </Stack>
-              <Button
-                component={Link}
-                href="/dang-nhap?tiep-theo=%2Fma-giam-gia"
-                radius={8}
-                color="agri"
-                w={{ base: "100%", sm: "auto" }}
-                ml={{ base: 0, sm: "auto" }}
-                styles={{ root: { minHeight: 44 }, label: { fontSize: 13.5, fontWeight: 700 } }}
-              >
-                Đăng nhập
-              </Button>
-            </Group>
-          </AppCard>
-        ) : null}
+      {options.length > 0 ? (
+        <>
+          <section className={styles.howto} aria-labelledby="howto-title">
+            <h2 className={styles.howtoHeading} id="howto-title">
+              Cách sử dụng mã giảm giá
+            </h2>
+            <div className={styles.steps}>
+              <div className={styles.step}>
+                <span className={styles.stepNum}>1</span>
+                <span>
+                  <b>Sao chép mã</b> ưu đãi
+                </span>
+              </div>
+              <IconArrow className={styles.stepArrow} aria-hidden="true" />
+              <div className={styles.step}>
+                <span className={styles.stepNum}>2</span>
+                <span>
+                  <b>Chọn sản phẩm</b> yêu thích
+                </span>
+              </div>
+              <IconArrow className={styles.stepArrow} aria-hidden="true" />
+              <div className={styles.step}>
+                <span className={styles.stepNum}>3</span>
+                <span>
+                  <b>Nhập mã</b> khi thanh toán
+                </span>
+              </div>
+            </div>
+          </section>
+          <p className={styles.pageNote}>
+            Mã được công khai để xem và sao chép. Việc sử dụng mã phụ thuộc vào
+            điều kiện thực tế của đơn hàng.
+          </p>
+        </>
+      ) : null}
 
-        {isError ? (
-          <ErrorState error={error} onRetry={() => refetch()} />
-        ) : isLoading ? (
-          <Stack gap={10}>
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Box
-                key={i}
-                style={{
-                  height: 140,
-                  borderRadius: 12,
-                  background: "var(--agri-surface)",
-                  border: "1px solid var(--agri-border)",
-                }}
-              />
-            ))}
-          </Stack>
-        ) : vouchers.length === 0 ? (
-          <EmptyState
-            kind="search"
-            icon={<IconTicket size={28} />}
-            title="Chưa có mã giảm giá"
-            description="Hiện chưa có chương trình giảm giá nào đang mở. Danh sách sẽ cập nhật khi hệ thống mở chương trình mới."
-          />
-        ) : (
-          <Stack gap={18}>
-            {eligible.length > 0 ? (
-              <Stack gap={10}>
-                <SectionLabel
-                  title="Đang có hiệu lực"
-                  description="Các mã đang trong thời gian áp dụng và còn lượt sử dụng."
-                />
-                {eligible.length === 1 ? (
-                  guideBesideCard ? (
-                    <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 10, sm: 14 }}>
-                      <VoucherCard voucher={eligible[0].voucher} usable />
-                      <GuideCard />
-                    </SimpleGrid>
-                  ) : (
-                    <Box maw={{ base: "100%", md: 640 }} w="100%">
-                      <VoucherCard voucher={eligible[0].voucher} usable />
-                    </Box>
-                  )
-                ) : (
-                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 10, sm: 14 }}>
-                    {eligible.map((option) => (
-                      <VoucherCard key={option.voucher.id} voucher={option.voucher} usable />
-                    ))}
-                  </SimpleGrid>
-                )}
-              </Stack>
-            ) : null}
-
-            {ineligible.length > 0 ? (
-              <Stack gap={10}>
-                <SectionLabel
-                  title="Chưa dùng được"
-                  description="Các mã chưa bắt đầu, hết hạn, hết lượt hoặc chưa đủ điều kiện."
-                />
-                {ineligible.length === 1 ? (
-                  guideBesideCard ? (
-                    <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 10, sm: 14 }}>
-                      <VoucherCard
-                        voucher={ineligible[0].voucher}
-                        usable={false}
-                        reason={ineligible[0].reason}
-                      />
-                      <GuideCard />
-                    </SimpleGrid>
-                  ) : (
-                    <Box maw={{ base: "100%", md: 640 }} w="100%">
-                      <VoucherCard
-                        voucher={ineligible[0].voucher}
-                        usable={false}
-                        reason={ineligible[0].reason}
-                      />
-                    </Box>
-                  )
-                ) : (
-                  <SimpleGrid cols={{ base: 1, md: 2 }} spacing={{ base: 10, sm: 14 }}>
-                    {ineligible.map((option) => (
-                      <VoucherCard
-                        key={option.voucher.id}
-                        voucher={option.voucher}
-                        usable={false}
-                        reason={option.reason}
-                      />
-                    ))}
-                  </SimpleGrid>
-                )}
-              </Stack>
-            ) : null}
-
-            {guideBesideCard ? null : <GuideCard />}
-
-            <Text fz={12} c="var(--agri-muted)" lh={1.5} px={2} maw={760}>
-              Trạng thái “Đang có hiệu lực” phản ánh chương trình và lượt sử dụng chung. Việc mã có
-              áp dụng được cho đơn hàng cụ thể sẽ được hệ thống kiểm tra tại bước thanh toán.
-            </Text>
-          </Stack>
-        )}
-      </Stack>
-    </Container>
+      <div
+        className={`${styles.toast}${toastMessage ? ` ${styles.toastShow}` : ""}`}
+        role="status"
+        aria-live="polite"
+      >
+        {toastMessage}
+      </div>
+    </div>
   );
 }
 
-/** Usage guide + the two entry points the customer needs next. */
-function GuideCard() {
+/** Loading placeholder with the same proportions as the voucher card. */
+function VoucherListSkeleton() {
   return (
-    <AppCard padding={14} style={{ borderColor: "var(--agri-primary-border)" }}>
-      <Stack gap={10}>
-        <Group gap={8} align="center" wrap="nowrap">
-          <Box
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              display: "grid",
-              placeItems: "center",
-              background: "var(--agri-primary-soft)",
-              flexShrink: 0,
-            }}
-          >
-            <IconInfoCircle size={17} color="var(--agri-primary)" aria-hidden />
-          </Box>
-          <Text fz={14} fw={700} c="var(--agri-text-strong)">
-            Cách sử dụng mã giảm giá
-          </Text>
-        </Group>
-        <Stack gap={4} pl={2}>
-          <GuideStep text="Sao chép mã bạn muốn sử dụng." />
-          <GuideStep text="Thêm sản phẩm vào giỏ và tiến hành đặt hàng." />
-          <GuideStep text="Nhập hoặc chọn mã tại bước thanh toán để hệ thống kiểm tra và tính giảm giá." />
-          <GuideStep text="Số tiền giảm cuối cùng do backend xác nhận theo đơn hàng thực tế." />
-        </Stack>
-        <Group gap={10} wrap="wrap" mt={2}>
-          <Button
-            component={Link}
-            href="/san-pham"
-            radius={8}
-            color="agri"
-            styles={{ root: { minHeight: 44 }, label: { fontSize: 14, fontWeight: 700 } }}
-          >
-            Mua sắm ngay
-          </Button>
-          <Button
-            component={Link}
-            href="/thanh-toan"
-            radius={8}
-            variant="default"
-            styles={{
-              root: { minHeight: 44, borderColor: "var(--agri-primary-border)" },
-              label: { fontSize: 14, fontWeight: 700, color: "var(--agri-primary-dark)" },
-            }}
-          >
-            Đến thanh toán
-          </Button>
-        </Group>
-      </Stack>
-    </AppCard>
-  );
-}
-
-function SectionLabel({ title, description }: { title: string; description: string }) {
-  return (
-    <Stack gap={2}>
-      <Text fz={15} fw={700} c="var(--agri-text-strong)">
-        {title}
-      </Text>
-      <Text fz={12.5} c="var(--agri-muted)" lh={1.45}>
-        {description}
-      </Text>
-    </Stack>
-  );
-}
-
-function GuideStep({ text }: { text: string }) {
-  return (
-    <Group gap={8} align="flex-start" wrap="nowrap">
-      <Box
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 999,
-          background: "var(--agri-primary)",
-          marginTop: 7,
-          flexShrink: 0,
-        }}
-      />
-      <Text fz={13} c="var(--agri-text)" lh={1.5} style={{ flex: 1 }}>
-        {text}
-      </Text>
-    </Group>
+    <section
+      className={styles.voucherList}
+      aria-label="Danh sách mã giảm giá"
+      aria-busy="true"
+    >
+      <div className={`${styles.voucherCard} ${styles.skeletonCard}`} aria-hidden="true">
+        <div className={styles.railSkeleton} />
+        <div className={styles.voucherDetail}>
+          <Skeleton height={22} width="62%" radius="sm" />
+          <Skeleton height={14} width="40%" radius="sm" mt={9} mb={19} />
+          <Skeleton height={64} radius={12} />
+          <Skeleton height={40} radius={10} mt={16} />
+        </div>
+      </div>
+    </section>
   );
 }

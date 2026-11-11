@@ -197,14 +197,38 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
 
     it('creates a partner', async () => {
       const res = await post('/api/v1/partners', adminToken, {
+        type: 'COOPERATIVE',
         name: `HTX E2E ${RUN_ID}`,
         representativeName: 'Nguyễn Văn E2E',
-        phone: '0900111222',
+        // Digits-only (DTO regex) and run-scoped so a replay never collides
+        // with `partners_phone_key` leftovers from an earlier suite run.
+        phone: `09${(Date.now() + 0).toString().slice(-9)}`,
         email: `${RUN_ID}-partner@e2e.vn`,
         address: 'Hưng Yên',
+        // Full legal file up front: {type, registrationDocumentUrl, taxCode}
+        // unlocks the VERIFIED review step below (partners management contract).
+        taxCode: `98${(Date.now() + 3).toString().slice(-9)}`,
+        registrationDocumentUrl: 'https://example.test/registration.pdf',
       }).expect(201);
       partnerId = res.body.id;
       expect(res.body.code).toMatch(/^PARTNER-/);
+      expect(res.body.verificationStatus).toBe('PENDING');
+    });
+
+    it('verifies the new partner so it can run farms and products', async () => {
+      // The farm/product gates require ACTIVE + VERIFIED. A fresh API partner
+      // starts INACTIVE + PENDING, so the flow performs the review and then
+      // activates the business status (partners management contract).
+      const verified = await patch(`/api/v1/partners/${partnerId}/verification`, adminToken, {
+        verificationStatus: 'VERIFIED',
+      }).expect(200);
+      expect(verified.body.verificationStatus).toBe('VERIFIED');
+
+      const opened = await patch(`/api/v1/partners/${partnerId}/business-status`, adminToken, {
+        status: 'ACTIVE',
+        reason: 'Bắt đầu kinh doanh e2e',
+      }).expect(200);
+      expect(opened.body.status).toBe('ACTIVE');
     });
 
     it('creates a farm under that partner', async () => {
@@ -283,7 +307,9 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
         grade: 'Loại 1',
         expiresAt: new Date(Date.now() + 86400000 * 20).toISOString(),
       }).expect(400);
-      expect(res.body.message).toMatch(/same farm \(or at least the same partner\)/i);
+      // Current rule wording (lots.service): product and harvest farm must
+      // belong to the same partner (HTX) — no cross-partner attribution.
+      expect(res.body.message).toMatch(/must belong to the same partner/i);
     });
 
     it('creates a lot from the harvest, starting as PENDING_QC', async () => {
@@ -2170,7 +2196,7 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
           code: `${RUN_ID}-PARTNER-FIN`,
           name: `HTX Tài chính E2E ${RUN_ID}`,
           representativeName: 'Lê Văn H',
-          phone: '0900333444',
+          phone: `09${(Date.now() + 1).toString().slice(-9)}`,
           email: `${RUN_ID}-fin@e2e.vn`,
           address: 'Hưng Yên',
           status: 'ACTIVE',
@@ -2377,10 +2403,13 @@ describe.skipIf(!hasTestDb)('AgriMarket API — mutation acceptance flows (e2e)'
           code: `${RUN_ID}-PARTNER-GOV`,
           name: `HTX Truy xuất E2E ${RUN_ID}`,
           representativeName: 'Phạm Văn I',
-          phone: '0900555666',
+          phone: `09${(Date.now() + 2).toString().slice(-9)}`,
           email: `${RUN_ID}-gov@e2e.vn`,
           address: 'Hưng Yên',
           status: 'ACTIVE',
+          // VERIFIED keeps the tracing farm/product visible to the public
+          // reads (farms/certificates/trace all gate on the partner state).
+          verificationStatus: 'VERIFIED',
         },
       });
       partnerId = partner.id;

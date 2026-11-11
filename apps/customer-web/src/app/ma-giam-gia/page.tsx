@@ -4,7 +4,7 @@ import { VoucherListView } from "@/components/promotion/VoucherListView";
 export const metadata: Metadata = {
   title: "Mã giảm giá",
   description:
-    "Các chương trình giảm giá đang mở trên AgriMarket và điều kiện áp dụng của từng mã.",
+    "Chọn ưu đãi phù hợp, sao chép mã và tiết kiệm khi mua nông sản.",
 };
 
 export default function VouchersPage() {

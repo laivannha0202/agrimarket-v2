@@ -3,6 +3,7 @@ import { PrismaService } from '../database/prisma.service.js';
 import { AuditService } from '../common/audit/audit.service.js';
 import { CreateFarmingEventDto, UpdateFarmingEventDto } from './dto/farming-event.dto.js';
 import { SeasonStatus } from '../../generated/prisma/enums.js';
+import { publicFarmVisibility } from '../farms/farm-visibility.js';
 
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 
@@ -101,13 +102,13 @@ export class FarmingEventsService {
   }
 
   async findBySeason(seasonId: number) {
-    const season = await this.prisma.season.findUnique({
-      where: { id: seasonId },
+    const season = await this.prisma.season.findFirst({
+      where: { id: seasonId, farm: publicFarmVisibility },
       select: { id: true },
     });
     if (!season) throw new NotFoundException('Season not found');
     return this.prisma.farmingEvent.findMany({
-      where: { seasonId },
+      where: { seasonId, season: { is: { farm: publicFarmVisibility } } },
       orderBy: { occurredAt: 'desc' },
     });
   }

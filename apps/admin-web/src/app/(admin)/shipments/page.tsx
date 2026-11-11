@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Form, Input, Select } from "antd";
+import { App, Button, Form, Input, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ListPage } from "@/components/common/ListPage";
@@ -12,6 +12,7 @@ import { FormModal } from "@/components/common/FormModal";
 import { useListState } from "@/hooks/useListState";
 import { useListQuery } from "@/hooks/useListQuery";
 import { useAction } from "@/hooks/useAction";
+import { ApiError } from "@/lib/api/client";
 import { resources } from "@/lib/api/resources";
 import { queryKeys } from "@/lib/query/keys";
 import { formatDateTime } from "@/lib/format";
@@ -51,6 +52,7 @@ const SHIPMENT_TRANSITIONS: Record<string, { value: string; label: string }[]> =
 };
 
 export default function ShipmentsPage() {
+  const { modal } = App.useApp();
   const list = useListState();
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Shipment | null>(null);
@@ -111,6 +113,44 @@ export default function ShipmentsPage() {
       },
     },
   );
+
+  const submitUpdate = async (
+    values: { status: string; note?: string; failureReason?: string },
+    keepConfirmationOpen = false,
+  ) => {
+    try {
+      await update.mutateAsync(values);
+    } catch (error) {
+      // Only a stale state needs a fresh selection. Other failures leave the
+      // form intact so the operator can correct it or retry.
+      if (error instanceof ApiError && error.status === 409) {
+        setEditing(null);
+        updateForm.resetFields();
+        void refetch();
+      } else if (keepConfirmationOpen) {
+        // AntD retains the confirmation dialog when onOk rejects. The API
+        // error has already been displayed by useAction.
+        throw error;
+      }
+    }
+  };
+
+  const confirmUpdate = (values: { status: string; note?: string; failureReason?: string }) => {
+    if (["DELIVERED", "RETURNED", "CANCELLED"].includes(values.status)) {
+      const delivery = values.status === "DELIVERED";
+      modal.confirm({
+        title: delivery ? "Xác nhận giao thành công?" : "Xác nhận chuyển trạng thái vận đơn?",
+        content: delivery
+          ? "Vận đơn sẽ được ghi nhận đã giao. Đơn hàng chỉ hoàn tất khi tất cả phần giao đều thành công. Tiền COD vẫn chờ xác nhận thu riêng tại mục Thanh toán."
+          : "Thao tác này ảnh hưởng đến quy trình hoàn hàng hoặc hủy vận đơn và không thể hoàn tác tùy ý.",
+        okText: "Xác nhận",
+        cancelText: "Quay lại",
+        onOk: () => submitUpdate(values, true),
+      });
+      return;
+    }
+    void submitUpdate(values);
+  };
 
   const nextStatus = Form.useWatch("status", updateForm);
 
@@ -187,7 +227,7 @@ export default function ShipmentsPage() {
         subtitle="Tạo vận đơn chỉ khi đơn hàng và đơn đối tác đều ở trạng thái Chờ giao. Giao thành công không tự thu COD — xác nhận thu tiền tại mục Thanh toán."
         searchValue={list.search}
         onSearchChange={list.setSearch}
-        searchPlaceholder="Tìm theo mã vận đơn, mã đơn hàng..."
+        searchPlaceholder="Tìm theo mã vận đơn (SHP), mã đơn hàng (ORD), mã theo dõi, đối tác..."
         filters={[
           {
             key: "status",
@@ -267,13 +307,19 @@ export default function ShipmentsPage() {
           setEditing(null);
           updateForm.resetFields();
         }}
-        onSubmit={(values) => update.mutate(values as never)}
+        onSubmit={(values) => confirmUpdate(values as { status: string; note?: string; failureReason?: string })}
         submitting={update.isPending}
       >
         {editing ? (
           <p style={{ marginTop: 0 }}>
             <strong>{editing.code}</strong> — hiện tại:{" "}
             <StatusTag status={shipmentStatus(editing.status)} />
+          </p>
+        ) : null}
+        {editing?.status === "IN_TRANSIT" ? (
+          <p className="agri-muted">
+            Vận đơn đang vận chuyển. Hãy chuyển sang <strong>Đang giao đến khách</strong> trước,
+            sau đó mở lại vận đơn để xác nhận <strong>Giao thành công</strong>.
           </p>
         ) : null}
         <Form.Item

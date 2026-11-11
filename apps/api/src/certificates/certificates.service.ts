@@ -5,6 +5,7 @@ import { buildPagination, paginate, type PaginatedResult } from '../common/dto/p
 import { CreateCertificateDto, VerifyCertificateDto } from './dto/certificate.dto.js';
 import type { Certificate, Prisma } from '../../generated/prisma/client.js';
 import { CertificateVerificationStatus, RecordStatus } from '../../generated/prisma/enums.js';
+import { publicFarmVisibility } from '../farms/farm-visibility.js';
 
 /**
  * Computed certificate validity, evaluated at read time.
@@ -69,6 +70,7 @@ export class CertificatesService {
   }): Promise<PaginatedResult<CertificateWithValidity>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const where: Prisma.CertificateWhereInput = {
+      farm: publicFarmVisibility,
       ...(query.status ? { verificationStatus: query.status } : {}),
       ...(query.farmId ? { farmId: query.farmId } : {}),
     };
@@ -88,6 +90,14 @@ export class CertificatesService {
   }
 
   async findOne(id: number): Promise<CertificateWithValidity> {
+    const cert = await this.prisma.certificate.findFirst({
+      where: { id, farm: publicFarmVisibility },
+    });
+    if (!cert) throw new NotFoundException('Certificate not found');
+    return { ...cert, validity: certificateValidityAt(cert) };
+  }
+
+  private async findOneUnfiltered(id: number): Promise<CertificateWithValidity> {
     const cert = await this.prisma.certificate.findUnique({ where: { id } });
     if (!cert) throw new NotFoundException('Certificate not found');
     return { ...cert, validity: certificateValidityAt(cert) };
@@ -98,7 +108,7 @@ export class CertificatesService {
    * Verified certificates are only valid while not expired.
    */
   async verify(id: number, dto: VerifyCertificateDto, actorUserId: number): Promise<CertificateWithValidity> {
-    const before = await this.findOne(id);
+    const before = await this.findOneUnfiltered(id);
     if (dto.verificationStatus === CertificateVerificationStatus.REJECTED && !dto.rejectionReason) {
       throw new BadRequestException('rejectionReason is required when rejecting a certificate');
     }
@@ -142,6 +152,7 @@ export class CertificatesService {
     const rows = await this.prisma.certificate.findMany({
       where: {
         farmId,
+        farm: publicFarmVisibility,
         verificationStatus: CertificateVerificationStatus.VERIFIED,
         status: 'ACTIVE',
         issuedAt: { lte: at },

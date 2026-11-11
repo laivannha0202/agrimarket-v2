@@ -8,6 +8,7 @@
  */
 
 import { Alert, Collapse, Col, Row, Steps, Table, Tag, Timeline, Typography } from "antd";
+import Link from "next/link";
 import { DetailCard } from "@/components/common/DetailPage";
 import { StatusTag } from "@/components/common/StatusTag";
 import { formatDateTime } from "@/lib/format";
@@ -17,10 +18,12 @@ import { SectionEmpty } from "./shared";
 import {
   deliveryEvidenceLabel,
   hasDeliveryMismatch,
+  hasPartnerDeliveryMismatch,
+  mismatchedPartnerOrders,
+  partnerShipmentStatusSummary,
   shipmentCounts,
   shipmentProgressStatus,
   shipmentProgressStep,
-  undeliveredShipmentCount,
 } from "@/lib/orderShipping";
 
 function ShipmentCard({ shipment }: { shipment: Shipment }) {
@@ -37,10 +40,10 @@ function ShipmentCard({ shipment }: { shipment: Shipment }) {
         padding: 12,
       }}
     >
-      <Row gutter={[12, 12]} align="middle">
+      <Row gutter={[8, 8]} align="middle">
         <Col xs={24} sm={12} md={6}>
           <div className="agri-muted" style={{ fontSize: 12 }}>Mã vận đơn</div>
-          <div className="agri-mono">{shipment.code}</div>
+          <div className="agri-mono" style={{ wordBreak: "break-all" }}>{shipment.code}</div>
         </Col>
         <Col xs={12} sm={6} md={4}>
           <div className="agri-muted" style={{ fontSize: 12 }}>Đơn vị vận chuyển</div>
@@ -53,7 +56,7 @@ function ShipmentCard({ shipment }: { shipment: Shipment }) {
           </div>
         </Col>
         <Col xs={12} sm={6} md={4}>
-          <div className="agri-muted" style={{ fontSize: 12 }}>Trạng thái</div>
+          <div className="agri-muted" style={{ fontSize: 12 }}>Vận đơn</div>
           <StatusTag status={shipmentStatus(shipment.status)} />
         </Col>
         <Col xs={12} sm={6} md={6}>
@@ -85,24 +88,20 @@ function ShipmentCard({ shipment }: { shipment: Shipment }) {
         />
       </div>
 
-      <div style={{ marginTop: 12, fontSize: 13 }}>
-        <span className="agri-muted">Cập nhật cuối: </span>
+      <div style={{ marginTop: 8, fontSize: 13 }} className="agri-muted">
+        Cập nhật cuối:{" "}
         {lastEvent ? (
           <>
             <StatusTag status={shipmentStatus(lastEvent.status)} />{" "}
-            <span className="agri-muted">{formatDateTime(lastEvent.occurredAt)}</span>
-            {lastEvent.note ? <div style={{ marginTop: 4 }}>{lastEvent.note}</div> : null}
+            <span>{formatDateTime(lastEvent.occurredAt)}</span>
+            {lastEvent.note ? <span> — {lastEvent.note}</span> : null}
           </>
         ) : (
-          <span className="agri-muted">Chưa có sự kiện bàn giao nào được ghi nhận.</span>
+          <span>Chưa có sự kiện bàn giao nào được ghi nhận.</span>
         )}
       </div>
 
-      <div style={{ marginTop: 8, fontSize: 12 }} className="agri-muted">
-        Vị trí: Chưa có dữ liệu vị trí từ đơn vị vận chuyển.
-      </div>
-
-      <div style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 8 }}>
         <Collapse
           items={[
             {
@@ -149,14 +148,40 @@ export function OrderShippingTab({ order }: { order: Order }) {
   if (partnerOrders.length === 0) {
     return (
       <DetailCard title="Vận chuyển">
+        {order.status === "DELIVERED" ? (
+          <Alert type="warning" showIcon title="Trạng thái đơn và vận đơn chưa khớp." description="Đơn đã giao nhưng chưa có đơn đối tác để xác nhận bằng chứng giao hàng." style={{ marginBottom: 12 }} />
+        ) : null}
         <SectionEmpty text="Đơn hàng chưa có đối tác / vận đơn." />
       </DetailCard>
     );
   }
   const counts = shipmentCounts(order);
   const mismatch = hasDeliveryMismatch(order);
+  const mismatched = mismatchedPartnerOrders(order);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/*
+       * Provenance of the DELIVERED status: only shipment evidence may flip an
+       * order to delivered, so the tab states that rule in place. Restored
+       * after `fb4dfa5` dropped it while `e2e/admin/final-uat.spec.ts` still
+       * asserts it (UAT-03/05).
+       */}
+      <Alert
+        type="info"
+        showIcon
+        title="Giao hàng được ghi nhận từ vận đơn"
+        description={
+          <span>
+            Trạng thái “Đã giao” của đơn là kết quả tổng hợp từ vận đơn, không phải
+            thao tác trực tiếp trên đơn. Tạo và cập nhật vận đơn tại{" "}
+            <Link href="/shipments" className="agri-link">
+              trang Vận đơn
+            </Link>
+            ; hệ thống chỉ chuyển đơn sang Đã giao khi mọi đơn đối tác có vận đơn giao
+            thành công và không còn vận đơn đang xử lý.
+          </span>
+        }
+      />
       <DetailCard title="Tổng quan vận chuyển">
         <Row gutter={[12, 12]}>
           <Col xs={12} sm={8} md={6}>
@@ -178,7 +203,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
             <div style={{ fontWeight: 600, color: "#1769bc" }}>{counts.inProgress}</div>
           </Col>
           <Col xs={12} sm={8} md={4}>
-            <div className="agri-muted" style={{ fontSize: 12 }}>Có vấn đề</div>
+            <div className="agri-muted" style={{ fontSize: 12 }}>Vận đơn gặp lỗi</div>
             <div style={{ fontWeight: 600, color: counts.problems > 0 ? "#cf1322" : undefined }}>
               {counts.problems}
             </div>
@@ -187,6 +212,12 @@ export function OrderShippingTab({ order }: { order: Order }) {
         {counts.missingDeliveryTime > 0 ? (
           <div style={{ marginTop: 8, fontSize: 12 }} className="agri-muted">
             {counts.missingDeliveryTime} vận đơn ghi nhận Đã giao nhưng thiếu thời điểm giao.
+          </div>
+        ) : null}
+        {mismatched.length > 0 ? (
+          <div style={{ marginTop: 8, fontSize: 12 }} className="agri-muted">
+            Bất nhất dữ liệu: {mismatched.length} đơn đối tác thiếu bằng chứng giao hàng hợp lệ
+            {" "}({mismatched.map((m) => m.name).join(", ")}).
           </div>
         ) : null}
       </DetailCard>
@@ -198,8 +229,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
           title="Trạng thái đơn và vận đơn chưa khớp."
           description={
             <span>
-              Đơn được ghi nhận Đã giao, nhưng còn {undeliveredShipmentCount(order)} vận đơn
-              chưa xác nhận giao thành công.{" "}
+              Trạng thái đã giao thiếu bằng chứng hợp lệ hoặc còn vận đơn đang xử lý.{" "}
               <Tag color="warning">Cần đối chiếu</Tag>
             </span>
           }
@@ -210,7 +240,17 @@ export function OrderShippingTab({ order }: { order: Order }) {
         <DetailCard
           key={po.id}
           title={`Đối tác: ${po.partner?.name ?? po.code}`}
-          extra={<StatusTag status={orderStatus(po.status)} />}
+          extra={
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", fontSize: 12 }}>
+              <span className="agri-muted">Đơn đối tác:</span>
+              <StatusTag status={orderStatus(po.status)} />
+              <span className="agri-muted">Vận đơn:</span>
+              {(() => { const ss = (po.shipments ?? []); const uniq = new Set(ss.map((x: { status: string }) => x.status)); if (ss.length && uniq.size === 1) return <StatusTag status={shipmentStatus(ss[0].status)} />; return <span>{partnerShipmentStatusSummary(po)}</span>; })()}
+              {hasPartnerDeliveryMismatch(po) ? (
+                <Tag color="warning">Cần đối chiếu</Tag>
+              ) : null}
+            </div>
+          }
         >
           {(po.shipments ?? []).length > 0 ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -256,4 +296,4 @@ export function OrderShippingTab({ order }: { order: Order }) {
       ))}
     </div>
   );
-}
+}

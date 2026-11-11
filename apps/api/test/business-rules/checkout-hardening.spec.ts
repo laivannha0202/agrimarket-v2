@@ -6,7 +6,7 @@ import { QuarantineService } from '../../src/quarantine/quarantine.service.js';
 import { PromotionsService } from '../../src/promotions/promotions.service.js';
 import { CommissionService } from '../../src/finance/commission.service.js';
 import { LocationsService } from '../../src/locations/locations.service.js';
-import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
+import { createMockPrisma, stubPartnerLock, type MockPrisma } from '../helpers/prisma-mock.js';
 import { FLAT_SHIPPING_FEE } from '../../src/orders/shipping-policy.js';
 import { ProductLotStatus } from '../../generated/prisma/enums.js';
 
@@ -43,8 +43,20 @@ describe('Checkout hardening', () => {
       sku: 'A-1',
       basePrice: 50000,
       status: 'ACTIVE',
-      product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'ACTIVE' },
+      product: {
+        id: 1,
+        partnerId: 1,
+        categoryId: 1,
+        name: 'Sản phẩm A',
+        status: 'ACTIVE',
+        partner: { status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+      },
     });
+    // The in-transaction Partner lock (task 05.4.2.6) decides from the rows its
+    // own locking statement returns; the fixture's seller is ACTIVE + VERIFIED.
+    stubPartnerLock(prisma, [
+      { id: 1, status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+    ]);
     prisma.flashSaleItem.findMany.mockResolvedValue([]);
     prisma.productDiscount.findFirst.mockResolvedValue(null);
     prisma.order.findMany.mockResolvedValue([]);
@@ -370,6 +382,7 @@ describe('Checkout hardening', () => {
   });
 
   it('cancels the customer\'s own order and releases reservations', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ id: 500, status: 'PENDING_CONFIRMATION' }]);
     prisma.order.findFirst.mockResolvedValue({
       id: 500,
       customerId: 7,
@@ -420,6 +433,7 @@ describe('Checkout hardening', () => {
   });
 
   it('quarantines reservations when a SHIPPING order is cancelled', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ id: 500, status: 'SHIPPING' }]);
     // The goods have already left the warehouse, so cancelling must NOT make
     // them sellable again: the reservation becomes a blocked quantity instead.
     prisma.order.findFirst.mockResolvedValue({
@@ -546,6 +560,7 @@ describe('Checkout hardening', () => {
 
   describe('DELIVERED — stock leaves, COD is NOT auto-settled', () => {
     function stubDelivery() {
+      prisma.$queryRaw.mockResolvedValue([{ id: 500, status: 'SHIPPING' }]);
       prisma.order.findUnique.mockResolvedValue({
         id: 500,
         customerId: 7,

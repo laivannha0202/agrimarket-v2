@@ -4,7 +4,7 @@ import { InventoryService } from '../../src/inventory/inventory.service.js';
 import { PromotionsService } from '../../src/promotions/promotions.service.js';
 import { CommissionService } from '../../src/finance/commission.service.js';
 import { LocationsService } from '../../src/locations/locations.service.js';
-import { createMockPrisma, type MockPrisma } from '../helpers/prisma-mock.js';
+import { createMockPrisma, stubPartnerLock, type MockPrisma } from '../helpers/prisma-mock.js';
 import { PaymentStatus, ProductLotStatus } from '../../generated/prisma/enums.js';
 
 /**
@@ -32,7 +32,7 @@ describe('Order checkout rules', () => {
   });
 
   function stubVariants() {
-    // Two variants from two different partners.
+    // Two variants from two different partners, both ACTIVE + VERIFIED sellers.
     prisma.productVariant.findUnique.mockImplementation(async ({ where }: { where: { id: number } }) => {
       if (where.id === 1) {
         return {
@@ -40,7 +40,14 @@ describe('Order checkout rules', () => {
           sku: 'A-1',
           basePrice: 10000,
           status: 'ACTIVE',
-          product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'ACTIVE' },
+          product: {
+            id: 1,
+            partnerId: 1,
+            categoryId: 1,
+            name: 'Sản phẩm A',
+            status: 'ACTIVE',
+            partner: { status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+          },
         };
       }
       return {
@@ -48,7 +55,14 @@ describe('Order checkout rules', () => {
         sku: 'B-1',
         basePrice: 20000,
         status: 'ACTIVE',
-        product: { id: 2, partnerId: 2, categoryId: 1, name: 'Sản phẩm B', status: 'ACTIVE' },
+        product: {
+          id: 2,
+          partnerId: 2,
+          categoryId: 1,
+          name: 'Sản phẩm B',
+          status: 'ACTIVE',
+          partner: { status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+        },
       };
     });
   }
@@ -57,6 +71,19 @@ describe('Order checkout rules', () => {
     // No active product discount, no flash sale.
     prisma.flashSaleItem.findMany.mockResolvedValue([]);
     prisma.productDiscount.findFirst.mockResolvedValue(null);
+  }
+
+  /**
+   * The in-transaction Partner lock (task 05.4.2.6) decides ACTIVE + VERIFIED
+   * from the rows its own locking statement returns. Both sellers in this
+   * fixture are sellable, so the normal checkout path still succeeds; the
+   * refusal paths are covered in `checkout-partner-eligibility.spec.ts`.
+   */
+  function stubSellablePartners() {
+    stubPartnerLock(prisma, [
+      { id: 1, status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+      { id: 2, status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+    ]);
   }
 
   function stubFefoStock() {
@@ -83,6 +110,7 @@ describe('Order checkout rules', () => {
   it('snapshots prices and splits the order by partner', async () => {
     stubVariants();
     stubNoPromotions();
+    stubSellablePartners();
     prisma.order.findMany.mockResolvedValue([]);
     prisma.order.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
       id: 100,
@@ -177,7 +205,14 @@ describe('Order checkout rules', () => {
       sku: 'A-1',
       basePrice: 10000,
       status: 'INACTIVE',
-      product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'ACTIVE' },
+      product: {
+        id: 1,
+        partnerId: 1,
+        categoryId: 1,
+        name: 'Sản phẩm A',
+        status: 'ACTIVE',
+        partner: { status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+      },
     });
     await expect(
       service.checkout(7, {
@@ -198,7 +233,14 @@ describe('Order checkout rules', () => {
       sku: 'A-1',
       basePrice: 10000,
       status: 'ACTIVE',
-      product: { id: 1, partnerId: 1, categoryId: 1, name: 'Sản phẩm A', status: 'INACTIVE' },
+      product: {
+        id: 1,
+        partnerId: 1,
+        categoryId: 1,
+        name: 'Sản phẩm A',
+        status: 'INACTIVE',
+        partner: { status: 'ACTIVE', verificationStatus: 'VERIFIED' },
+      },
     });
     await expect(
       service.checkout(7, {
@@ -217,6 +259,7 @@ describe('Order checkout rules', () => {
   it('keeps COD payments PENDING at checkout', async () => {
     stubVariants();
     stubNoPromotions();
+    stubSellablePartners();
     stubFefoStock();
     prisma.order.findMany.mockResolvedValue([]);
     prisma.order.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({

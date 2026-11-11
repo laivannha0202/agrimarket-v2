@@ -5,6 +5,7 @@ import { buildPagination, paginate, type PaginatedResult } from '../common/dto/p
 import { CreateSeasonDto, UpdateSeasonDto } from './dto/season.dto.js';
 import type { Season, Prisma } from '../../generated/prisma/client.js';
 import { RecordStatus, SeasonStatus } from '../../generated/prisma/enums.js';
+import { publicFarmVisibility } from '../farms/farm-visibility.js';
 
 function parseDate(value: string | undefined, field: string): Date | null {
   if (value === undefined) return null;
@@ -41,36 +42,50 @@ export class SeasonsService {
   }
 
   async create(dto: CreateSeasonDto, actorUserId?: number) {
-    const farm = await this.prisma.farm.findUnique({ where: { id: dto.farmId } });
-    if (!farm) throw new BadRequestException('Farm not found');
-    if (farm.status !== RecordStatus.ACTIVE) {
-      throw new BadRequestException('Cannot create a season for an inactive farm');
-    }
     const cropName = requireText(dto.cropName, 'cropName')!;
     const plantingDate = parseDate(dto.plantingDate, 'plantingDate');
     const expectedHarvestDate = parseDate(dto.expectedHarvestDate, 'expectedHarvestDate');
     this.assertDates(plantingDate, expectedHarvestDate);
 
-    const season = await this.prisma.season.create({
-      data: {
-        farmId: dto.farmId,
-        cropName,
-        variety: requireText(dto.variety, 'variety'),
-        plantingDate,
-        expectedHarvestDate,
-        expectedYield: dto.expectedYield,
-        yieldUnit: requireText(dto.yieldUnit, 'yieldUnit'),
-        status: dto.status,
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Serialize season creation with Farm transfers and re-check status
+        // after the lock so an earlier read cannot become stale.
+        await tx.$queryRaw<Array<{ id: number }>>`
+          SELECT id FROM farms WHERE id = ${dto.farmId} FOR UPDATE
+        `;
+        const farm = await tx.farm.findUnique({ where: { id: dto.farmId } });
+        if (!farm) throw new BadRequestException('Farm not found');
+        if (farm.status !== RecordStatus.ACTIVE) {
+          throw new BadRequestException('Cannot create a season for an inactive farm');
+        }
+
+        const season = await tx.season.create({
+          data: {
+            farmId: dto.farmId,
+            cropName,
+            variety: requireText(dto.variety, 'variety'),
+            plantingDate,
+            expectedHarvestDate,
+            expectedYield: dto.expectedYield,
+            yieldUnit: requireText(dto.yieldUnit, 'yieldUnit'),
+            status: dto.status,
+          },
+        });
+        await this.audit.record(
+          {
+            actorUserId,
+            action: 'SEASON_CREATE',
+            entityType: 'Season',
+            entityId: String(season.id),
+            afterJson: season,
+          },
+          tx,
+        );
+        return season;
       },
-    });
-    await this.audit.record({
-      actorUserId,
-      action: 'SEASON_CREATE',
-      entityType: 'Season',
-      entityId: String(season.id),
-      afterJson: season,
-    });
-    return season;
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   async findAll(query: {
@@ -81,6 +96,7 @@ export class SeasonsService {
   }): Promise<PaginatedResult<Season>> {
     const { skip, take, page, limit } = buildPagination(query.page, query.limit);
     const where: Prisma.SeasonWhereInput = {
+      farm: publicFarmVisibility,
       ...(query.status ? { status: query.status } : {}),
       ...(query.farmId ? { farmId: query.farmId } : {}),
     };
@@ -98,20 +114,27 @@ export class SeasonsService {
   }
 
   async findOne(id: number) {
-    const season = await this.prisma.season.findUnique({
-      where: { id },
-      include: {
-        farm: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } } } },
-        farmingEvents: { orderBy: { occurredAt: 'desc' } },
-        harvests: true,
-      },
-    });
+    return this.findOneByVisibility(id, true);
+  }
+
+  private async findOneByVisibility(id: number, publicOnly: boolean) {
+    const season = publicOnly
+      ? await this.prisma.season.findFirst({ where: { id, farm: publicFarmVisibility }, include: {
+          farm: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } } } },
+          farmingEvents: { orderBy: { occurredAt: 'desc' } },
+          harvests: true,
+        } })
+      : await this.prisma.season.findUnique({ where: { id }, include: {
+          farm: { include: { partner: { select: { id: true, code: true, name: true, representativeName: true } } } },
+          farmingEvents: { orderBy: { occurredAt: 'desc' } },
+          harvests: true,
+        } });
     if (!season) throw new NotFoundException('Season not found');
     return season;
   }
 
   async update(id: number, dto: UpdateSeasonDto, actorUserId?: number): Promise<Season> {
-    const season = await this.findOne(id);
+    const season = await this.findOneByVisibility(id, false);
     if (season.status === SeasonStatus.CANCELLED) {
       throw new BadRequestException('A cancelled season cannot be edited');
     }

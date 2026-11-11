@@ -156,6 +156,7 @@ describe('P0-A2 — partner public projection', () => {
           bankName: fullPartner.bankName,
         }),
       }),
+      prisma,
     );
   });
 });

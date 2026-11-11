@@ -208,3 +208,45 @@ export function resetMockPrisma(prisma: MockPrisma): void {
   applyRawDefaults(prisma as unknown as Record<string, unknown>);
   applyModelDefaults(prisma as unknown as Record<string, unknown>);
 }
+
+/**
+ * Stub the raw statements of the checkout transaction so the Partner lock
+ * (`OrdersService.lockSellablePartners`, task 05.4.2.6) answers with `partners`
+ * while every other `$queryRaw` keeps the default `[{ value: 1 }]` that
+ * `claimSequence` expects.
+ *
+ * The service reads `status` and `verification_status` straight out of the
+ * locking statement (a plain read after a locking read can answer from an older
+ * snapshot — see the docblock), so the stub must use the snake_case column name
+ * the real driver returns, not the Prisma field name.
+ *
+ * Ids in `partners` that the statement does not ask for are filtered out, and
+ * the result is ordered by id, mirroring `ORDER BY id` in the real SQL: a test
+ * that asserts the lock set sees exactly what the database would return.
+ */
+export function stubPartnerLock(
+  prisma: MockPrisma,
+  partners: { id: number; status: string; verificationStatus: string }[],
+): void {
+  const byId = new Map(partners.map((partner) => [partner.id, partner]));
+  prisma.$queryRaw.mockImplementation(async (...args: unknown[]) => {
+    // Prisma's tagged template arrives as `$queryRaw(strings, ...values)`.
+    const strings = args[0] as string[];
+    const text = strings.join('?');
+    if (!/FROM\s+partners/i.test(text)) return [{ value: 1 }];
+    // `Prisma.join([...])` is passed as a single `_Sql` value with its own
+    // `values` array, so flatten it back to the ids the statement asked for.
+    const requested = args.slice(1).flatMap((value) => {
+      const nested = value as { values?: unknown[] } | null;
+      if (nested && Array.isArray(nested.values)) return nested.values;
+      return [value];
+    });
+    const ids = requested.map(Number).sort((a, b) => a - b);
+    return ids
+      .filter((id) => byId.has(id))
+      .map((id) => {
+        const partner = byId.get(id) as { status: string; verificationStatus: string };
+        return { id, status: partner.status, verification_status: partner.verificationStatus };
+      });
+  });
+}

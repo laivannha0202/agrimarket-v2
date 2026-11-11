@@ -100,21 +100,43 @@ export interface Product {
 
 // Partners & farms ----------------------------------------------------------
 
+export type PartnerType = "UNSPECIFIED" | "COOPERATIVE" | "COMPANY" | "HOUSEHOLD" | "INDIVIDUAL";
+export type PartnerVerificationStatus = "PENDING" | "VERIFIED" | "REJECTED";
+
 export interface Partner {
   id: number;
   code: string;
+  type: PartnerType;
   name: string;
-  representativeName: string;
+  representativeName: string | null;
   phone: string;
-  email: string;
-  address: string;
+  email: string | null;
+  address: string | null;
   taxCode: string | null;
+  registrationDocumentUrl: string | null;
+  verificationStatus: PartnerVerificationStatus;
   bankAccountName: string | null;
   bankAccountNumber: string | null;
   bankName: string | null;
   status: RecordStatus;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PartnerImpact {
+  farms: number;
+  activeFarms: number;
+  products: number;
+  activeProducts: number;
+  openOrders: number;
+}
+
+export interface PartnerHistoryEntry {
+  id: number;
+  action: string;
+  reason: string | null;
+  createdAt: string;
+  actorUser: { fullName: string } | null;
 }
 
 export interface Farm {

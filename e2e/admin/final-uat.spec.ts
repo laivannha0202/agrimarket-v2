@@ -176,6 +176,49 @@ test.describe('Final acceptance UAT', () => {
     const refusal = (await manual.json()) as { message: string };
     expect(refusal.message).toMatch(/bằng chứng/i);
 
+    // The operator must explicitly mark the parcel OUT_FOR_DELIVERY before
+    // Giao thành công is offered. Confirm delivery through the real Admin UI.
+    await shipmentRow.getByRole('button', { name: 'Cập nhật' }).click();
+    await updateDialog.getByRole('combobox').click();
+    await statusDropdown.locator('.ant-select-item-option')
+      .filter({ hasText: 'Đang giao đến khách' }).click();
+    await updateDialog.getByRole('button', { name: 'Lưu' }).click();
+    await expect(shipmentRow).toContainText('Đang giao đến khách');
+
+    await shipmentRow.getByRole('button', { name: 'Cập nhật' }).click();
+    await updateDialog.getByRole('combobox').click();
+    await statusDropdown.locator('.ant-select-item-option')
+      .filter({ hasText: 'Giao thành công' }).click();
+    await updateDialog.getByRole('button', { name: 'Lưu' }).click();
+
+    const confirmDialog = page.getByRole('dialog', { name: 'Xác nhận giao thành công?' });
+    await expect(confirmDialog).toBeVisible();
+    await expect(confirmDialog).toContainText('Tiền COD vẫn chờ xác nhận thu riêng');
+    await page.screenshot({
+      path: testInfo.outputPath('shipment-delivery-confirm-before.png'),
+      fullPage: true,
+    });
+    await confirmDialog.getByRole('button', { name: 'Xác nhận', exact: true }).click();
+    await expect(shipmentRow).toContainText('Đã giao');
+    await page.screenshot({
+      path: testInfo.outputPath('shipment-delivery-confirm-after.png'),
+      fullPage: true,
+    });
+
+    const deliveredResponse = await request.get(`${API_BASE}/orders/${order.id}`, {
+      headers: bearer(adminToken),
+    });
+    expect(deliveredResponse.status()).toBe(200);
+    const delivered = (await deliveredResponse.json()) as {
+      status: string;
+      payments: { status: string }[];
+      partnerOrders: { shipments: { status: string; deliveredAt: string | null }[] }[];
+    };
+    expect(delivered.status).toBe('DELIVERED');
+    expect(delivered.partnerOrders[0].shipments[0].status).toBe('DELIVERED');
+    expect(delivered.partnerOrders[0].shipments[0].deliveredAt).toBeTruthy();
+    expect(delivered.payments[0].status).not.toBe('PAID');
+
     if (testInfo.project.name === 'admin-small') {
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

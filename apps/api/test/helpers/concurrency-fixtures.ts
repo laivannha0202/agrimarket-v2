@@ -130,10 +130,19 @@ export async function createConcurrencyWorld(
         code: t(`P${tag}`),
         name: t('P'),
         representativeName: 'x',
-        phone: '0900000000',
+        // Unique per call: every base() sells its own partner and
+        // `partners.phone` is UNIQUE, so a shared constant would make the
+        // second world in the same run (and a replay after a killed run) fail.
+        phone: `09${Date.now().toString().slice(-9)}`,
         email: t(`p${tag}@x.vn`),
         address: 'x',
         status: 'ACTIVE',
+        // A seller must be ACTIVE + VERIFIED before checkout will write an
+        // order for its products (task 05.4.2.5), and these worlds exist to be
+        // *sold from*. The schema default is PENDING, so the fixture has to say
+        // VERIFIED explicitly or every checkout scenario in the concurrency
+        // suites would be refused for the wrong reason.
+        verificationStatus: 'VERIFIED',
       },
     });
     const category = await prisma.category.create({
@@ -259,6 +268,11 @@ export async function purgeCreated(
   });
   await prisma.appIdempotencyKey.deleteMany({ where: { actorUserId: { in: users } } });
   await prisma.checkoutIdempotencyKey.deleteMany({ where: { customerId: { in: users } } });
+  // Cart lines reference the variant with RESTRICT, and a refused checkout
+  // deliberately leaves the cart untouched, so the run's carts must go before
+  // the variant delete below or cleanup fails with an FK violation.
+  await prisma.cartItem.deleteMany({ where: { cart: { customerId: { in: users } } } });
+  await prisma.cart.deleteMany({ where: { customerId: { in: users } } });
   await prisma.voucherRedemption.deleteMany({ where: { customerId: { in: users } } });
   // Reconciliation rows reference refunds/settlements; quarantine cases
   // reference lots, orders and returns. Both must go before their parents.
@@ -402,17 +416,45 @@ export async function purgeStaleConcurrencyFixtures(prisma: PrismaClient): Promi
       where: { sku: { startsWith: `${runId}-` } },
       select: { id: true, productId: true },
     });
-    const productIds = [...new Set(variants.map((v) => v.productId))];
+    const products = await prisma.product.findMany({
+      where: { partnerId: { in: partners.map((p) => p.id) } },
+      select: { id: true, farmId: true },
+    });
+    const productIds = [
+      ...new Set([...variants.map((v) => v.productId), ...products.map((p) => p.id)]),
+    ];
+    // Heal from both directions: a run killed mid-purge can have lost its
+    // variants while the partner/product rows survive, and vice versa.
     const lots = await prisma.productLot.findMany({
-      where: { code: { startsWith: `${runId}-` } },
+      where: {
+        OR: [{ code: { startsWith: `${runId}-` } }, { productId: { in: productIds } }],
+      },
       select: { id: true, harvestId: true },
     });
     const harvestIds = [...new Set(lots.map((l) => l.harvestId))];
     const seasons = await prisma.season.findMany({
-      where: { cropName: { startsWith: `${runId}-` } },
+      where: {
+        OR: [
+          { cropName: { startsWith: `${runId}-` } },
+          { farm: { partnerId: { in: partners.map((p) => p.id) } } },
+        ],
+      },
       select: { id: true, farmId: true },
     });
-    const farmIds = [...new Set(seasons.map((s) => s.farmId))];
+    const farmIds = [
+      ...new Set([
+        ...seasons.map((s) => s.farmId),
+        // `Product.farmId` is optional in the schema; a null farm cannot be
+        // deleted and must not be passed to the `in` filter.
+        ...products.map((p) => p.farmId).filter((id): id is number => id !== null),
+        ...(
+          await prisma.farm.findMany({
+            where: { partnerId: { in: partners.map((p) => p.id) } },
+            select: { id: true },
+          })
+        ).map((f) => f.id),
+      ]),
+    ];
     const categories = await prisma.category.findMany({
       where: { slug: { startsWith: `${runId}-` } },
       select: { id: true },

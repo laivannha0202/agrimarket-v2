@@ -18,7 +18,13 @@ export class ShipmentsController {
   @Roles('ADMIN')
   @ApiBearerAuth()
   @Get()
-  @ApiOperation({ summary: 'List shipments (status filter, ADMIN)' })
+  @ApiOperation({
+    summary: 'List shipments (status filter, search, ADMIN)',
+    description:
+      '`search` matches the shipment code, the parent order code, the partner-order code, ' +
+      'the carrier tracking code and the partner name (case-insensitive), composing with ' +
+      '`status`. Both filters apply before pagination, so `meta.total` is the filtered count.',
+  })
   findAll(@Query() query: ShipmentQueryDto) {
     return this.shipmentsService.findAll(query);
   }

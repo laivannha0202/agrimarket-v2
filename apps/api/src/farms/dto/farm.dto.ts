@@ -66,6 +66,19 @@ export class FarmQueryDto extends PaginationQueryDto {
   partnerId?: number;
 }
 
+export class TransferFarmPartnerDto {
+  @ApiProperty({ example: 2, description: 'ID HTX/đối tác tiếp nhận trang trại' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  newPartnerId!: number;
+
+  @ApiProperty({ example: 'Điều chỉnh đơn vị quản lý trang trại theo thỏa thuận mới.' })
+  @IsString()
+  @MaxLength(1000)
+  reason!: string;
+}
+
 export class UpdateFarmDto {
   @ApiPropertyOptional()
   @IsOptional()

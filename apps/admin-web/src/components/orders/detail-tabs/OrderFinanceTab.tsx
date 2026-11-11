@@ -212,7 +212,7 @@ function PartnerFinanceCard({ partnerOrder }: { partnerOrder: PartnerOrder }) {
         {adjustments.length > 0 ? (
           adjustmentsTable(adjustments)
         ) : (
-          <SectionEmpty text="Không có điều chỉnh." />
+          <div style={{ fontSize: 13 }} className="agri-muted">Không có điều chỉnh.</div>
         )}
       </div>
     </DetailCard>

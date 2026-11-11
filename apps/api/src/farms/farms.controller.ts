@@ -7,12 +7,21 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { FarmsService } from './farms.service.js';
-import { CreateFarmDto, FarmQueryDto, UpdateFarmDto } from './dto/farm.dto.js';
+import {
+  CreateFarmDto,
+  FarmQueryDto,
+  TransferFarmPartnerDto,
+  UpdateFarmDto,
+} from './dto/farm.dto.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../common/interfaces/authenticated-user.interface.js';
+import { OptionalJwtAuthGuard } from '../evidence/optional-jwt-auth.guard.js';
 
 @ApiTags('farms')
 @Controller('farms')
@@ -20,17 +29,25 @@ export class FarmsController {
   constructor(private readonly farmsService: FarmsService) {}
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get()
   @ApiOperation({ summary: 'List farms (search/status/partnerId filters)' })
-  findAll(@Query() query: FarmQueryDto) {
-    return this.farmsService.findAll(query);
+  findAll(
+    @Query() query: FarmQueryDto,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.farmsService.findAll(query, user);
   }
 
   @Public()
+  @UseGuards(OptionalJwtAuthGuard)
   @Get(':id')
   @ApiOperation({ summary: 'Get a farm by id' })
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.farmsService.findOne(id);
+  findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user?: AuthenticatedUser,
+  ) {
+    return this.farmsService.findOne(id, user);
   }
 
   @Roles('ADMIN')
@@ -47,5 +64,17 @@ export class FarmsController {
   @ApiOperation({ summary: 'Update a farm (ADMIN)' })
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateFarmDto) {
     return this.farmsService.update(id, dto);
+  }
+
+  @Roles('ADMIN')
+  @ApiBearerAuth()
+  @Post(':id/transfer-partner')
+  @ApiOperation({ summary: 'Transfer an inactive farm to another verified partner (ADMIN)' })
+  transferPartner(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: TransferFarmPartnerDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.farmsService.transferPartner(id, dto, user);
   }
 }

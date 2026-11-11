@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
+import { publicFarmVisibility } from '../farms/farm-visibility.js';
 
 /**
  * Public traceability. Given a lot traceCode, walk the full origin chain:
@@ -212,8 +213,11 @@ export class TraceabilityService {
   }
 
   async trace(traceCode: string) {
-    const lot = await this.prisma.productLot.findUnique({
-      where: { traceCode },
+    const lot = await this.prisma.productLot.findFirst({
+      where: {
+        traceCode,
+        harvest: { is: { season: { is: { farm: publicFarmVisibility } } } },
+      },
       include: {
         product: {
           include: {

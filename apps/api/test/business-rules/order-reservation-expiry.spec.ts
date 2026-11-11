@@ -134,6 +134,7 @@ describe('OrdersService.expireReservation', () => {
   });
 
   it('cancels a due, unpaid, unshipped order through the guarded transition', async () => {
+    prisma.$queryRaw.mockResolvedValue([{ id: 10, status: OrderStatus.PENDING_CONFIRMATION }]);
     prisma.order.findUnique.mockResolvedValue(pendingOrder);
     prisma.order.updateMany.mockResolvedValue({ count: 1 });
     prisma.order.findUniqueOrThrow.mockResolvedValue({
