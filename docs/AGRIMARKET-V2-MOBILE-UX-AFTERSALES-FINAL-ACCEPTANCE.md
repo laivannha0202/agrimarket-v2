@@ -1,7 +1,7 @@
 # AgriMarket V2 — Mobile UX + After-sales Media — Final Acceptance
 
 Scope: the controlled final pass described in
-`AGRIMARKET_V2_MOBILE_UX_AFTERSALES_21_ANH_PROMPT/AgriMarket_V2_Mobile_UX_Final_2026/01_PROMPT_OPEN_CODE_FULL.md`,
+`AGRIMARKET_V2_MOBILE_UX_AFTERSALES_21_ANH_PROMPT/01_PROMPT_OPEN_CODE_FULL.md`,
 executed against the real source tree. Phases 0–5.
 
 > Status is declared at the end of this document. Nothing in it claims a device
@@ -534,7 +534,7 @@ than fabricate images, the "after" evidence in this report is the source diff pl
 the automated and live-HTTP checks above.
 
 The 21 images in
-`AGRIMARKET_V2_MOBILE_UX_AFTERSALES_21_ANH_PROMPT/AgriMarket_V2_Mobile_UX_Final_2026/anh_hien_trang/`
+`AGRIMARKET_V2_MOBILE_UX_AFTERSALES_21_ANH_PROMPT/anh_hien_trang/`
 are the **before** state, as the prompt states. They were used to locate each
 defect; none of them was copied as a design target.
 

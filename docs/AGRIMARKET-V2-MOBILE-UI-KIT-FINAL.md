@@ -2,7 +2,7 @@
 
 **Ngày:** 2026-10-10
 **Phạm vi:** `apps/mobile` (Expo Go + Expo Router)
-**Bộ tài nguyên:** `AGRIMARKET_MOBILE_V2_UI_IMAGES_AND_GUIDE_20261010/AGRIMARKET_MOBILE_V2_UI_KIT`
+**Bộ tài nguyên:** `AGRIMARKET_MOBILE_V2_UI_IMAGES_AND_GUIDE_20261010`
 **Nhánh git:** `main` — **không commit, không push, không reset, không đổi nhánh**
 
 ---

@@ -20,6 +20,13 @@ generated/
 # local database backups (SQL dumps — never commit)
 /backups/
 
+# E2E / acceptance run evidence (screenshots, logs, traces — never commit;
+# referenced by audit-reports/*.md and docs/*.md)
+/evidence/
+
+# acceptance-report screenshots (local evidence, too heavy for git)
+/audit-reports/assets/
+
 # uploaded product images (local files — never commit)
 /apps/api/uploads/
 /uploads/
@@ -41,7 +48,10 @@ Thumbs.db
 # local tooling state / scratch dirs (may contain tokens — never commit)
 .kilo/
 .playwright-mcp/
+.playwright-cli/
 .tmp-verify/
+.tmp-*/
+_TRASH_node_modules_pnpm_broken/
 
 # Playwright: saved browser sessions contain live JWTs, and the report/trace
 # output is build artefact, not source.

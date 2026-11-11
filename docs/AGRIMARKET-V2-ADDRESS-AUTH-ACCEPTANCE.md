@@ -406,7 +406,7 @@ login → address (catalogue picker) → checkout → change-password → forgot
 
 ```bash
 # 1. Dataset (Windows needs the encoding override)
-cd AGRIMARKET_HUNG_YEN_104_XA_PHUONG_2026/AGRIMARKET_HUNG_YEN_2026
+cd AGRIMARKET_HUNG_YEN_104_XA_PHUONG_2026
 PYTHONIOENCODING=utf-8 python validate_dataset.py
 
 # 2. API tests

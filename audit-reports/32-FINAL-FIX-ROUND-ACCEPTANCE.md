@@ -555,9 +555,9 @@ Chưa đủ điều kiện go-live vì chưa có:
 
 ### 9.3. Báo cáo trước
 
-- `audit-reports/30-RELEASE-CANDIDATE-UAT-HANDOFF.md` — bàn giao RC, F-30-1, checklist
+- `audit-reports/31-RELEASE-CANDIDATE-UAT-HANDOFF.md` — bàn giao RC, F-30-1, checklist
   staging và thiết bị thật.
-- `audit-reports/29-FINAL-FINANCE-UI-CLEANUP-ACCEPTANCE.md` — vòng dọn tài chính/UI trước.
+- `audit-reports/30-FINAL-FINANCE-UI-CLEANUP-ACCEPTANCE.md` — vòng dọn tài chính/UI trước.
 
 ### 9.4. Giới hạn bằng chứng
 

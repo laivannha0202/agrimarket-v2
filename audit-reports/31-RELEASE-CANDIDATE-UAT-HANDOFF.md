@@ -71,7 +71,7 @@
 |---|---|
 | HEAD | Không đổi: `7b93c84` (không commit, không amend) |
 | File sửa | `docs/STAGING-UAT-PLAN.md`, `docs/BUSINESS-RULES.md`, `docs/README.md` |
-| File mới | `audit-reports/30-RELEASE-CANDIDATE-UAT-HANDOFF.md` |
+| File mới | `audit-reports/31-RELEASE-CANDIDATE-UAT-HANDOFF.md` |
 | Mã nguồn thay đổi | **0 file** |
 | `git diff --check` | PASS |
 
@@ -81,7 +81,7 @@ Trạng thái `git status --porcelain=v1` **tại thời điểm bàn giao**:
  M docs/BUSINESS-RULES.md
  M docs/README.md
  M docs/STAGING-UAT-PLAN.md
-?? audit-reports/30-RELEASE-CANDIDATE-UAT-HANDOFF.md
+?? audit-reports/31-RELEASE-CANDIDATE-UAT-HANDOFF.md
 ```
 
 > Vòng 30 **không commit**. Working tree chưa sạch **chỉ vì 4 file tài liệu của vòng 30**

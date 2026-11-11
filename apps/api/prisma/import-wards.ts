@@ -2,7 +2,7 @@
  * Imports the verified Hưng Yên commune catalogue from the delivered dataset.
  *
  * SOURCE OF TRUTH
- *   `AGRIMARKET_HUNG_YEN_104_XA_PHUONG_2026/AGRIMARKET_HUNG_YEN_2026/`
+ *   `AGRIMARKET_HUNG_YEN_104_XA_PHUONG_2026/`
  *   `hung_yen_104_xa_phuong_2026.json`
  *
  * The JSON is read at import time rather than transcribed into this file. That
@@ -33,7 +33,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** Where the delivered dataset lives, relative to the repository root. */
 const DATASET_RELATIVE_PATH = join(
   'AGRIMARKET_HUNG_YEN_104_XA_PHUONG_2026',
-  'AGRIMARKET_HUNG_YEN_2026',
   'hung_yen_104_xa_phuong_2026.json',
 );
 
